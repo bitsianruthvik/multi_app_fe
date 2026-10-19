@@ -16,6 +16,7 @@ const Dispatch = lazy(() => import('./pages/Dispatch'));
 const Purchase = lazy(() => import('./pages/Purchase'));
 const Production = lazy(() => import('./pages/Production'));
 const SapReports = lazy(() => import('./pages/SapReports'));
+const SapReportRun = lazy(() => import('./pages/SapReportRun'));
 const Connection = lazy(() => import('./pages/Connection'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 
@@ -49,6 +50,7 @@ export function getKarniDashboardRoutes(
     ['production', <Production />],
     ['inventory', <Inventory />],
     ['sap-reports', <SapReports />],
+    ['sap-reports/:reportId', <SapReportRun />],
     ['alerts', <Alerts />],
     ['connection', <Connection />],
   ];

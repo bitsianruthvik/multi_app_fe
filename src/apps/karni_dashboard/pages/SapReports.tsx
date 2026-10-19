@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Typography } from '@mui/material';
+import { Button } from '@mui/material';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
-import { Callout, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, SideSheet, ToneBadge, useCompanySlug, type DataColumn } from '@shared/ui';
+import { Callout, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, ToneBadge, useCompanySlug, type DataColumn } from '@shared/ui';
 import { ReportTable } from '../components/ReportTable';
-import { useReport, type SavedReport, type SavedReports } from '../api';
+import { useReport, type SavedReports } from '../api';
 import { ReportPage } from '../components/ReportPage';
 import { labelForScreen } from '../navMeta';
 
+type Report = SavedReports['reports'][number];
+
 /**
- * Karni's saved queries from SAP's Query Manager, each pointed at the
- * dashboard screen that answers the same question. Running a saved query in
- * SAP would mean storing it there first — a write — so the dashboard rebuilds
- * the reports from read-only data instead.
+ * Karni's saved queries from SAP's Query Manager. Opening one runs it on SAP's
+ * database through the connector, with a database user that can only read
+ * (see SapReportRun). Reports that call a stored procedure are not run.
  */
 export default function SapReports() {
   const { data: d, error, loading, reload } = useReport<SavedReports>('/saved-reports');
@@ -21,7 +22,6 @@ export default function SapReports() {
   const [search, setSearch] = useState('');
   const [cat, setCat] = useState<string | null>(null);
   const [showStandard, setShowStandard] = useState(false);
-  const [open, setOpen] = useState<SavedReport | null>(null);
   const base = (d?.reports ?? []).filter((r) => showStandard || !r.standard);
   const cats = useMemo(() => {
     const m = new Map<string, number>();
@@ -30,54 +30,55 @@ export default function SapReports() {
   }, [base]);
   const s = search.trim().toLowerCase();
   const rows = base.filter((r) => (!cat || r.category === cat) && (!s || r.name.toLowerCase().includes(s) || r.sql.toLowerCase().includes(s)));
-  const covered = (d?.reports ?? []).filter((r) => !r.standard && r.coveredBy).length;
+  const karni = (d?.reports ?? []).filter((r) => !r.standard);
+  const runnable = karni.filter((r) => r.runnable).length;
+  const ready = d?.runner.status === 'ready';
 
-  const goTo = (screen: string) => navigate(`/${company}/karni_dashboard/${screen}`);
-  const cols: DataColumn<SavedReport>[] = [
+  const openReport = (r: Report) => navigate(`/${company}/karni_dashboard/sap-reports/${encodeURIComponent(r.id)}`);
+  const cols: DataColumn<Report>[] = [
     { key: 'name', header: 'Report', render: (r) => r.name, sortValue: (r) => r.name },
     { key: 'category', header: 'Category', render: (r) => r.category, sortValue: (r) => r.category },
     { key: 'reads', header: 'Reads', render: (r) => tablesOf(r.sql), sortValue: (r) => tablesOf(r.sql), defaultHidden: true },
     {
-      key: 'coveredBy', header: 'Answered on', sortValue: (r) => r.coveredBy || '', exportValue: (r) => (r.coveredBy ? labelForScreen(r.coveredBy) : ''),
+      key: 'run', header: 'Run', sortValue: (r) => (r.runnable ? 0 : 1), exportValue: (r) => (r.runnable ? 'Runs on SAP' : 'Stored procedure'),
+      render: (r) => (r.runnable
+        ? <ToneBadge label={ready ? 'Runs on SAP' : 'Ready once switched on'} tone={ready ? 'success' : 'neutral'} />
+        : <ToneBadge label="Stored procedure — not run" tone="warning" />),
+    },
+    {
+      key: 'coveredBy', header: 'Related dashboard', sortValue: (r) => r.coveredBy || '', exportValue: (r) => (r.coveredBy ? labelForScreen(r.coveredBy) : ''), defaultHidden: true,
       render: (r) => (r.coveredBy
-        ? <Button size="small" endIcon={<ArrowForwardRounded />} onClick={(e) => { e.stopPropagation(); goTo(r.coveredBy as string); }} sx={{ textTransform: 'none' }}>{labelForScreen(r.coveredBy)}</Button>
-        : <ToneBadge label={r.standard ? 'SAP standard' : 'Not yet'} tone="neutral" />),
+        ? <Button size="small" endIcon={<ArrowForwardRounded />} onClick={(e) => { e.stopPropagation(); navigate(`/${company}/karni_dashboard/${r.coveredBy}`); }} sx={{ textTransform: 'none' }}>{labelForScreen(r.coveredBy)}</Button>
+        : ''),
     },
   ];
   return (
     <ReportPage title="SAP reports" subtitle={d ? `${d.karni} Karni reports · ${d.count - d.karni} SAP standard` : undefined}
-      asOf={d?.asOf} loading={loading} error={error} reload={reload} hasData={!!d}>
+      asOf={d?.asOf} loading={loading} error={error} reload={reload} hasData={!!d} range={false}>
       {d && (
         <>
           <KpiGrid>
             <KpiTile label="Karni's saved reports" display={`${d.karni}`} tone="primary" />
-            <KpiTile label="Answered on the dashboard" display={`${covered}`} tone="success" footer={`${d.karni ? Math.round((covered / d.karni) * 100) : 0}% of Karni's reports`} />
+            <KpiTile label="Can run from here" display={`${runnable}`} tone="success" footer={`${d.karni - runnable} call a stored procedure`} />
             <KpiTile label="SAP standard queries" display={`${d.count - d.karni}`} footer="SAP's own dashboard queries" />
           </KpiGrid>
-          <Callout tone="info" title="Read-only by rule">
-            These are the saved queries from SAP's Query Manager. Running one inside SAP would mean saving it to SAP first, which the
-            read-only rule forbids, so the dashboard answers the same questions from data it reads. Use "Answered on" to open the screen.
-          </Callout>
+          {d.runner.status === 'not_configured' && (
+            <Callout tone="info" title="Running reports needs one more step on Karni's side">
+              Reports run on SAP's own database through the connector on Karni's server, with a database user that can only read
+              (so nothing in SAP can change). They work once Karni's SAP partner provides that user and it is added to the connector.
+              Until then you can open a report to see its inputs and SQL.
+            </Callout>
+          )}
+          {d.runner.status === 'error' && <Callout tone="danger" title="The connector cannot reach SAP's database">{d.runner.message || 'Unknown error.'}</Callout>}
           <SectionCard flush>
             <FilterBar search={search} onSearch={setSearch} placeholder="Search report name or SQL">
               <FacetChip label="Show SAP standard" active={showStandard} onClick={() => setShowStandard((v) => !v)} />
               {cats.slice(0, 12).map(([c, n]) => <FacetChip key={c} label={c} count={n} active={cat === c} onClick={() => setCat(cat === c ? null : c)} />)}
             </FilterBar>
-            <ReportTable bare rows={rows} columns={cols} getRowId={(r) => r.id} onRowClick={setOpen} storageKey="kd-sap-reports" exportName="sap-saved-queries" />
+            <ReportTable bare rows={rows} columns={cols} getRowId={(r) => r.id} onRowClick={openReport} storageKey="kd-sap-reports-v2" exportName="sap-saved-queries" />
           </SectionCard>
         </>
       )}
-      <SideSheet open={!!open} onClose={() => setOpen(null)} title={open?.name ?? ''} subtitle={open?.category}
-        actions={open?.coveredBy ? <Button variant="contained" onClick={() => goTo(open.coveredBy as string)}>Open {labelForScreen(open.coveredBy)}</Button> : undefined}>
-        {open && (
-          <Box>
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 1 }}>The query as saved in SAP:</Typography>
-            <Box component="pre" sx={{
-              m: 0, p: 1.5, borderRadius: 1, bgcolor: 'action.hover', fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            }}>{open.sql}</Box>
-          </Box>
-        )}
-      </SideSheet>
     </ReportPage>
   );
 }

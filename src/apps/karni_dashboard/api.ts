@@ -183,7 +183,18 @@ export interface InventoryItemDetail {
 export interface SavedReport {
   id: string; internalKey: number; categoryCode: number; category: string; name: string; sql: string; standard: boolean; coveredBy: string | null;
 }
-export interface SavedReports { asOf: string | null; count: number; karni: number; reports: SavedReport[] }
+export interface SavedReports { asOf: string | null; count: number; karni: number; reports: (SavedReport & { runnable: boolean })[]; runner: QueryRunner }
+
+/** Whether the connector can run saved queries (it needs Karni's read-only database user). */
+export interface QueryRunner { status: 'ready' | 'not_configured' | 'error'; message: string | null; seenSecondsAgo: number | null }
+export interface QueryParam { n: number; field: string | null; label: string; type: 'date' | 'text'; quoted: boolean }
+export interface QueryRun {
+  id: number; queryId: string; name: string; params: Record<string, string> | null;
+  status: 'queued' | 'running' | 'done' | 'failed'; requestedBy: string | null; requestedAt: string; startedAt: string | null; finishedAt: string | null;
+  rowCount: number | null; truncated: boolean; error: string | null;
+  result?: { columns: string[]; rows: (string | number | null)[][] } | null;
+}
+export interface SavedReportDetail { asOf: string | null; report: SavedReport; params: QueryParam[]; runnable: { ok: boolean; reason: string | null }; runs: QueryRun[]; runner: QueryRunner }
 
 export interface Connector {
   id: number; connectorUid: string; machine: string; winUser: string; status: 'pending' | 'approved' | 'revoked';
