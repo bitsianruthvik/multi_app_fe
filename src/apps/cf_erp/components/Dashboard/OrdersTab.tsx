@@ -29,6 +29,7 @@ import { ProgressBar, StageStrip } from './charts';
 import { DownloadMenu, type ExtraDownload } from './DownloadMenu';
 import { EstimateTag, MiniHead, Tile, TileGrid } from './DashParts';
 import { OrderTree } from './OrderTree';
+import { CountUp, FlashOnChange } from '../../motion';
 import { StepsViewToggle } from './StepsView';
 import { lineViewPct, orderViewPct, useStepsView, type StepsView } from '../../lib/stepsView';
 
@@ -58,8 +59,8 @@ export function OrdersTab({ data }: { data: OrdersDashboard }) {
   return (
     <Box data-testid="orders-tab">
       <TileGrid>
-        <Tile testId="tile-orders" label="Confirmed orders" value={t.orders} sub={`${t.lines} lines`} />
-        <Tile testId="tile-risk" label="Late or at risk" tone={t.late ? 'danger' : t.atRisk ? 'warning' : 'success'} value={t.late + t.atRisk}
+        <Tile testId="tile-orders" label="Confirmed orders" value={<CountUp value={t.orders} />} sub={`${t.lines} lines`} />
+        <Tile testId="tile-risk" label="Late or at risk" tone={t.late ? 'danger' : t.atRisk ? 'warning' : 'success'} value={<FlashOnChange value={t.late + t.atRisk}><CountUp value={t.late + t.atRisk} /></FlashOnChange>}
           sub={<>{t.late} late · {t.atRisk} at risk · {t.onTrack} on track{t.noForecast ? ` · ${t.noForecast} no forecast` : ''}</>}
           onClick={() => setRisk(t.late ? 'late' : 'at_risk')} estimate
           hint="Against each order's committed date. The forecast is worked out from the last 14 days' pace and the plan — see each card." />
@@ -113,7 +114,7 @@ function OrderCard({ o, year, withMoney, window, view }: { o: DashOrder; year: s
             <Mono sx={{ fontWeight: 600, fontSize: 14, color: 'var(--c-text)' }}>
               <Link to={appPath(company, `orders/${o.id}`)} style={{ color: 'inherit' }}>{o.code}</Link>
             </Mono>
-            <Badge family={r.family} label={r.label} title={`${r.help} ${o.risk.why}`} />
+            <FlashOnChange value={o.risk.status}><Badge family={r.family} label={r.label} title={`${r.help} ${o.risk.why}`} /></FlashOnChange>
           </Box>
           <Typography noWrap sx={{ fontSize: 13, color: 'var(--c-text)', mt: 0.5 }} title={o.title ?? ''}>{o.customer?.name ?? (o.orderType === 'stock' ? 'Stock order' : '—')}{o.title ? ` · ${o.title}` : ''}</Typography>
           <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.75, display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 1, rowGap: 0.25 }}>

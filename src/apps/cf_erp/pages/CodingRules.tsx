@@ -23,6 +23,7 @@ import { PatternParts } from '../components/CodingRules/PatternParts';
 import { WhichRuleWins } from '../components/CodingRules/WhichRuleWins';
 import { OPERATOR_LABEL, cap, conditionSentence, entityWords, paletteEntries, patternSentence, patternText, tokenPhrase } from '../components/CodingRules/guide';
 import { displayLabel } from '../lib/displayCode';
+import { Stagger } from '../motion';
 
 /** Templates matching what is typed, from the server — used by the condition pickers. */
 const searchTemplates = async (term: string) => (await cfApi.get<RecordList>(`/records${qs({ kinds: 'template', search: term, limit: 30, usable: 1 })}`)).rows;
@@ -331,6 +332,8 @@ export default function CodingRules() {
                 <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>No rule — these are typed in by hand.</Typography>
               ) : (
                 <Box sx={{ display: 'grid', gap: 0.75 }}>
+                  {/* Motion: the rules of a group fade in, staggered (first few only). */}
+                  <Stagger variant="fade" max={8}>
                   {g.rows.map((s) => (
                     <Box key={s.id} role="button" tabIndex={0} aria-label={`${s.code} — ${s.name}`} onClick={() => setEditor({ open: true, scheme: s })}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditor({ open: true, scheme: s }); } }}
@@ -357,6 +360,7 @@ export default function CodingRules() {
                       </Box>
                     </Box>
                   ))}
+                  </Stagger>
                 </Box>
               )}
             </SectionCard>

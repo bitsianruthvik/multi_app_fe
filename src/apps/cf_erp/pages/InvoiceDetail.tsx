@@ -31,6 +31,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange, SuccessCheck } from '../motion';
 
 const COPIES: { value: 'original' | 'duplicate' | 'triplicate'; label: string }[] = [
   { value: 'original', label: 'Original for Recipient' }, { value: 'duplicate', label: 'Duplicate for Transporter' }, { value: 'triplicate', label: 'Triplicate for Supplier' },
@@ -66,6 +67,7 @@ function DraftDetails({ invoice, canEdit, onSaved }: { invoice: Invoice; canEdit
   const [form, setForm] = useState(start);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => { setForm(start()); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoice.id, invoice.notes, invoice.invoiceDate, invoice.shipTo?.addressId, JSON.stringify(invoice.transport)]);
   const setT = (patch: Partial<Transport>) => setForm((f) => ({ ...f, t: { ...f.t, ...patch } }));
@@ -82,6 +84,7 @@ function DraftDetails({ invoice, canEdit, onSaved }: { invoice: Invoice; canEdit
           distanceKm: t.distanceKm == null || String(t.distanceKm) === '' ? null : Number(t.distanceKm) },
       }));
       toast.success('Invoice details saved.');
+      setSaved((n) => n + 1);
     } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   const ro = !canEdit;
@@ -119,7 +122,8 @@ function DraftDetails({ invoice, canEdit, onSaved }: { invoice: Invoice; canEdit
         <TextField size="small" label="Notes" disabled={ro} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} multiline sx={{ gridColumn: { md: '1 / -1' } }} />
       </Box>
       {!ro && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mt: 2 }}>
+          {saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" />}
           <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
         </Box>
       )}
@@ -221,14 +225,14 @@ export default function InvoiceDetail() {
       header={
         <DetailHeader code={invoiceNoText(i)} title={i.customer.name ?? 'No customer'}
           subtitle={draft ? 'A draft has no number yet — issuing gives it one and freezes it.' : i.status === 'cancelled' ? `Cancelled${i.cancelledReason ? `: ${i.cancelledReason}` : ''}` : undefined}
-          badges={<><InvoiceStatusBadge status={i.status} />{hasIrn && <Badge family="success" noIcon label="IRN" />}{i.ewayBills.length > 0 && <Badge family="info" noIcon label={`${i.ewayBills.length} e-way`} />}</>}
+          badges={<><FlashOnChange value={i.status}><InvoiceStatusBadge status={i.status} /></FlashOnChange>{hasIrn && <Badge family="success" noIcon label="IRN" />}{i.ewayBills.length > 0 && <Badge family="info" noIcon label={`${i.ewayBills.length} e-way`} />}</>}
           actions={headerActions}
           facts={<>
             <Fact label="Order"><Mono><Link to={appPath(company, `orders/${i.order.id}`)} style={{ color: 'inherit' }}>{i.order.code}</Link></Mono></Fact>
             <Fact label="Date"><Mono muted={!i.invoiceDate}>{dayText(i.invoiceDate) || 'when issued'}</Mono></Fact>
             <Fact label="Place of supply">{i.placeOfSupply ? `${i.placeOfSupply.name} (${i.placeOfSupply.code})` : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>not known yet</Typography>}</Fact>
             <Fact label="Tax"><Mono>{i.isIgst ? 'IGST' : 'CGST + SGST'}</Mono></Fact>
-            <Fact label="Total"><Mono sx={{ fontWeight: 600 }}>{money2(i.totals.grandTotal)}</Mono></Fact>
+            <Fact label="Total"><FlashOnChange value={i.totals.grandTotal}><Mono sx={{ fontWeight: 600 }}>{money2(i.totals.grandTotal)}</Mono></FlashOnChange></Fact>
             {i.fy && <Fact label="Financial year"><Mono muted>{i.fy}</Mono></Fact>}
           </>} />
       }

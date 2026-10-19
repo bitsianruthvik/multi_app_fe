@@ -15,6 +15,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { SOURCING_LABEL } from '../lib/records';
 import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, KindChip, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
+import { FadeIn } from '../motion';
 import { shortNameText } from '../lib/shortName';
 import { displayCode } from '../lib/displayCode';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -198,7 +199,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
             {canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>{copy.create}</Button>}
           </>
         )} />
-      <StatStrip stats={stats} />
+      <FadeIn variant="rise"><StatStrip stats={stats} /></FadeIn>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
         {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={kindCount(recordKind, v, rc?.kind)} onClick={() => setKind(v)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />

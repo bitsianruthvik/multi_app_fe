@@ -6,6 +6,7 @@ import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, SectionCard } from './ui';
 import { useToast } from './toastContext';
+import { SuccessCheck } from '../motion';
 import { NestPlateRulesCard } from './NestPlateRulesCard';
 
 /**
@@ -41,6 +42,7 @@ export function NestShopRulesCard() {
   const [rows, setRows] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => { if (rules.data) { setOn(rules.data.on); setRows(rules.data.rows.map(toDraft)); setMaxSizes(rules.data.maxPlateSizes == null ? '' : String(rules.data.maxPlateSizes)); } }, [rules.data]);
   const sizesSchema = !!rules.data?.sizesSchema;
   const badSizes = maxSizes.trim() !== '' && !(/^\d+$/.test(maxSizes.trim()) && Number(maxSizes) <= 20);
@@ -60,6 +62,7 @@ export function NestShopRulesCard() {
       });
       rules.setData(out);
       toast.success('Shop cutting habits saved.');
+      setSaved((n) => n + 1);
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
   };
   const set = (i: number, key: string, v: string) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [key]: v } : r)));
@@ -110,6 +113,7 @@ export function NestShopRulesCard() {
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Button variant="text" onClick={() => setRows((rs) => [...rs, { thicknessMm: '' }])} disabled={!schema}>Add a thickness</Button>
                 <Box sx={{ flex: 1 }} />
+                {saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" />}
                 <Button variant="outlined" onClick={() => { void save(); }} disabled={busy || bad || !schema}>{busy ? 'Saving…' : 'Save shop habits'}</Button>
               </Box>
             )}

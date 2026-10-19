@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Button, Checkbox, TextField, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
@@ -16,15 +16,16 @@ import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { RaiseInvoiceDialog, ReceiptDialog } from '../components/Accounts/AccountsDialogs';
 import { openInvoicePdf } from '../lib/invoiceFiles';
 import { useToast } from '../components/toastContext';
+import { SuccessCheck, celebrate } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
-function Card({ c, ticked, canManage, onTick, onPay }: { c: BillingCard; ticked: boolean; canManage: boolean; onTick: () => void; onPay: () => void }) {
+function Card({ c, ticked, canManage, onTick, onPay, moved, raised }: { c: BillingCard; ticked: boolean; canManage: boolean; onTick: () => void; onPay: () => void; moved?: boolean; raised?: boolean }) {
   const company = useCompanySlug();
   const toast = useToast();
   const red = c.overdue;
   return (
-    <Box data-testid="bill-card" data-card={c.id} data-status={c.status} data-overdue={red ? '1' : '0'}
+    <Box data-testid="bill-card" data-card={c.id} data-status={c.status} data-overdue={red ? '1' : '0'} className={moved ? 'cfm-rise-in' : undefined}
       sx={{ border: `1px solid ${red ? 'var(--c-danger-500, #d32f2f)' : ticked ? 'var(--c-primary-500)' : 'var(--c-border)'}`, borderRadius: 'var(--r-md)', background: red ? 'var(--c-danger-50, #fdecea)' : 'var(--c-surface)', p: 1.25, display: 'grid', gap: 0.5, minWidth: 0 }}>
       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
         {c.status === 'due' && canManage && (
@@ -32,6 +33,7 @@ function Card({ c, ticked, canManage, onTick, onPay }: { c: BillingCard; ticked:
         )}
         <Mono chip><Box component={Link} to={appPath(company, `orders/${c.orderId}`)} sx={linkSx}>{c.orderCode}</Box></Mono>
         {red && <DangerBadge label="Overdue" />}
+        {raised && <SuccessCheck size={16} label="Invoice raised" />}
       </Box>
       <Typography sx={{ fontSize: 13.5, fontWeight: 600, overflowWrap: 'anywhere' }}>{c.milestone.label}</Typography>
       <Typography sx={{ fontSize: 16, fontWeight: 600, fontFamily: 'var(--font-mono)' }} data-testid="bill-amount">{rupeeText(c.amount, 2)}</Typography>
@@ -66,9 +68,18 @@ export default function Billing() {
   const [ticked, setTicked] = useState<BillingCard[]>([]);
   const [raising, setRaising] = useState(false);
   const [paying, setPaying] = useState<BillingCard | null>(null);
+  // Motion: a card that changed lane since the last read fades in where it landed; the cards of a just-raised invoice get a check.
+  const laneOf = useRef<Map<string, string>>(new Map());
+  const [moved, setMoved] = useState<Set<string>>(new Set());
+  const [raisedId, setRaisedId] = useState<number | null>(null);
   const load = useCallback(() => {
     setError(null);
-    getBillingBoard(search || undefined).then((b) => { setData(b); setTicked((t) => t.filter((x) => b.lanes.some((l) => l.cards.some((c) => c.id === x.id && c.status === 'due')))); })
+    getBillingBoard(search || undefined).then((b) => {
+      const next = new Map<string, string>();
+      const changed = new Set<string>();
+      b.lanes.forEach((l) => l.cards.forEach((c) => { next.set(c.id, l.key); const was = laneOf.current.get(c.id); if (was && was !== l.key) changed.add(c.id); }));
+      laneOf.current = next; setMoved(changed);
+      setData(b); setTicked((t) => t.filter((x) => b.lanes.some((l) => l.cards.some((c) => c.id === x.id && c.status === 'due')))); })
       .catch((e) => setError(e as CfApiError));
   }, [search]);
   useEffect(() => { load(); }, [load]);
@@ -76,12 +87,15 @@ export default function Billing() {
   const together = canInvoiceTogether(ticked);
   const empty = data && data.lanes.every((l) => !l.cards.length);
   const onRaised = (inv: RaisedInvoice) => {
-    setRaising(false); setTicked([]);
+    setRaising(false); setTicked([]); setRaisedId(inv.id);
     toast.success(`Invoice ${inv.invoiceNo} raised.`);
     void openInvoicePdf(inv.id).catch(() => undefined);
     load();
   };
-  const onPaid = (r: ReceiptResult) => { setPaying(null); toast.success(r.closed ? `${r.message} ${r.order.order.code} is closed.` : r.message); load(); };
+  const onPaid = (r: ReceiptResult) => {
+    setPaying(null); toast.success(r.closed ? `${r.message} ${r.order.order.code} is closed.` : r.message); load();
+    if (r.order.fullyPaid && r.allocated > 0) celebrate(document.querySelector('[data-lane="paid"]')); // the order is now fully paid: once
+  };
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
@@ -122,7 +136,8 @@ export default function Billing() {
                   <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{LANE_HELP[lane.key]}</Typography>
                 </Box>
                 {lane.cards.map((c) => (
-                  <Card key={c.id} c={c} canManage={canManage} ticked={ticked.some((t) => t.id === c.id)} onTick={() => setTicked((t) => toggleCard(t, c))} onPay={() => setPaying(c)} />
+                  <Card key={c.id} c={c} canManage={canManage} ticked={ticked.some((t) => t.id === c.id)} onTick={() => setTicked((t) => toggleCard(t, c))} onPay={() => setPaying(c)}
+                    moved={moved.has(c.id)} raised={raisedId != null && c.invoice?.id === raisedId} />
                 ))}
               </Box>
             ))}

@@ -15,6 +15,7 @@ import { todayIso } from '../../lib/accounts';
 import { DialogCloseButton } from '../FormDialog';
 import { FullScreenToggle } from '../FullScreen';
 import { ErrorNotice, Mono } from '../ui';
+import { FlashOnChange } from '../../motion';
 
 function Header({ title, subtitle, fs, onClose, busy }: { title: string; subtitle: string; fs: ReturnType<typeof useFullScreen>; onClose: () => void; busy: boolean }) {
   return (
@@ -112,7 +113,7 @@ export function RaiseInvoiceDialog({ open, cards, onClose, onRaised }: { open: b
               <Typography sx={{ fontSize: 13 }}>Taxable <Mono>{rupeeText(plan.totals.taxable, 2)}</Mono></Typography>
               {plan.isIgst ? <Typography sx={{ fontSize: 13 }}>IGST <Mono>{rupeeText(plan.totals.igst, 2)}</Mono></Typography>
                 : <Typography sx={{ fontSize: 13 }}>CGST <Mono>{rupeeText(plan.totals.cgst, 2)}</Mono> · SGST <Mono>{rupeeText(plan.totals.sgst, 2)}</Mono></Typography>}
-              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>Invoice total <Mono>{rupeeText(plan.totals.grandTotal, 2)}</Mono></Typography>
+              <Typography sx={{ fontSize: 15, fontWeight: 600 }}>Invoice total <FlashOnChange value={plan.totals.grandTotal}><Mono>{rupeeText(plan.totals.grandTotal, 2)}</Mono></FlashOnChange></Typography>
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{plan.totals.inWords}</Typography>
             </Box>
           </Box>

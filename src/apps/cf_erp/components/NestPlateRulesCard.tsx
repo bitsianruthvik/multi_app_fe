@@ -6,6 +6,7 @@ import { GRADE_RULE_WORDS, PLATE_LIMITS, badMm, limitsDraft, plateRulesBody, typ
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, SectionCard } from './ui';
 import { useToast } from './toastContext';
+import { SuccessCheck } from '../motion';
 
 /**
  * Setup › Cutting (§90, 2026-10-19): which plate the AI nesting may put a piece on — by grade and impact class — and the
@@ -20,6 +21,7 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
   const [draft, setDraft] = useState<PlateLimitsDraft>(limitsDraft(null));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => {
     if (!rules) return;
     setRule(rules.gradeRule ?? '');
@@ -34,6 +36,7 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
       const out = await saveNestShopRules(plateRulesBody(rule, on, draft));
       onSaved(out);
       toast.success('Plate rules saved.');
+      setSaved((n) => n + 1);
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
   };
   return (
@@ -60,8 +63,9 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
           </Box>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>The mill&apos;s sizes. Blank = the catalog&apos;s own range for that thickness; a blank step = the cut-settings band&apos;s order step.</Typography>
           {canEdit && (
-            <Box sx={{ display: 'flex' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Box sx={{ flex: 1 }} />
+              {saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" />}
               <Button variant="outlined" onClick={() => { void save(); }} disabled={busy || bad || !schema}>{busy ? 'Saving…' : 'Save plate rules'}</Button>
             </Box>
           )}
