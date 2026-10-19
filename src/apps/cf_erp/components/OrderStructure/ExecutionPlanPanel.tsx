@@ -16,6 +16,8 @@ import {
 import { ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { useToast } from '../toastContext';
+import { nudgeIfRefused } from '../salesMotion';
+import { FlashOnChange } from '../../motion';
 
 const PRODUCTION_LEVELS: ProductionLevel[] = ['order', 'line', 'unit', 'assembly'];
 const DISPATCH_LEVELS: DispatchLevel[] = ['same', 'line', 'unit', 'assembly'];
@@ -100,14 +102,14 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
   const applyTemplate = (plan: ExecutionPlan) => setDraft((d) => (d ? { production: { ...plan.production }, dispatch: { ...plan.dispatch }, own: Object.fromEntries(Object.keys(d.own).map((k) => [k, null])) } : d));
   const firstLevel = levels[0]?.id ?? null;
 
-  const save = async () => {
+  const save = async (button?: HTMLElement) => {
     setSaving(true); setError(null);
     try {
       const v = await saveExecutionPlan(orderId, inputOf(draft, saved));
       loaded.setData(v);
       toast.success('Execution plan saved.');
       onChanged?.();
-    } catch (e) { setError(e as CfApiError); } finally { setSaving(false); }
+    } catch (e) { setError(e as CfApiError); nudgeIfRefused(e, button); } finally { setSaving(false); }
   };
 
   const levelSelect = (value: number | null, onPick: (id: number) => void, label: string, testId: string, options = levels) => (
@@ -235,7 +237,7 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
 
           <Box sx={{ display: 'grid', gap: 0.5 }}>
             <Typography sx={{ fontSize: 14, fontWeight: 600 }} aria-live="polite" data-testid="plan-sentence">
-              {shown.preview.production.sentence}{checking ? ' …' : ''}
+              <FlashOnChange value={shown.preview.production.sentence}>{shown.preview.production.sentence}</FlashOnChange>{checking ? ' …' : ''}
             </Typography>
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{shown.preview.dispatch.sentence}</Typography>
           </Box>
@@ -256,7 +258,7 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
             </Typography>
             {editable && dirty && <Button onClick={() => setDraft(draftOf(saved))} disabled={saving}>Undo changes</Button>}
             {editable && (
-              <Button variant="contained" onClick={save} disabled={saving || problems.length > 0 || (!dirty && !!saved.saved)} data-testid="plan-save"
+              <Button variant="contained" onClick={(e) => void save(e.currentTarget)} disabled={saving || problems.length > 0 || (!dirty && !!saved.saved)} data-testid="plan-save"
                 startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>
                 {saving ? 'Saving…' : saved.saved && !dirty ? 'Saved' : 'Save the plan'}
               </Button>

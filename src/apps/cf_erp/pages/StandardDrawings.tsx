@@ -20,6 +20,10 @@ import { FormDialog } from '../components/FormDialog';
 import { DrawingViewer } from '../components/Drawings/DrawingViewer';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { staggerRowsSx } from '../components/salesMotion';
+
+/** The first rows of the list rise in as it lands. */
+const ROWS_IN = staggerRowsSx();
 
 /**
  * STANDARD DRAWINGS (init.sql §69). The list: every standard by its number, with its current version's size and
@@ -113,7 +117,7 @@ export default function StandardDrawings() {
   ];
 
   return (
-    <Box>
+    <Box sx={ROWS_IN}>
       <PageHeader title="Standard drawings" subtitle="Drawings used again and again, each with its BOM and values. Add a line from one on any order."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>New standard</Button>} />
       <Box sx={{ mb: 1.5, maxWidth: 420 }}>

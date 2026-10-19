@@ -13,6 +13,7 @@ import { useLoad } from '../hooks/useLoad';
 import { FormDialog } from './FormDialog';
 import { Badge, ErrorNotice, Mono, SectionCard } from './ui';
 import { useToast } from './toastContext';
+import { FlashOnChange } from '../motion';
 
 /**
  * CUTTING ALLOWANCE (init.sql §64, 2026-10-16). Customers cut flanges and webs a little long, so welding
@@ -187,7 +188,7 @@ export function OrderCutAllowancePanel({ orderId, canEdit = true, onChanged }: {
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{p.rows} {p.rows === 1 ? 'row' : 'rows'}{p.rowOverrides ? ` · ${p.rowOverrides} with its own` : ''}</Typography>
             </Box>
             <Box sx={{ flex: '2 1 240px', minWidth: 0, fontSize: 13 }}>
-              <Box>{p.effective ? <><strong>{ruleText(p.effective)}</strong> · {sourceText(p.effective)}</> : <span>Cut as drawn</span>}</Box>
+              <Box><FlashOnChange value={p.effective ? `${ruleText(p.effective)} · ${sourceText(p.effective)}` : ''}>{p.effective ? <><strong>{ruleText(p.effective)}</strong> · {sourceText(p.effective)}</> : <span>Cut as drawn</span>}</FlashOnChange></Box>
               {p.order && p.customer && <Box sx={{ color: 'var(--c-text-3)' }}>Customer: {ruleText(p.customer)}</Box>}
               {p.example && p.effective && <Box sx={{ color: 'var(--c-text-2)' }}>Longest row: <Mono>{p.example.words}</Mono></Box>}
             </Box>

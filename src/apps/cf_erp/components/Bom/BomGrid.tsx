@@ -4,6 +4,7 @@ import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import { Link, useLocation } from 'react-router-dom';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
+import { rowFlashSx } from '../salesMotion';
 import type { ValuesView } from '../Values/valuesModel';
 import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './bomModel';
 import { appPath } from '../../navMeta';
@@ -26,7 +27,7 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; why
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode, flashKeys }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -38,6 +39,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   /** A selection row's item, on the row itself: an amber "Choose item" while unchosen, "default · change" when the system chose it, "Change" otherwise. */
   choiceCell?: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
+  /** Rows just added or just marked to go: their cells flash once. */
+  flashKeys?: ReadonlySet<string>;
   /** The row's code as a design: an order row's placeholder, or a catalog row's position code (with the item's own code beside it). */
   placeholderOf: (row: BomRow) => { code: string; title: string; itemCode?: string | null; segments?: CodeSegment[] | null } | null;
   /** The description shown after the dot: a typed one wins over the saved one. */
@@ -278,7 +281,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
           },
         };
       }}
-      rowSx={(key) => fileOver === key ? { '& > td': { background: 'var(--c-primary-50)', boxShadow: 'inset 0 2px 0 var(--c-primary-600), inset 0 -2px 0 var(--c-primary-600)' } } : drop?.key === key ? { '& > td': { boxShadow: `inset 0 ${drop.position === 'after' ? '-3px' : '3px'} 0 ${drop.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-600)'}` } } : undefined} />
+      rowSx={(key) => fileOver === key ? { '& > td': { background: 'var(--c-primary-50)', boxShadow: 'inset 0 2px 0 var(--c-primary-600), inset 0 -2px 0 var(--c-primary-600)' } } : drop?.key === key ? { '& > td': { boxShadow: `inset 0 ${drop.position === 'after' ? '-3px' : '3px'} 0 ${drop.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-600)'}` } } : flashKeys?.has(key) ? rowFlashSx : undefined} />
     <Dialog open={!!moveDialog} onClose={() => setMoveDialog(null)} fullWidth maxWidth="sm">
       <DialogTitle>Move {moveDialog?.node.name}<IconButton aria-label="Close move options" onClick={() => setMoveDialog(null)} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseRounded /></IconButton></DialogTitle>
       <DialogContent sx={{ display: 'grid', gap: 2, pt: '16px !important' }}>

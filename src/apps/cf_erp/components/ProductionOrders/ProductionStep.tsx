@@ -18,6 +18,7 @@ import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
 import { PO_STATE, createLabel, productionOrderPath, progressText, readOverride, releasableIds, releaseToast } from '../../lib/productionOrders';
 import { Badge, EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
+import { FlashOnChange, celebrate } from '../../motion';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { TimesPanel } from '../Production/TimesPanel';
 import { useToast } from '../toastContext';
@@ -131,7 +132,7 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
                   onOpen={() => navigate(appPath(company, productionOrderPath(po.id)))}
                   onRelease={() => run(`r${po.id}`, async () => { const r = await releaseProductionOrders([po.id]); return releaseToast(r.released, r.fromMr); })}
                   onTakeBack={() => run(`t${po.id}`, async () => { await takeBackProductionOrder(po.id); return `${po.code} taken back.`; })}
-                  onDispatch={() => run(`d${po.id}`, async () => { const r = await dispatchProductionOrder(po.id); return r.closed ? `${po.code} dispatched and closed.` : `${po.code}: finished units dispatched.`; })} />
+                  onDispatch={(el) => run(`d${po.id}`, async () => { const r = await dispatchProductionOrder(po.id); if (r.closed) celebrate(el); return r.closed ? `${po.code} dispatched and closed.` : `${po.code}: finished units dispatched.`; })} />
               ))}
             </Box>
           )}
@@ -152,7 +153,7 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
 
 function PoRow({ po, busy, canProduce, canShip, onOpen, onRelease, onTakeBack, onDispatch }: {
   po: ProductionOrder; busy: string | null; canProduce: boolean; canShip: boolean;
-  onOpen: () => void; onRelease: () => void; onTakeBack: () => void; onDispatch: () => void;
+  onOpen: () => void; onRelease: () => void; onTakeBack: () => void; onDispatch: (button?: HTMLElement) => void;
 }) {
   const s = PO_STATE[po.state];
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
@@ -163,11 +164,11 @@ function PoRow({ po, busy, canProduce, canShip, onOpen, onRelease, onTakeBack, o
       <Mono sx={{ fontWeight: 600 }}>{po.code}</Mono>
       <Box sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', gridColumn: { xs: '1 / -1', md: 'auto' }, order: { xs: 2, md: 0 } }} title={po.label}>{po.label}</Box>
       <Box><Badge family={s.family} label={s.label} noIcon /></Box>
-      <Box sx={{ display: { xs: 'none', md: 'block' }, color: 'var(--c-text-2)' }}>{progressText(po.progress)}</Box>
+      <Box sx={{ display: { xs: 'none', md: 'block' }, color: 'var(--c-text-2)' }}><FlashOnChange value={progressText(po.progress)}>{progressText(po.progress)}</FlashOnChange></Box>
       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         {canProduce && po.actions.release && <Button size="small" variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy != null} onClick={stop(onRelease)} data-testid="po-release">Release</Button>}
         {canProduce && po.actions.takeBack && <Button size="small" color="inherit" startIcon={<UndoRounded />} disabled={busy != null} onClick={stop(onTakeBack)}>Take back</Button>}
-        {canShip && po.actions.dispatch && <Button size="small" variant="contained" color="success" startIcon={<LocalShippingRounded />} disabled={busy != null} onClick={stop(onDispatch)} data-testid="po-dispatch">Dispatch</Button>}
+        {canShip && po.actions.dispatch && <Button size="small" variant="contained" color="success" startIcon={<LocalShippingRounded />} disabled={busy != null} onClick={(e) => { e.stopPropagation(); onDispatch(e.currentTarget); }} data-testid="po-dispatch">Dispatch</Button>}
       </Box>
     </Box>
   );

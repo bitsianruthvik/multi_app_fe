@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
@@ -24,6 +24,7 @@ import { mrDocument } from '../../api/acceptance';
 import { saveBlob } from '../../lib/acceptance';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import TableViewRounded from '@mui/icons-material/TableViewRounded';
+import { nudgeIfRefused, useFreshKeys } from '../salesMotion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const NO_MANAGE = 'You can see the material request. Raising it needs the inventory manage permission.';
@@ -51,6 +52,9 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [asking, setAsking] = useState<{ lineIds?: number[]; proposed: string | null } | null>(null);
   const requisitions = data?.requisitions ?? [];
+  // An MR raised while the screen is open rises in; the Raise button pressed is nudged once if it is refused.
+  const freshMrs = useFreshKeys(data ? requisitions.map((r) => String(r.id)) : null);
+  const raiseButton = useRef<HTMLElement | null>(null);
   const without = data?.linesWithout ?? [];
   const raisable = without.filter((w) => w.canRaise);
   const prOf = new Map((mrs.data?.rows ?? []).map((m) => [m.id, m.purchaseRequest]));
@@ -69,7 +73,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
       reqs.setData(r);
       toast.success(raisedMessage(r, { lines: lineIds }));
       reload();
-    } catch (e) { setRefusal(refusalOf(e)); } finally { setBusy(false); }
+    } catch (e) { setRefusal(refusalOf(e)); nudgeIfRefused(e, raiseButton.current); } finally { setBusy(false); }
   };
   /* A customer-supplied line's MR asks the customer at once (a ₹0 PO to them): first the date they promised (§68). */
   const raise = (lineIds?: number[]) => {
@@ -110,7 +114,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
         {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the material request needs the inventory view permission.</Typography>}
         {canView && !canManage && <Typography data-testid="buying-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{NO_MANAGE}</Typography>}
         {refusal && (
-          <Alert severity="warning" data-testid="buying-refusal" action={<Button color="inherit" size="small" onClick={() => { setRefusal(null); reload(); }}>Reload</Button>}>
+          <Alert severity="warning" className="cfm-fade-in" data-testid="buying-refusal" action={<Button color="inherit" size="small" onClick={() => { setRefusal(null); reload(); }}>Reload</Button>}>
             <Box>{refusal.message}</Box>
             {refusal.problems.filter((p) => p !== refusal.message).map((p) => <Box key={p} sx={{ fontSize: 12.5 }}>{p}</Box>)}
           </Alert>
@@ -121,7 +125,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           <>
             {canManage && raisable.length > 0 && (
               <Box data-testid="buying-header-actions">
-                <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={() => void raise()} data-testid="raise-mr">
+                <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={(e) => { raiseButton.current = e.currentTarget; void raise(); }} data-testid="raise-mr">
                   {requisitions.length ? 'Raise MR for the other lines' : 'Raise MR'}
                 </Button>
               </Box>
@@ -134,7 +138,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                 {requisitions.map((r) => {
                   const pr = prOf.get(r.id) ?? null;
                   return (
-                    <Box key={r.id} data-testid="mr-status-row" data-mr={r.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+                    <Box key={r.id} data-testid="mr-status-row" data-mr={r.id} className={freshMrs.has(String(r.id)) ? 'cfm-rise-in' : undefined} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
                       <Mono chip><Box component={Link} to={appPath(company, `material-requests/${r.id}`)} sx={linkSx}>{r.code}</Box></Mono>
                       <Typography component="span" sx={{ fontSize: 13 }}>Line {r.line.lineNo}</Typography>
                       {r.supply === 'customer' && <Badge family="info" label="Customer supplies" />}
@@ -151,7 +155,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             )}
             {without.length > 0 && (
               <Box data-testid="lines-without" sx={{ display: 'grid', gap: 1 }}>
-                {without.map((w) => <LineWithoutRow key={w.line.id} w={w} canManage={canManage} busy={busy} orderSupply={orderSupply} onSupply={(v) => void changeSupply(w.line.id, v)} onRaise={() => void raise([w.line.id])} />)}
+                {without.map((w) => <LineWithoutRow key={w.line.id} w={w} canManage={canManage} busy={busy} orderSupply={orderSupply} onSupply={(v) => void changeSupply(w.line.id, v)} onRaise={(el) => { raiseButton.current = el ?? null; void raise([w.line.id]); }} />)}
               </Box>
             )}
           </>
@@ -165,7 +169,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
 
 /** A line of the order with no MR yet: who supplies it (changeable until raised), and Raise MR — or why it cannot be. */
 function LineWithoutRow({ w, canManage, busy, orderSupply, onSupply, onRaise }: {
-  w: LineWithout; canManage: boolean; busy: boolean; orderSupply: MaterialSupply; onSupply: (v: string) => void; onRaise: () => void;
+  w: LineWithout; canManage: boolean; busy: boolean; orderSupply: MaterialSupply; onSupply: (v: string) => void; onRaise: (button?: HTMLElement) => void;
 }) {
   const mr = w.materialReady;
   return (
@@ -184,7 +188,7 @@ function LineWithoutRow({ w, canManage, busy, orderSupply, onSupply, onRaise }: 
       {w.materials.length > 0 && <Mono muted>{w.materials.length} {w.materials.length === 1 ? 'material' : 'materials'}</Mono>}
       {mr && <MaterialReadyChip state={mr.state} date={mr.readyDate} text={mr.text} testId="line-without-ready" />}
       {w.canRaise
-        ? canManage && <Button size="small" variant="outlined" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={onRaise}>Raise MR</Button>
+        ? canManage && <Button size="small" variant="outlined" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={(e) => onRaise(e.currentTarget)}>Raise MR</Button>
         : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{w.reason}</Typography>}
     </Box>
   );

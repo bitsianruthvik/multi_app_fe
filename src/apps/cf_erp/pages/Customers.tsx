@@ -17,6 +17,10 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { PartyDialog } from '../components/PartyDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
+import { staggerRowsSx } from '../components/salesMotion';
+
+/** The first rows of the list rise in as a page lands. */
+const ROWS_IN = staggerRowsSx();
 
 const ROLE_WORD: Record<PartyRole, string> = { customer: 'Customer', supplier: 'Supplier', subcontractor: 'Contractor' };
 const ROLE_CHIPS: { value: string; label: string }[] = [
@@ -78,7 +82,7 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
   ];
 
   return (
-    <Box>
+    <Box sx={ROWS_IN}>
       <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from a production order’s Give work to a contractor.' : fixedRole === 'supplier' ? 'Who you buy from — asked for quotations on a purchase order, and the PO is placed with them.' : 'Who orders from you — and who supplies you. One record can be both.'}
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />

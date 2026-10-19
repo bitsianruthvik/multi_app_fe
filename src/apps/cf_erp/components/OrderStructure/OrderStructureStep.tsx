@@ -76,6 +76,8 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
   const [valuesOpen, setValuesOpen] = useState(() => params.get(ORDER_VALUES_PARAM) === '1');
   const [moveError, setMoveError] = useState<CfApiError | null>(null);
   const [moving, setMoving] = useState(false);
+  // Lines there when the step opened; a line added after rises in once.
+  const [firstIds] = useState(() => new Set(lines.map((l) => l.id)));
 
   // A line added since the groups were remembered opens by itself.
   const ids = lines.map((l) => l.id).join(',');
@@ -144,7 +146,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                     Values for the whole order
                     <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', fontWeight: 400 }}>— coats, grade, impact class… set once, every line takes them</Typography>
                   </Box>
-                  {valuesOpen && <Box sx={{ p: 1, pt: 0 }}><OrderSpecValuesPanel orderId={order.id} canEdit={editable} onChanged={onChanged} /></Box>}
+                  {valuesOpen && <Box className="cfm-fade-in" sx={{ p: 1, pt: 0 }}><OrderSpecValuesPanel orderId={order.id} canEdit={editable} onChanged={onChanged} /></Box>}
                 </Box>
               )}
               {lines.map((l, i) => {
@@ -156,7 +158,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                 // Why a move is not offered: this line's own reason, else the neighbour's.
                 const why = (other: SalesOrderLine | undefined) => fixedNumberWhy(l, !!lineLock(l)) ?? (other ? fixedNumberWhy(other, !!lineLock(other)) : null);
                 return (
-                  <Box key={l.id} data-testid={`line-group-${l.lineNo}`} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', minWidth: 0 }}>
+                  <Box key={l.id} data-testid={`line-group-${l.lineNo}`} className={firstIds.has(l.id) ? undefined : 'cfm-rise-in'} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.5, flexWrap: 'wrap', background: 'var(--c-surface-2)', borderBottom: isOpen ? '1px solid var(--c-border)' : 'none', borderRadius: isOpen ? 'var(--r-md) var(--r-md) 0 0' : 'var(--r-md)' }}>
                       <IconButton size="small" onClick={() => toggle(l.id)} aria-expanded={isOpen} data-guard-line={isOpen ? l.id : undefined} aria-label={`${isOpen ? 'Fold' : 'Open'} line ${l.lineNo}`} data-testid={`line-toggle-${l.lineNo}`}>
                         <ChevronRightRounded sx={{ fontSize: 18, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform var(--t-fast) var(--ease)' }} />
@@ -200,7 +202,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                       </Box>
                     </Box>
                     {isOpen && (
-                      <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
+                      <Box className="cfm-fade-in" sx={{ p: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
                         {l.lineType === 'custom' && l.item
                           ? (
                             <>

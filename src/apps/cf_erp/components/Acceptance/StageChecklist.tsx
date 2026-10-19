@@ -5,6 +5,8 @@ import { markStageDone, undoStageDone, type PostStage } from '../../api/acceptan
 import { DialogHeader } from '../FormDialog';
 import { ErrorNotice } from '../ui';
 import { useToast } from '../toastContext';
+import { nudgeIfRefused } from '../salesMotion';
+import { celebrate } from '../../motion';
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -31,15 +33,17 @@ export function StageChecklist({ stages, canTick, compact = false, onChanged }: 
     setBusy(true);
     try { await undoStageDone(s.id); toast.success(`"${s.name}" is open again.`); onChanged?.({}); } catch (e) { toast.error((e as CfApiError).message); } finally { setBusy(false); }
   };
-  const done = async () => {
+  const done = async (anchor?: HTMLElement) => {
     if (!ticking) return;
     setBusy(true); setError(null);
     try {
       const r = await markStageDone(ticking.id, { date, note: note.trim() || undefined });
       toast.success(r.orderClosed ? `"${ticking.name}" done — every stage is done, the order is closed.` : `"${ticking.name}" done.`);
+      // The last stage closing the order is a milestone: one small burst.
+      if (r.orderClosed) celebrate(anchor);
       setTicking(null);
       onChanged?.({ orderClosed: r.orderClosed });
-    } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+    } catch (e) { setError(e as CfApiError); nudgeIfRefused(e, anchor); } finally { setBusy(false); }
   };
   return (
     <Box data-testid="stage-checklist" sx={{ display: 'grid', gap: compact ? 0.25 : 0.5 }}>
@@ -70,7 +74,7 @@ export function StageChecklist({ stages, canTick, compact = false, onChanged }: 
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setTicking(null)} disabled={busy}>Cancel</Button>
-          <Button variant="contained" onClick={() => void done()} disabled={busy || !date} data-testid="stage-done">Mark done</Button>
+          <Button variant="contained" onClick={(e) => void done(e.currentTarget)} disabled={busy || !date} data-testid="stage-done">Mark done</Button>
         </DialogActions>
       </Dialog>
     </Box>

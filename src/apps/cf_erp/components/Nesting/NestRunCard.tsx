@@ -4,6 +4,7 @@ import type { NestRunSnapshot } from '../../api/types';
 import type { RunCurvePoint, RunV2 } from '../../api/nesting';
 import { RUN_CARRIES_ON, agoWords, clock, logTime, pct as pctText, phaseWords, resumedLine, startedLine } from '../../lib/nesting';
 import { SectionCard } from '../ui';
+import { FlashOnChange } from '../../motion';
 
 /**
  * THE RUN, AS THE SERVER REPORTS IT. A nesting run belongs to the server, not to
@@ -84,7 +85,7 @@ export function NestRunCard({ run: base, receivedAt, onStop, onCancel, busy = fa
   const curve = run.progress.curve ?? [];
   return (
     <SectionCard title="Nesting is running" subtitle={RUN_CARRIES_ON}>
-      <Box data-testid="nest-run-card" role="status" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25, minWidth: 0 }}>
+      <Box data-testid="nest-run-card" role="status" className="cfm-fade-in" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25, minWidth: 0 }}>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'space-between' }}>
           <Box sx={{ fontSize: 14, fontWeight: 600 }}>{phaseWords(run)}</Box>
           <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
@@ -94,7 +95,7 @@ export function NestRunCard({ run: base, receivedAt, onStop, onCancel, busy = fa
         <LinearProgress variant="determinate" value={pct} aria-label="Nesting progress" sx={{ height: 8, borderRadius: 4 }} />
         <Box data-testid="nest-run-best" sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', fontSize: 13.5 }}>
           {best
-            ? <span>{`Best so far: ${best.plates} ${best.plates === 1 ? 'plate' : 'plates'} · ${pctText(best.wastePct)} waste${best.unplaced ? ` · ${best.unplaced} not placed` : ''}`}</span>
+            ? <FlashOnChange value={`${best.plates}:${best.wastePct}:${best.unplaced ?? 0}`}>{`Best so far: ${best.plates} ${best.plates === 1 ? 'plate' : 'plates'} · ${pctText(best.wastePct)} waste${best.unplaced ? ` · ${best.unplaced} not placed` : ''}`}</FlashOnChange>
             : <span style={{ color: 'var(--c-text-3)' }}>Looking for the first layout…</span>}
           <Sparkline curve={curve} />
         </Box>

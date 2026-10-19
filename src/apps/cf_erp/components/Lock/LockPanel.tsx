@@ -24,6 +24,8 @@ import { Working } from '../WorkingNote';
 import { knownLineSize, lockCheckingText, lockRecheckText, pieceTreeText, rememberLineSize } from '../../lib/working';
 import { saveCsv, saveXlsx } from '../../lib/dashboardExport';
 import { bomFileStem, pieceBomTable } from '../../lib/pieceBomExport';
+import { useBecame } from '../salesMotion';
+import { SuccessCheck } from '../../motion';
 
 /**
  * The Lock stage (user, 2026-09-26): "Based on the BOM and the values, the
@@ -73,6 +75,8 @@ function CheckRow({ check, stageLabel, onGo, action }: { check: LockCheck; stage
   const [all, setAll] = useState(false);
   // A warning-only check never holds the freeze up: it is shown, in the same amber, as a heads-up.
   const state = !check.applies ? 'na' : check.warning && (!check.ok || (check.problems?.length ?? 0) > 0) ? 'warn' : check.ok ? 'ok' : 'todo';
+  // A check that turns done while this screen is open (a value filled, rows given a flow) draws its tick once.
+  const justOk = useBecame(state === 'ok');
   const Icon = state === 'ok' ? CheckCircleRounded : state === 'na' ? RemoveCircleOutlineRounded : ErrorOutlineRounded;
   const colour = state === 'ok' ? 'var(--c-success-600)' : state === 'na' ? 'var(--c-text-3)' : 'var(--c-warning-600)';
   const word = state === 'ok' ? 'Done' : state === 'na' ? 'Not needed' : state === 'warn' ? 'Heads up' : 'To do';
@@ -85,7 +89,7 @@ function CheckRow({ check, stageLabel, onGo, action }: { check: LockCheck; stage
       display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr)', columnGap: 1.25, rowGap: 0.5, py: 1.25, minWidth: 0,
       borderBottom: '1px solid var(--c-divider)', '&:last-of-type': { borderBottom: 0 },
     }}>
-      <Icon sx={{ fontSize: 20, color: colour, mt: '1px' }} aria-hidden />
+      {justOk ? <SuccessCheck size={20} label="" style={{ marginTop: 1 }} /> : <Icon sx={{ fontSize: 20, color: colour, mt: '1px' }} aria-hidden />}
       <Box sx={{ minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5 }}>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap', minWidth: 0 }}>
           <Box component="span" sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>{check.title}</Box>
@@ -226,6 +230,8 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
   const stageLabel = (key?: string) => (key ? stages.find((s) => s.stageKey === tabFor(key, stages))?.label ?? null : null);
   // What this read learns about the line's size is what the next slow screen quotes.
   useEffect(() => { if (view) rememberLineSize(lineId, { pieces: view.summary.nodes }); }, [lineId, view]);
+  // Frozen while this screen was open: the strip draws a check once (never on a line that was frozen already).
+  const justFrozen = useBecame(!!view?.locked, view?.line.id ?? null);
 
   if (error && !view) return <ErrorNotice error={error} onRetry={reload} />;
   if (!view) {
@@ -262,6 +268,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
     const strip = (
       <Callout tone="success" icon={<LockRounded />}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }} data-testid="frozen-strip">
+          {justFrozen && <SuccessCheck size={18} label="" />}
           <strong>Frozen {when(view.locked.at)}</strong>
           {view.locked.by?.name && <span>by {view.locked.by.name}</span>}
           <span>· {plural(view.locked.pieces, 'piece')} coded{pos ? ` · line position ${pos.text}` : ''}</span>

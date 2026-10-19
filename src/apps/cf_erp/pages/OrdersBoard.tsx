@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import ViewKanbanRounded from '@mui/icons-material/ViewKanbanRounded';
@@ -13,23 +13,25 @@ import { Badge, DangerBadge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHe
 import { StageChecklist } from '../components/Acceptance/StageChecklist';
 import { OrderValueText } from '../components/OrderValueText';
 import { useToast } from '../components/toastContext';
+import { nudgeIfRefused } from '../components/salesMotion';
+import { FlashOnChange, celebrate } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
 /** One order on the board: what it is, and the facts that put it in its lane. */
-function Card({ c, canTick, onChanged }: { c: BoardCard; canTick: boolean; onChanged: () => void }) {
+function Card({ c, canTick, onChanged, moved = false }: { c: BoardCard; canTick: boolean; onChanged: () => void; moved?: boolean }) {
   const company = useCompanySlug();
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_orders_manage');
   const [busy, setBusy] = useState(false);
-  const close = async () => {
+  const close = async (anchor?: HTMLElement) => {
     setBusy(true);
-    try { await cfApi.post(`/orders/${c.id}/status`, { status: 'closed' }); toast.success(`${c.code} closed.`); invalidateNavCounts(); onChanged(); }
-    catch (e) { toast.error((e as CfApiError).message); } finally { setBusy(false); }
+    try { await cfApi.post(`/orders/${c.id}/status`, { status: 'closed' }); toast.success(`${c.code} closed.`); celebrate(anchor); invalidateNavCounts(); onChanged(); }
+    catch (e) { toast.error((e as CfApiError).message); nudgeIfRefused(e, anchor); } finally { setBusy(false); }
   };
   const a = c.facts.acceptance;
   return (
-    <Box data-testid="board-card" data-order={c.id} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', p: 1.25, display: 'grid', gap: 0.75, minWidth: 0 }}>
+    <Box data-testid="board-card" data-order={c.id} className={moved ? 'cfm-rise-in' : undefined} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', p: 1.25, display: 'grid', gap: 0.75, minWidth: 0 }}>
       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
         <Mono chip><Box component={Link} to={appPath(company, `orders/${c.id}`)} sx={linkSx}>{c.code}</Box></Mono>
         {c.overdue && <DangerBadge label="Late" />}
@@ -47,7 +49,7 @@ function Card({ c, canTick, onChanged }: { c: BoardCard; canTick: boolean; onCha
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{c.stagesDone} of {c.stages.length} stage{c.stages.length === 1 ? '' : 's'} done</Typography>
           <StageChecklist stages={c.stages} canTick={canTick} compact onChanged={onChanged} />
           {c.facts.payment && <Typography data-testid="board-payment" sx={{ fontSize: 12, color: c.facts.payment.fullyPaid ? 'var(--c-success-700)' : 'var(--c-warning-800)' }}>{c.facts.payment.text}{!c.facts.payment.fullyPaid && c.stagesDone >= c.stages.length ? ' — it closes once fully paid' : ''}</Typography>}
-          {c.canClose && canManage && <Button size="small" variant="outlined" disabled={busy} onClick={() => void close()} data-testid="board-close">Close the order</Button>}
+          {c.canClose && canManage && <Button size="small" variant="outlined" disabled={busy} onClick={(e) => void close(e.currentTarget)} data-testid="board-close">Close the order</Button>}
         </>
       )}
     </Box>
@@ -66,9 +68,20 @@ export default function OrdersBoard() {
   const [typed, setTyped] = useState(search);
   const [data, setData] = useState<OrderBoard | null>(null);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Cards whose lane changed since the last answer: they rise into their new lane (never on the first load).
+  const lanesOf = useRef<Map<number, string> | null>(null);
+  const [moved, setMoved] = useState<Set<number>>(() => new Set());
   const load = useCallback(() => {
     setError(null);
-    getOrderBoard(search || undefined).then(setData).catch((e) => setError(e as CfApiError));
+    getOrderBoard(search || undefined).then((next) => {
+      const before = lanesOf.current;
+      const now = new Map<number, string>();
+      const changed = new Set<number>();
+      next.lanes.forEach((l) => l.cards.forEach((c) => { now.set(c.id, l.key); if (before?.has(c.id) && before.get(c.id) !== l.key) changed.add(c.id); }));
+      lanesOf.current = now;
+      setMoved(changed);
+      setData(next);
+    }).catch((e) => setError(e as CfApiError));
   }, [search]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const t = window.setTimeout(() => { if (typed !== search) setSearch(typed); }, 300); return () => window.clearTimeout(t); }, [typed, search, setSearch]);
@@ -86,9 +99,9 @@ export default function OrdersBoard() {
             <Box key={lane.key} data-testid="board-lane" data-lane={lane.key} sx={{ background: 'var(--c-surface-2)', borderRadius: 'var(--r-md)', p: 1, display: 'grid', alignContent: 'start', gap: 1, minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', px: 0.5 }}>
                 <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-2)' }}>{lane.label}</Typography>
-                <Mono muted>{lane.cards.length}</Mono>
+                <FlashOnChange value={lane.cards.length}><Mono muted>{lane.cards.length}</Mono></FlashOnChange>
               </Box>
-              {lane.cards.map((c) => <Card key={c.id} c={c} canTick={canTick} onChanged={load} />)}
+              {lane.cards.map((c) => <Card key={c.id} c={c} canTick={canTick} onChanged={load} moved={moved.has(c.id)} />)}
             </Box>
           ))}
         </Box>
