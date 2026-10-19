@@ -1,5 +1,6 @@
 import { createTheme } from '@mui/material/styles';
 import type { AppThemeMode } from '../../theme';
+import { motionComponents, motionTransitions } from './motion/muiMotion';
 
 /**
  * cf_erp's MUI theme — the same values as fab_erp's (apps/fab_erp/theme.ts),
@@ -41,6 +42,8 @@ export function createCfErpTheme(mode: AppThemeMode) {
       button: { fontSize: '14px', fontWeight: 500, textTransform: 'none' },
     },
     shape: { borderRadius: 12 },
+    // Motion timings (TM/CF_ERP_MOTION_SPEC.md); the component motion overrides are merged in below.
+    transitions: motionTransitions,
     components: {
       MuiButton: {
         defaultProps: { disableElevation: true },
@@ -162,5 +165,5 @@ export function createCfErpTheme(mode: AppThemeMode) {
         },
       },
     },
-  });
+  }, motionComponents);
 }

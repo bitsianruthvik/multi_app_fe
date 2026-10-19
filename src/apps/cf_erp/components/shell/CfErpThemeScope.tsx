@@ -4,6 +4,8 @@ import { useThemePreference } from '@core/contexts/ThemeContext';
 import { createCfErpTheme } from '../../theme';
 import { ToastProvider } from '../Toast';
 import { CommandPaletteProvider } from '../CommandPalette';
+// Motion keyframes + kill-switch, loaded once for every cf_erp route (TM/CF_ERP_MOTION_SPEC.md).
+import '../../motion/motion.css';
 
 /**
  * Scopes the design system to cf_erp routes: `data-app="cf_erp"` on <html>
