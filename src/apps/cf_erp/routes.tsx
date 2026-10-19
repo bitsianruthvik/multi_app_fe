@@ -80,6 +80,8 @@ const StockingAreaDetail = lazy(() => import('./pages/StockingAreaDetail'));
 // Standard drawings (init.sql §69): the list and one standard share a file.
 const StandardDrawings = lazy(() => import('./pages/StandardDrawings'));
 const StandardDrawingDetail = lazy(() => import('./pages/StandardDrawings').then((m) => ({ default: m.StandardDrawingDetail })));
+// In-app help (TM/CF_ERP_HELP_SPEC.md): the full manual, by role and by area; ?role= prints a role's manual.
+const Help = lazy(() => import('./pages/Help'));
 
 /** cf_erp routes. Paths must match navMeta.ts — it is what the shell and breadcrumbs read. */
 export function getCfErpRoutes(
@@ -103,6 +105,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp', element: <ToHome /> },
     { path: '/:company/cf_erp/dashboard', element: <ToHome /> },
     { path: '/:company/cf_erp/home', element: wrap(<Home />) },
+    { path: '/:company/cf_erp/help', element: wrap(<Help />) },
     { path: '/:company/cf_erp/orders', element: wrap(<Orders />) },
     { path: '/:company/cf_erp/orders/:id', element: wrap(<OrderDetail />) },
     { path: '/:company/cf_erp/orders-board', element: wrap(<OrdersBoard />) },

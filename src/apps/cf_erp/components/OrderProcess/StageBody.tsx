@@ -25,6 +25,7 @@ import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { AcceptanceStep } from '../Acceptance/AcceptanceStep';
+import { HelpButton } from '../../help/HelpButton';
 
 // The per-line stage panels load when their stage is opened (speed, 2026-10-19): Nesting, Freeze design,
 // Execution plan and Material request were in the order page's own chunk, downloaded before it could draw.
@@ -273,6 +274,9 @@ export function StageBody({
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+      {/* In-app help for THIS stage (its topic has tab: <stageKey>), just above the stage's own card. */}
+      <HelpButton tab={stage.stageKey} label={`Help for ${stage.label}`} text={`How ${stage.label} works`}
+        sx={{ justifySelf: 'end', mb: -1.5 }} />
       {/* The notice explains; the body below it still does everything it would for a line that needs it. */}
       {line && !wide && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
       {(line || wide) && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}

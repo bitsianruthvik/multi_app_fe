@@ -12,6 +12,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { STEP_FILTERS, STEP_STATUS_LABEL, progressText } from '../lib/tracker';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, Surface } from '../components/ui';
+import { HelpButton } from '../help/HelpButton';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DetailTabs } from '../components/DetailLayout';
@@ -128,7 +129,7 @@ export default function Tracker() {
 
   return (
     <Box>
-      <PageHeader title="Tracker" subtitle={view === 'tree'
+      <PageHeader title="Tracker" help={<HelpButton tab={view} />} subtitle={view === 'tree'
         ? 'Every released piece by its code: what is done, what is not, and what is blocked.'
         : 'Every released step, what it waits for, and the material it needs. Ready means everything it waits for is done and its material is reserved.'} />
       {flat && <StatStrip stats={stats} />}

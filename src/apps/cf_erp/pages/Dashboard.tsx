@@ -16,6 +16,7 @@ import { PERIOD_OPTIONS, type PeriodKey, clockText, localToday, periodLabel, per
 import { useUrlParam } from '../hooks/useUrlState';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, PageHeader, SkeletonRows, StatSkeleton } from '../components/ui';
+import { HelpButton } from '../help/HelpButton';
 import { MachinesTab } from '../components/Dashboard/MachinesTab';
 import { OrdersTab } from '../components/Dashboard/OrdersTab';
 import { WorkOrdersTab } from '../components/Dashboard/WorkOrdersTab';
@@ -81,6 +82,7 @@ export default function Dashboard() {
     <Box>
       <PageHeader
         title="Dashboard"
+        help={<HelpButton tab={tab} />}
         subtitle={<>What the plant did, where every confirmed order stands and how far the contractors are · <b>{periodLabel(from, to)}</b>{asOf ? ` · as of ${clockText(asOf)}` : ''}</>}
         actions={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>

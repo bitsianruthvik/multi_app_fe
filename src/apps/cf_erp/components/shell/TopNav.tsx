@@ -13,6 +13,7 @@ import { SECTIONS, appPath } from '../../navMeta';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useCommandPalette } from '../commandPaletteContext';
+import { HelpButton } from '../../help/HelpButton';
 
 /**
  * Row 1 of the top navigation — fab_erp's FabErpTopNav for cf_erp: the primary
@@ -112,6 +113,9 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
         </>
       )}
 
+      {/* In-app help for whatever screen this is (TM/CF_ERP_HELP_SPEC.md); `?` opens it too. */}
+      <HelpButton />
+
       <Tooltip title={resolvedMode === 'dark' ? 'Switch to light' : 'Switch to dark'}>
         <IconButton size="small" onClick={() => setPreference(resolvedMode === 'dark' ? 'light' : 'dark')}
           aria-label={resolvedMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} sx={{ color: 'var(--c-text-2)', flexShrink: 0 }}>
@@ -132,6 +136,7 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{user?.email || user?.role || '—'}</Typography>
         </Box>
         <Divider />
+        <MenuItem onClick={() => go('help')} sx={{ fontSize: 13.5 }}>Help &amp; manuals</MenuItem>
         <MenuItem onClick={() => { setAvatarAnchor(null); navigate(`/${company}/apps`); }} sx={{ fontSize: 13.5 }}>Switch app</MenuItem>
         <Divider />
         <MenuItem onClick={() => { setAvatarAnchor(null); logout(); navigate(`/${company}/cf_erp/login`); }} sx={{ fontSize: 13.5, color: 'var(--c-danger-600)' }}>Sign out</MenuItem>

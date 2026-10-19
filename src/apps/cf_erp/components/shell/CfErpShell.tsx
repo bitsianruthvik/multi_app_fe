@@ -13,6 +13,7 @@ import { useShortcutsHelp } from '../../hooks/useShortcutsHelp';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { DetailTitleContext } from './detailTitle';
 import { backOf } from './backState';
+import { HelpProvider } from '../../help/HelpProvider';
 
 /**
  * The cf_erp application shell — fab_erp's FabErpShell, same two thin rows:
@@ -42,9 +43,10 @@ export function CfErpShell({ children }: { children: ReactNode }) {
   const publishTitle = useCallback((t: string | null) => setDetailTitle(t), []);
 
   // The machine log is used at a machine on a tablet: no top navigation, just the page.
-  if (resolved?.screen.key === 'floor') return <ErrorBoundary level="page">{children}</ErrorBoundary>;
+  if (resolved?.screen.key === 'floor') return <HelpProvider><ErrorBoundary level="page">{children}</ErrorBoundary></HelpProvider>;
 
   return (
+    <HelpProvider onShortcuts={shortcuts.show}>
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--c-canvas)' }}>
       <TopNav activeSection={resolved?.section.key ?? null} onOpenMobileNav={() => setMobileNavOpen(true)} isMobile={isMobile} />
 
@@ -100,5 +102,6 @@ export function CfErpShell({ children }: { children: ReactNode }) {
         </Box>
       </Box>
     </Box>
+    </HelpProvider>
   );
 }

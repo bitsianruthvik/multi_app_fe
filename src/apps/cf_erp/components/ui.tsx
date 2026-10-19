@@ -40,12 +40,19 @@ export function Surface({ e, elevation, bordered = true, sx, ...props }: BoxProp
   );
 }
 
-/** Title 22/600 + subtitle + right-aligned actions (§7.5). */
-export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
+/** Title 22/600 + subtitle + right-aligned actions (§7.5). `help`: a HelpButton beside the title (a page with its own tabs). */
+export function PageHeader({ title, subtitle, actions, help }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; help?: ReactNode }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2.5 }}>
       <Box sx={{ minWidth: 0, flex: '1 1 320px' }}>
-        <Typography component="h1" sx={{ fontFamily: 'var(--font-ui)', fontSize: 22, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }}>{title}</Typography>
+        {help ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography component="h1" sx={{ fontFamily: 'var(--font-ui)', fontSize: 22, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }}>{title}</Typography>
+            {help}
+          </Box>
+        ) : (
+          <Typography component="h1" sx={{ fontFamily: 'var(--font-ui)', fontSize: 22, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }}>{title}</Typography>
+        )}
         {subtitle && <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)', mt: 0.5, maxWidth: 820 }}>{subtitle}</Typography>}
       </Box>
       {actions && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>{actions}</Box>}

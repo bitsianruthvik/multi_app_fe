@@ -3,7 +3,7 @@ import { DialogCloseButton } from './FormDialog';
 
 /** The `?` shortcuts sheet — keep it in step with the real bindings (as in fab_erp). */
 const GROUPS: { title: string; rows: [string, string][] }[] = [
-  { title: 'Anywhere', rows: [['⌘K  /  Ctrl K', 'Open the command palette'], ['?', 'Show this sheet'], ['Esc', 'Close a dialog or the palette']] },
+  { title: 'Anywhere', rows: [['⌘K  /  Ctrl K', 'Open the command palette'], ['?', 'Help for this screen'], ['Esc', 'Close a dialog or the palette']] },
   { title: 'Lists and tables', rows: [['↑  ↓', 'Move between rows'], ['Enter', 'Open the highlighted row']] },
   { title: 'Forms', rows: [['Enter', 'Save the dialog you are in'], ['Shift Enter', 'A new line in a notes field']] },
   { title: 'Command palette', rows: [['↑  ↓', 'Move between results'], ['Enter', 'Go to the highlighted result']] },

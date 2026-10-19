@@ -22,6 +22,7 @@ import { useUrlParam } from '../hooks/useUrlState';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { appPath } from '../navMeta';
 import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, SkeletonRows, StatStrip } from '../components/ui';
+import { HelpButton } from '../help/HelpButton';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useToast } from '../components/toastContext';
 import { rupeeText } from '../lib/money';
@@ -242,7 +243,7 @@ export default function Planner() {
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5, minWidth: 0 }}>
-        <PageHeader title="Planner"
+        <PageHeader title="Planner" help={<HelpButton tab={view} />}
           subtitle={<>Every production order, step by step, on the machines' shifts. <b data-testid="plan-madeby">{look ? `${MODE_WORDS[look].made} (a look — not saved)` : words.made}</b>. <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>A auto · M manual · S save · B re-baseline · R re-plan · 1/2 views · ↑↓ pick · Alt+↑↓ rank · P pin · Enter steps · F full screen</Typography></>}
           actions={(
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>

@@ -10,6 +10,7 @@ import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useUrlParam } from '../hooks/useUrlState';
 import { EmptyState, ErrorNotice, Mono, PageHeader } from '../components/ui';
+import { HelpButton } from '../help/HelpButton';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { useToast } from '../components/toastContext';
 import { LIFE_UNITS, lifeText, pieceLife, STATUS_LABEL } from '../lib/toolsResources';
@@ -106,7 +107,7 @@ export default function Tools() {
 
   return (
     <Box>
-      <PageHeader title="Tools" subtitle="Tools are stock items like any other: receive and issue them under Stock. Give a tool a life and every piece issued is counted until it is worn out." />
+      <PageHeader title="Tools" help={<HelpButton tab={tab} />} subtitle="Tools are stock items like any other: receive and issue them under Stock. Give a tool a life and every piece issued is counted until it is worn out." />
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 36 }}>
           <Tab value="pieces" label="Issued pieces" sx={{ minHeight: 36 }} />
