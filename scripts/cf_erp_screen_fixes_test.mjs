@@ -344,6 +344,12 @@ await check('section sizes (pure): the nearest sizes in words, at most six bars 
   assert.equal(opts.at(-1).more, 2, 'the last bar of a size says how many more there are');
   assert.deepEqual(SP.newSizeValues(near.size, near.like), { DEPTH: '110', WIDTH: '110', THICKNESS: '12' });
   assert.deepEqual(SP.newSizeValues({ profile: null, dims: [100, 150, 10], lengthMm: null }, { depth: 65, width: 100, thickness: 8 }), { DEPTH: '100', WIDTH: '150', THICKNESS: '10' }, 'the longer leg where the like bar has it');
+  // 2026-10-19: the new size's SECTION_AREA, never the like bar's (the copied area made a new size weigh as the old one).
+  assert.equal(SP.newSizeValues({ profile: null, dims: [110, 110, 12], lengthMm: null }, { depth: 100, width: 100, thickness: 10, sectionArea: 1900 }).SECTION_AREA, '2496', 'angle: t(a + b − t) of the new size');
+  assert.equal(SP.newSizeValues({ profile: null, dims: [100, 75, 8], lengthMm: null }, { depth: 100, width: 100, thickness: 10, sectionArea: 1900 }).SECTION_AREA, '1336', 'unequal angle 100 x 75 x 8');
+  assert.equal(SP.newSizeValues({ profile: null, dims: [100, 10], lengthMm: null }, { depth: 75, width: 8, thickness: null, sectionArea: 600 }).SECTION_AREA, '1000', 'a flat typed with two numbers: depth × width');
+  assert.equal(SP.newSizeValues({ profile: null, dims: [200, 75, 6], lengthMm: null }, { depth: 150, width: 75, thickness: 5.7, sectionArea: 2167 }).SECTION_AREA, '', 'a channel (no formula): left blank for the person');
+  assert.equal(SP.newSizeValues({ profile: null, dims: [110, 110, 12], lengthMm: null }, { depth: 100, width: 100, thickness: 10 }).SECTION_AREA, undefined, 'no area on the like bar: nothing set');
   assert.equal(SP.canAddSize(near.size, [], near.like), true);
   assert.equal(SP.canAddSize(near.size, [bar(5, [110, 110], 12)], near.like), false, 'not when the size exists');
   assert.equal(SP.canAddSize({ profile: 'ISA', dims: [110], lengthMm: null }, [], near.like), false, 'not from one number');

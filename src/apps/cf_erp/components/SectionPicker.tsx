@@ -118,6 +118,11 @@ export function SectionPicker({ value, onPick, label = 'Section', helperText, di
           Add {sizeLabel(near.size)} to the catalog
         </Button>
       )}
+      {addable && near && newValues.SECTION_AREA === '' && (
+        <Typography data-testid="section-add-size-area" sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>
+          Type its section area (mm²) in the form — the weight per metre comes from it.
+        </Typography>
+      )}
       {adding && near?.like && (
         <AddSizeDialog like={near.like} values={newValues} onClose={() => setAdding(false)}
           onCreated={(made) => {
@@ -126,7 +131,7 @@ export function SectionPicker({ value, onPick, label = 'Section', helperText, di
             onPick({
               id: made.id, code: made.code ?? null, name: made.name,
               depth: Number(newValues.DEPTH) || null, width: Number(newValues.WIDTH) || null, thickness: Number(newValues.THICKNESS) || near.like?.thickness || null,
-              lengthMm: near.like?.lengthMm ?? null, sectionArea: null, grade: near.like?.grade ?? null, nodeName: near.like?.nodeName ?? null,
+              lengthMm: near.like?.lengthMm ?? null, sectionArea: Number(newValues.SECTION_AREA) || null, grade: near.like?.grade ?? null, nodeName: near.like?.nodeName ?? null,
             });
           }} />
       )}

@@ -34,7 +34,7 @@ export function nearOptions(nearest: NearSize[]): { row: SectionStockRow; group:
  * the legs — the longer one where `like` has its longer one —, THICKNESS the thickness. A dim not typed is left as the
  * like bar has it. Keys are spec codes.
  */
-export function newSizeValues(size: SectionSize | null, like: Pick<SectionStockRow, 'depth' | 'width' | 'thickness'> | null): Record<string, string> {
+export function newSizeValues(size: SectionSize | null, like: Pick<SectionStockRow, 'depth' | 'width' | 'thickness'> & Partial<Pick<SectionStockRow, 'sectionArea'>> | null): Record<string, string> {
   if (!size?.dims.length) return {};
   const d = size.dims;
   const out: Record<string, string> = {};
@@ -48,7 +48,33 @@ export function newSizeValues(size: SectionSize | null, like: Pick<SectionStockR
     out.WIDTH = String(d[0]);
   }
   if (d.length >= 3) out.THICKNESS = String(d[2]);
+  // SECTION_AREA (the weight comes from it) is the NEW size's, never the like bar's: worked out by the formula the like
+  // bar's own area follows (an angle t(a + b − t), a flat w·t), else left blank for the person to type (a channel, a
+  // beam: their tables are not a formula). 2026-10-19 — the copied area made a new size weigh as the old one.
+  if (like?.sectionArea != null) {
+    out.SECTION_AREA = out.THICKNESS
+      ? newSectionArea(like, Number(out.DEPTH), Number(out.WIDTH), Number(out.THICKNESS))
+      : flatArea(like, Number(out.DEPTH), Number(out.WIDTH));
+  }
   return out;
+}
+
+/** A two-number size (a flat "100 x 10"): depth × width when the like bar's area is its own depth × width, else ''. */
+function flatArea(like: Pick<SectionStockRow, 'depth' | 'width' | 'sectionArea'>, a: number, b: number): string {
+  const [la, lb, area] = [like.depth, like.width, like.sectionArea].map(Number);
+  if (![la, lb, area, a, b].every((x) => Number.isFinite(x) && x > 0)) return '';
+  return Math.abs(la * lb - area) <= area * 0.02 ? String(Math.round(a * b * 100) / 100) : '';
+}
+
+/** The new size's section area by the like bar's formula (within 2 %), rounded to 0.01 mm²; '' when none fits. */
+export function newSectionArea(like: Pick<SectionStockRow, 'depth' | 'width' | 'thickness' | 'sectionArea'>, a: number, b: number, t: number): string {
+  const [la, lb, lt, area] = [like.depth, like.width, like.thickness, like.sectionArea].map(Number);
+  if (![la, lb, lt, area, a, b, t].every((x) => Number.isFinite(x) && x > 0)) return '';
+  const near = (x: number) => Math.abs(x - area) <= area * 0.02;
+  const round = (x: number) => String(Math.round(x * 100) / 100);
+  if (near(lt * (la + lb - lt))) return round(t * (a + b - t));          // angle
+  if (near(la * lt) || near(lb * lt)) return round((near(la * lt) ? a : b) * t);   // flat
+  return '';
 }
 
 /** Whether to offer "Add this size to the catalog": a size was read, nothing has it exactly, and there is a bar to copy. */
