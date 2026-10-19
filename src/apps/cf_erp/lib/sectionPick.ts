@@ -59,15 +59,18 @@ export function newSizeValues(size: SectionSize | null, like: Pick<SectionStockR
   return out;
 }
 
+/** The like bar's size as these helpers read it (sectionArea may be missing). */
+type LikeSize = { depth: number | null; width: number | null; thickness?: number | null; sectionArea?: number | null };
+
 /** A two-number size (a flat "100 x 10"): depth × width when the like bar's area is its own depth × width, else ''. */
-function flatArea(like: Pick<SectionStockRow, 'depth' | 'width' | 'sectionArea'>, a: number, b: number): string {
+function flatArea(like: LikeSize, a: number, b: number): string {
   const [la, lb, area] = [like.depth, like.width, like.sectionArea].map(Number);
   if (![la, lb, area, a, b].every((x) => Number.isFinite(x) && x > 0)) return '';
   return Math.abs(la * lb - area) <= area * 0.02 ? String(Math.round(a * b * 100) / 100) : '';
 }
 
 /** The new size's section area by the like bar's formula (within 2 %), rounded to 0.01 mm²; '' when none fits. */
-export function newSectionArea(like: Pick<SectionStockRow, 'depth' | 'width' | 'thickness' | 'sectionArea'>, a: number, b: number, t: number): string {
+export function newSectionArea(like: LikeSize, a: number, b: number, t: number): string {
   const [la, lb, lt, area] = [like.depth, like.width, like.thickness, like.sectionArea].map(Number);
   if (![la, lb, lt, area, a, b, t].every((x) => Number.isFinite(x) && x > 0)) return '';
   const near = (x: number) => Math.abs(x - area) <= area * 0.02;

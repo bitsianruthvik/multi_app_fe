@@ -687,7 +687,7 @@ await check('Work orders tab: empty reply says how work orders are made; a user 
   globalThis.fetch = async (url, o) => (String(url).includes('/dashboard/work-orders')
     ? { ok: true, status: 200, text: async () => JSON.stringify({ ...woReply, workOrders: [], contractors: [], plant: { ...woReply.plant, workOrders: 0, open: 0 } }) } : real(url, o));
   const root = await show('/testco/cf_erp/management?tab=work-orders');
-  assert.match(text(), /No work orders yet/); assert.match(text(), /Contractors tab/);
+  assert.match(text(), /No work orders yet/); assert.match(text(), /Give work to a contractor/);
   await React.act(() => root.unmount());
   globalThis.fetch = real;
   globalThis.__user = { uiPermissions: ['cf_erp_floor'] };

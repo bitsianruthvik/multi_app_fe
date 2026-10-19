@@ -32,7 +32,7 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
 ## Good to know
 - **One approval type per permission.** Each kind needs its own permission (for example, approving purchase orders). A person may hold any mix of them, and the menu shows **Approvals** to anyone who holds at least one.
 - **Four eyes.** You cannot decide what you asked for yourself. The card says *You asked for this one — somebody else in Management decides it*. An admin may decide their own.
-- **Testing phase:** a company can switch on "approve own requests" in its settings, so one test login can approve its own requests. This is temporary. The admin sets it in the company settings in the database; there is no switch on this screen. Turn it off before going live.
+- **Testing phase:** a company can switch on "approve own requests" in its settings, so one test login can approve its own requests. This is temporary. The switch **Allow approving your own requests** sits at the top of this screen; an admin, or someone who approves every kind, can turn it on or off. Turn it off before going live.
 - A request already decided cannot be decided again.
 
 ## Related

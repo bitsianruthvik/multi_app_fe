@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Box, Button, Dialog, DialogActions, DialogContent, TextField, Typography } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, FormControlLabel, Switch, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 import { useAuth } from '@core/contexts/AuthContext';
 import { CfApiError } from '../api/client';
 import {
-  decideApproval, listApprovals, type AcceptanceContext, type Approval, type ApprovalList, type ApprovalType, type PoContext,
+  decideApproval, setOwnAllowed, listApprovals, type AcceptanceContext, type Approval, type ApprovalList, type ApprovalType, type PoContext,
 } from '../api/approvals';
 import { useCompanySlug } from '../hooks/useLoad';
 import { useUrlParam } from '../hooks/useUrlState';
@@ -118,6 +118,31 @@ function RebaselineBody({ ctx }: { ctx: RebaselineContext }) {
   );
 }
 
+/**
+ * The company's "approve your own requests" switch (§78, testing phase; 2026-10-19 — before, a database column only).
+ * Off = the four-eyes rule. Only an admin or someone who decides every kind changes it; others see it only when on.
+ */
+function OwnRequestsSwitch({ on, canSet, onChanged }: { on: boolean; canSet: boolean; onChanged: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!canSet) {
+    return on ? <Typography data-testid="own-requests-note" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Self-approval is on: a person may decide what they asked for themselves (testing phase).</Typography> : null;
+  }
+  const flip = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setOwnAllowed(next);
+      toast.success(next ? 'Self-approval is on.' : 'Self-approval is off — somebody else decides what you asked for.');
+      onChanged();
+    } catch (e) { toast.error((e as CfApiError).message ?? 'Could not change it.'); } finally { setBusy(false); }
+  };
+  return (
+    <FormControlLabel data-testid="own-requests-switch" sx={{ ml: 0 }}
+      control={<Switch checked={on} disabled={busy} onChange={(e) => void flip(e.target.checked)} slotProps={{ input: { 'aria-label': 'Allow approving your own requests' } }} />}
+      label={<Typography sx={{ fontSize: 13.5 }}>Allow approving your own requests <Box component="span" sx={{ color: 'var(--c-text-2)' }}>— for testing and early use. Turn it off for the four-eyes rule (somebody else decides).</Box></Typography>} />
+  );
+}
+
 function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number | null; ownAllowed: boolean; onDecide: (a: Approval, d: 'approve' | 'reject') => void }) {
   const pending = a.status === 'pending';
   const mine = !!me && a.requestedBy?.id === me && !ownAllowed;
@@ -191,6 +216,7 @@ export default function Approvals() {
         <FacetChip label="All kinds" active={!type} onClick={() => setType('')} />
         {(data?.types ?? []).map((t) => <FacetChip key={t.key} label={t.label} active={type === t.key} onClick={() => setType(t.key)} count={want === 'pending' ? data?.counts[t.key] : undefined} />)}
       </FilterBar>
+      {data && <OwnRequestsSwitch on={!!data.ownAllowed} canSet={!!data.canSetOwn} onChanged={load} />}
       <ErrorNotice error={error} onRetry={load} />
       {!data && !error && <ListSkeleton rows={4} />}
       {data && !data.rows.length && <EmptyState icon={<FactCheckRounded />} title={want === 'pending' ? 'Nothing waits for you.' : 'Nothing decided yet.'} />}

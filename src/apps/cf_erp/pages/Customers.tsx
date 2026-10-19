@@ -79,7 +79,7 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
 
   return (
     <Box>
-      <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from an order’s Contractors tab.' : fixedRole === 'supplier' ? 'Who you buy from — asked for quotations on a purchase order, and the PO is placed with them.' : 'Who orders from you — and who supplies you. One record can be both.'}
+      <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from a production order’s Give work to a contractor.' : fixedRole === 'supplier' ? 'Who you buy from — asked for quotations on a purchase order, and the PO is placed with them.' : 'Who orders from you — and who supplies you. One record can be both.'}
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or contact">
@@ -96,7 +96,7 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
           </>
         ) : undefined}
         empty={<EmptyState icon={<PeopleRounded />} title={term ? 'Nobody matches' : 'Nobody here yet'}
-          hint={term ? 'Try a code, a name or a contact.' : role === 'subcontractor' ? 'Add a contractor — then assign them work on an order’s Contractors tab.' : role === 'supplier' ? 'Add a supplier — purchase orders need one.' : 'Add the first customer — orders need one.'}
+          hint={term ? 'Try a code, a name or a contact.' : role === 'subcontractor' ? 'Add a contractor — then give them work from a production order (Give work to a contractor).' : role === 'supplier' ? 'Add a supplier — purchase orders need one.' : 'Add the first customer — orders need one.'}
           action={!term && canManage && <Button variant="contained" onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />} />
       <PartyDialog open={editing.open} existing={editing.party} defaultRole={role === 'all' ? 'customer' : (role as PartyRole)} onClose={() => setEditing({ open: false, party: null })}
         onSaved={(p) => { toast.success(`${p.name} saved.`); invalidateNavCounts(); list.reload(); }} />

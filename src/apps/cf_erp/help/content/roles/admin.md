@@ -32,7 +32,7 @@ Home has a **Setup** card listing these steps in order, with a tick when each ha
 
 ## Approvals and testing
 - Each approval kind is its own permission. Give Management only the kinds each person should decide.
-- Four eyes is the rule: nobody approves their own request, except an admin. For testing, a company setting ("approve own requests") lets one login approve its own requests. It is set in the database, not on a screen. Switch it off before going live.
+- Four eyes is the rule: nobody approves their own request, except an admin. For testing, a company setting ("approve own requests") lets one login approve its own requests. Turn it on or off with **Allow approving your own requests** on the [Approvals](help:management-approvals) screen. Switch it off before going live.
 
 ## Related
 - [Home](help:home-cockpit)

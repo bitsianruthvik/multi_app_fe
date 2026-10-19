@@ -80,9 +80,12 @@ export interface ApprovalList {
   rows: Approval[]; counts: Partial<Record<ApprovalType, number>>; types: { key: ApprovalType; label: string }[];
   /** The company lets a person decide what they asked for themselves (testing phase). */
   ownAllowed?: boolean;
+  /** This person may turn ownAllowed on or off (an admin, or someone who decides every kind). */
+  canSetOwn?: boolean;
 }
 
 export const listApprovals = (q: { status?: 'pending' | 'decided' | 'all'; type?: ApprovalType | ''; orderId?: number } = {}) => cfApi.get<ApprovalList>(`/approvals${qs(q)}`);
 export const getApproval = (id: number) => cfApi.get<Approval>(`/approvals/${id}`);
 export const decideApproval = (id: number, decision: 'approve' | 'reject', note?: string) => cfApi.post<{ approval: Approval; result: unknown }>(`/approvals/${id}/decide`, { decision, ...(note ? { note } : {}) });
+export const setOwnAllowed = (ownAllowed: boolean) => cfApi.put<{ ownAllowed: boolean }>('/approvals/settings', { ownAllowed });
 export const withdrawApproval = (id: number) => cfApi.post<Approval>(`/approvals/${id}/withdraw`, {});

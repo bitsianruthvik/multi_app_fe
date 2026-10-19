@@ -52,7 +52,7 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
   if (!data.workOrders.length) {
     return (
       <EmptyState title="No work orders yet"
-        hint="Hand operations to a contractor from an order's Production › Contractors tab (the design must be frozen). Each contractor gets a work order per order line, and it shows here with how far it is." />
+        hint="Give work to a contractor from a production order (Production › Production orders › open one › Give work to a contractor). Each contractor gets a work order, and it shows here with how far it is." />
     );
   }
 
