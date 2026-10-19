@@ -1167,7 +1167,7 @@ export function gradeCheckView(check: GradeCheck | null | undefined): { tone: 'o
   if (!check) return null;
   const mism = check.mismatches ?? [];
   const unknown = check.unknown ?? [];
-  // Under 'warn' (the default) a mismatch is said, not refused: a warning, not an error.
+  // Under 'warn' (a company's choice; the default is 'exact') a mismatch is said, not refused: a warning, not an error.
   const tone = mism.length ? (check.rule === 'warn' || check.blocking === false ? 'warning' : 'error') : unknown.length ? 'warning' : 'ok';
   const label = mism.length ? `${mism.length} ${mism.length === 1 ? 'mismatch' : 'mismatches'}`
     : unknown.length ? 'Impact class not stated' : (check.substitutes ?? []).length ? 'Matches (some on a better plate)' : 'Matches';

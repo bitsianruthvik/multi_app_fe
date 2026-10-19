@@ -153,7 +153,7 @@ const compare = () => ({
   wholeLine: null, willReplace: null, run: null, lastFailure: null, canAccept: null, alternative: null,
 });
 const puts = [];
-let rulesNow = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'warn', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null }, rows: [], resolved: [] };
+let rulesNow = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'exact', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null }, rows: [], resolved: [] };
 globalThis.fetch = async (url, o = {}) => {
   const u = String(url); const method = o.method || 'GET';
   const body = o.body ? JSON.parse(o.body) : null;

@@ -39,13 +39,13 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
   return (
     <Box data-testid="nest-plate-rules-card" sx={{ maxWidth: 880, mt: 2 }}>
       <SectionCard title="AI nesting — grade, impact class and custom plate sizes"
-        subtitle={`A piece is nested only on a plate of its grade and impact class (${rules?.impactOrder ?? 'A < BR < BO / B0 < C'}). The AI may also propose one custom plate size per steel, within the mill's sizes; it is added to the catalog when that nesting is used.`}>
+        subtitle={`A piece is nested only on a plate of its grade and impact class — exactly, by default (the order of classes for the other rules: ${rules?.impactOrder ?? 'A < BR < BO / B0 < C'}). The AI may also propose one custom plate size per steel, within the mill's sizes; it is added to the catalog when that nesting is used.`}>
         <Box sx={{ display: 'grid', gap: 1.5, minWidth: 0 }}>
           {rules && !schema && <Alert severity="info">This database does not have these settings yet (init.sql §90). Nesting uses the default rule and proposes no custom size.</Alert>}
           <TextField select size="small" label="Which plate may carry a piece" value={rule} disabled={!canEdit || !schema} onChange={(e) => setRule(e.target.value as NestGradeRule | '')}
             sx={{ maxWidth: 520 }} slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true }, htmlInput: { 'aria-label': 'Grade and impact rule' } }}>
-            <MenuItem value="">{GRADE_RULE_WORDS.warn}</MenuItem>
-            {(rules?.gradeRules ?? ['better', 'exact', 'higher']).filter((r) => r !== 'warn').map((r) => <MenuItem key={r} value={r}>{GRADE_RULE_WORDS[r] ?? r}</MenuItem>)}
+            <MenuItem value="">{`Default — ${GRADE_RULE_WORDS[(rules?.gradeRuleDefault ?? 'exact') as NestGradeRule] ?? 'exact'}`}</MenuItem>
+            {(rules?.gradeRules ?? ['better', 'exact', 'higher']).map((r) => <MenuItem key={r} value={r}>{GRADE_RULE_WORDS[r] ?? r}</MenuItem>)}
           </TextField>
           <FormControlLabel
             control={<Switch checked={on} disabled={!canEdit || !schema} onChange={(e) => setOn(e.target.checked)} slotProps={{ input: { 'aria-label': 'Let the AI propose custom plate sizes' } }} />}

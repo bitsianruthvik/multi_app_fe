@@ -5,7 +5,7 @@ import type { NestCustomPlateSetting, NestGradeRule } from '../api/cutting';
  * The server's rule: multi_app_be apps/cf_erp/lib/plateGrade.js.
  */
 export const GRADE_RULE_WORDS: Record<NestGradeRule, string> = {
-  warn: 'Warn only (default)',
+  warn: 'Warn only (never refuse)',
   better: "Refuse: the piece's grade; its impact class or a better one",
   exact: 'Refuse: exactly the grade and impact class the piece asks',
   higher: 'Refuse: a higher grade of the same family may stand in; impact class equal or better',

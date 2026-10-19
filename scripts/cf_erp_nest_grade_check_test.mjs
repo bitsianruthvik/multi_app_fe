@@ -96,16 +96,16 @@ await check('gradeCheckView: a plate that states no class is a warning; matches 
   assert.equal(gradeCheckView(null), null);
 });
 
-await check("gradeCheckView: under 'warn' (the default) a mismatch is a warning — said, not refused", async () => {
+await check("gradeCheckView: under 'warn' (a company's choice) a mismatch is a warning — said, not refused", async () => {
   const v = gradeCheckView({ ...bad, rule: 'warn', blocking: false });
   assert.equal(v.tone, 'warning');
   assert.equal(v.label, '1 mismatch');
   assert.equal(v.lines.length, 1);
 });
 
-await check('GRADE_RULE_WORDS: warn only (the default) first, then the three refusing rules', async () => {
+await check('GRADE_RULE_WORDS: warn only (never refuse), then the three refusing rules', async () => {
   assert.deepEqual(Object.keys(GRADE_RULE_WORDS), ['warn', 'better', 'exact', 'higher']);
-  assert.equal(GRADE_RULE_WORDS.warn, 'Warn only (default)');
+  assert.equal(GRADE_RULE_WORDS.warn, 'Warn only (never refuse)');
   assert.match(GRADE_RULE_WORDS.better, /impact class or a better one/);
   assert.match(GRADE_RULE_WORDS.higher, /higher grade of the same family/);
 });
@@ -125,7 +125,7 @@ const compare = () => ({
   wholeLine: null, willReplace: null, run: null, lastFailure: null, canAccept: null, alternative: null,
 });
 const puts = [];
-const rules = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'warn', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null }, rows: [], resolved: [] };
+const rules = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'exact', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null }, rows: [], resolved: [] };
 globalThis.fetch = async (url, o = {}) => {
   const u = String(url); const method = o.method || 'GET';
   if (u.includes('/nest-shop-rules') && method === 'PUT') { const body = JSON.parse(o.body); puts.push(body); return reply({ ...rules, gradeRule: body.gradeRule }); }
@@ -164,17 +164,17 @@ await check('the Compare tab: a plate that states no class is a warning, with th
   await unmount();
 });
 
-await check('Setup › Cutting: "Warn only (default)" shown first; choose "exactly the grade and impact class" and save — the PUT carries gradeRule exact', async () => {
+await check('Setup › Cutting: "Default — exactly …" first, "Warn only (never refuse)" selectable; choose "exactly the grade and impact class" and save — the PUT carries gradeRule exact', async () => {
   let saved = null;
   await mountEl(inRouter(React.createElement(NestPlateRulesCard, { rules, onSaved: (r) => { saved = r; } })));
   await waitFor(() => $('nest-plate-rules-card'), 'the card');
   const combo = $('nest-plate-rules-card').querySelector('[role="combobox"]');
   assert.ok(combo, 'the rule select');
-  assert.equal(combo.textContent, 'Warn only (default)');
+  assert.equal(combo.textContent, `Default — ${GRADE_RULE_WORDS.exact}`, 'the default (blank) is exact');
   await React.act(async () => { combo.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 })); await sleep(10); });
   await waitFor(() => [...document.querySelectorAll('[role="option"]')].length >= 4, 'the options');
   const opts = [...document.querySelectorAll('[role="option"]')].map((li) => li.textContent);
-  assert.deepEqual(opts, [GRADE_RULE_WORDS.warn, GRADE_RULE_WORDS.better, GRADE_RULE_WORDS.exact, GRADE_RULE_WORDS.higher], 'warn once, first');
+  assert.deepEqual(opts, [`Default — ${GRADE_RULE_WORDS.exact}`, GRADE_RULE_WORDS.warn, GRADE_RULE_WORDS.better, GRADE_RULE_WORDS.exact, GRADE_RULE_WORDS.higher], 'the default first, then every rule');
   const opt = [...document.querySelectorAll('[role="option"]')].find((li) => li.textContent === GRADE_RULE_WORDS.exact);
   assert.ok(opt, 'the exact option');
   await React.act(async () => { opt.click(); await sleep(10); });
