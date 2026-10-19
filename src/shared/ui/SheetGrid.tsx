@@ -8,6 +8,9 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import { readPref, writePref } from './storage';
+// Motion tokens + the reduced-motion / jsdom switch (TM/CF_ERP_MOTION_SPEC.md). The keyframes' colour is motion.css's
+// --m-flash-bg; where that sheet is not loaded the flash is simply invisible.
+import { duration, motionOff } from '../../apps/cf_erp/motion';
 
 /**
  * SheetGrid — the Excel-like grid. It exists so a screen that wants "type over
@@ -363,6 +366,32 @@ export function SheetGrid({
     if (!rowIndex.has(rowKey) || !colByKey.has(colKey)) return null;
     return cellAt(rowKey, colKey);
   };
+  // ── motion: the cells just written flash once (it took), and rows that arrive — added, not merely expanded — get the
+  // same soft highlight. Colour only (an inset shadow, so a selected cell flashes too), 600 ms; nothing in jsdom or
+  // under reduced motion, where no state is even set. Removed rows simply go: keeping them to animate out would
+  // change what the grid holds. ──
+  const [flash, setFlash] = useState<{ cells: Set<string>; rows: Set<string>; n: number }>(() => ({ cells: new Set(), rows: new Set(), n: 0 }));
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFlash = (cells: string[], newRows: string[]) => {
+    if ((!cells.length && !newRows.length) || motionOff()) return;
+    setFlash((f) => ({ cells: new Set(cells), rows: new Set(newRows), n: f.n + 1 }));
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash((f) => ({ cells: new Set(), rows: new Set(), n: f.n })), duration.flash);
+  };
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+  const flashClass = (on: boolean, kind: 'cell' | 'row') => (on ? ` sg-${kind}-flash-${flash.n % 2 ? 'a' : 'b'}` : '');
+  const knownRows = useRef<{ view: string | undefined; keys: Set<string> } | null>(null);
+  /** When this grid's own chevron last toggled a row: the rows that appear next are an expansion, not an addition. */
+  const toggledAt = useRef(0);
+  useEffect(() => {
+    const keys = rows.map((r) => r.key);
+    const known = knownRows.current;
+    // First rows, another view, or the first load after an empty grid: nothing is "new".
+    if (!known || known.view !== historyKey || known.keys.size === 0) { knownRows.current = { view: historyKey, keys: new Set(keys) }; return; }
+    const fresh = keys.filter((k) => !known.keys.has(k));
+    keys.forEach((k) => known.keys.add(k));
+    if (fresh.length && fresh.length <= 5 && Date.now() - toggledAt.current > 1000) showFlash([], fresh);
+  });
   /** Every write the grid makes goes through here: record the restore text first, then emit. */
   const emit = (writes: SheetWrite[]) => {
     if (!writes.length) return;
@@ -372,6 +401,7 @@ export function SheetGrid({
     });
     undoStack.current = [...undoStack.current, entry].slice(-HISTORY_LIMIT); redoStack.current = [];
     onWrites?.(writes); notifyHistory();
+    showFlash(writes.map((w) => `${w.rowKey}\u0001${w.colKey}`), []);
   };
   const travel = (from: { current: HistoryItem[][] }, to: { current: HistoryItem[][] }, field: 'before' | 'after'): boolean => {
     const entry = from.current[from.current.length - 1];
@@ -385,6 +415,7 @@ export function SheetGrid({
     if (!writes.length) { problem(`Nothing ${field === 'before' ? 'undone' : 'redone'}: ${skipped.join(', ')} ${skipped.length > 1 ? 'are' : 'is'} read-only now.`); return false; }
     from.current = from.current.slice(0, -1); to.current = [...to.current, entry].slice(-HISTORY_LIMIT);
     onWrites?.(writes);
+    showFlash(writes.map((w) => `${w.rowKey}\u0001${w.colKey}`), []);
     problem(skipped.length ? `${skipped.join(', ')} ${skipped.length > 1 ? 'were' : 'was'} read-only and left as is.` : null);
     notifyHistory(); return true;
   };
@@ -690,7 +721,7 @@ export function SheetGrid({
     const label = labelOf(key);
     const stripName = stripKeys && !blank ? `${col.short ?? col.label ?? key}${col.unit ? ` ${col.unit}` : ''}` : undefined;
     const twoLines = !!stripName && stripName.length > Math.floor((width - 20) / 4.9);
-    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={stripName && stripName.length > Math.floor((width - 20) / 4.9) ? 2 : undefined} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
+    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={stripName && stripName.length > Math.floor((width - 20) / 4.9) ? 2 : undefined} className={`sg-data${flashClass(flash.cells.has(`${row.key}\u0001${key}`), 'cell')}`} data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
       data-dropdown={isDropdown(cell) && can ? 'true' : undefined}
       tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
       title={`${twoLines ? `${stripName} — ` : ''}${na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}`}
@@ -793,6 +824,11 @@ export function SheetGrid({
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
           // Strip: the labels are quiet — small, muted, no box of their own — and the space past a row's last cell is nothing.
           '& td.sg-void': { borderRightColor: 'transparent', borderBottomColor: 'transparent', background: 'var(--c-surface)' },
+          // Motion (see showFlash): two names so a second write inside the flash restarts it.
+          '@keyframes sg-flash-a': { from: { boxShadow: 'inset 0 0 0 999px var(--m-flash-bg, transparent)' }, to: { boxShadow: 'inset 0 0 0 999px transparent' } },
+          '@keyframes sg-flash-b': { from: { boxShadow: 'inset 0 0 0 999px var(--m-flash-bg, transparent)' }, to: { boxShadow: 'inset 0 0 0 999px transparent' } },
+          '& td.sg-cell-flash-a, & tr.sg-row-flash-a > td': { animation: 'sg-flash-a var(--m-dur-flash) var(--m-ease-standard)' },
+          '& td.sg-cell-flash-b, & tr.sg-row-flash-b > td': { animation: 'sg-flash-b var(--m-dur-flash) var(--m-ease-standard)' },
         }}>
         {stripKeys && <colgroup>
           <col style={{ width: capped(headW) }} />
@@ -811,7 +847,9 @@ export function SheetGrid({
         <tbody>{rows.map((row, r) => {
           const extra = rowProps?.(row.key);
           const len = keysOf(r).length;
+          const fresh = flashClass(flash.rows.has(row.key), 'row');
           const tr = <Box component="tr" key={row.key} aria-level={(row.depth ?? 0) + 1} aria-expanded={row.collapsible ? !row.collapsed : undefined} {...extra}
+            className={fresh ? `${extra?.className ?? ''}${fresh}`.trim() : extra?.className}
             sx={rowSx?.(row.key)} data-row={row.key}>
             <Box component="td" role="rowheader" data-cell={`${r}:0`} className="sg-rowhead" tabIndex={-1}
               onClick={(e) => { if ((e.target as HTMLElement).closest(INTERACTIVE)) return; selectRow(row.key); }}>
@@ -819,7 +857,7 @@ export function SheetGrid({
                 {row.below != null ? <Box sx={{ gridColumn: 1, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.lead}</Box> : row.lead}
                 <Box sx={{ ml: Math.min(row.depth ?? 0, 7) * 1.25, display: 'flex', minWidth: 0, alignItems: 'center', flex: 1, ...(row.below != null ? { gridColumn: 2, gridRow: 1 } : {}) }}>
                   {anyCollapsible && <IconButton size="small" disabled={!row.collapsible} aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label ?? row.key}`}
-                    onClick={() => onToggleRow?.(row.key)} sx={{ width: 28, height: Math.max(20, rowHeight - 6), visibility: row.collapsible ? 'visible' : 'hidden' }}>
+                    onClick={() => { toggledAt.current = Date.now(); onToggleRow?.(row.key); }} sx={{ width: 28, height: Math.max(20, rowHeight - 6), visibility: row.collapsible ? 'visible' : 'hidden' }}>
                     {row.collapsed ? <ChevronRightRounded fontSize="small" /> : <ExpandMoreRounded fontSize="small" />}
                   </IconButton>}
                   <Box sx={{ minWidth: 0, flex: 1 }}>{row.header}</Box>

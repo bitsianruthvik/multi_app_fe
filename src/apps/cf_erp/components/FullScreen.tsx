@@ -46,7 +46,9 @@ export function FullScreenFrame({ on, onExit, children }: { on: boolean; onExit:
   return (
     <Box data-testid={on ? 'full-screen-frame' : undefined} role={on ? 'region' : undefined} aria-label={on ? 'Full screen' : undefined}
       sx={on
-        ? { position: 'fixed', inset: 0, zIndex: 1250, overflow: 'auto', overscrollBehavior: 'contain', background: 'var(--c-bg, var(--c-surface))', p: { xs: 2, md: 3 } }
+        // Going full screen: the frame fades in over the shell (200 ms, opacity only — the step inside never moves or remounts).
+        ? { position: 'fixed', inset: 0, zIndex: 1250, overflow: 'auto', overscrollBehavior: 'contain', background: 'var(--c-bg, var(--c-surface))', p: { xs: 2, md: 3 },
+          animation: 'cfm-fade-in var(--m-dur-slow) var(--m-ease-standard)' }
         : { display: 'contents' }}>
       {children}
     </Box>

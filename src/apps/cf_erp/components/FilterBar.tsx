@@ -3,6 +3,7 @@ import { Box, IconButton, InputBase } from '@mui/material';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import { Surface } from './ui';
+import { FlashOnChange } from '../motion';
 
 /** A single facet chip used in FilterBar. */
 export function FacetChip({
@@ -37,7 +38,8 @@ export function FacetChip({
         fontWeight: 500,
         cursor: 'pointer',
         whiteSpace: 'nowrap',
-        transition: 'all var(--t-fast) var(--ease)',
+        // Picking a facet: its tint, border and ink ease over (colour only, 120 ms) — the chip says it is now on.
+        transition: ['background-color', 'border-color', 'color'].map((p) => `${p} var(--m-dur-fast) var(--m-ease-standard)`).join(', '),
         '&:hover': { borderColor: 'var(--c-primary-200)', color: 'var(--c-primary-700)' },
       }}
     >
@@ -51,7 +53,8 @@ export function FacetChip({
             color: active ? 'var(--c-primary-600)' : 'var(--c-text-3)',
           }}
         >
-          {count}
+          {/* The count flashes when it moves (a search or another filter narrowed it). */}
+          <FlashOnChange value={count}>{count}</FlashOnChange>
         </Box>
       )}
     </Box>
