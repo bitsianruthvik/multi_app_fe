@@ -117,10 +117,14 @@ export interface Rules {
 export interface AssignmentRow { id: number; scope: 'COMPANY' | 'LOCATION' | 'ROLE' | 'LABEL'; locationId: number | null; roleId: number | null; labelId: number | null; policyId: number; target: string }
 export interface AttPolicy { id: number; code: string | null; name: string; description: string | null; status: string; rules: Rules; sentences: string[]; assignments: AssignmentRow[] }
 
+/** What a device did that HR should see: it talked from a new address, or from one outside its allowed addresses. */
+export interface DeviceEvent { id: number; kind: 'IP_CHANGED' | 'IP_REFUSED'; ip: string | null; previousIp: string | null; note: string | null; at: string | null }
 export interface Device {
-  id: number; name: string; serialNumber: string; make: string | null; model: string | null; locationId: number | null; locationName: string | null;
+  /** serialNumber is "••••1234" (serialMasked) for a login without attendance edit; allowedIps is then null. */
+  id: number; name: string; serialNumber: string; serialMasked?: boolean; make: string | null; model: string | null; locationId: number | null; locationName: string | null;
   timezone: string; protocol: 'ADMS' | 'API' | 'IMPORT'; status: 'ACTIVE' | 'DISABLED'; lastSeenAt: string | null; lastPunchAt: string | null; lastIp: string | null;
   online: boolean; state: string; mapped: number; unmapped: number; punchesToday: number; info: string | null; notes: string | null;
+  allowedIps: string[] | null; events: DeviceEvent[];
 }
 export interface Mapping { id: number; deviceId: number | null; deviceName: string; deviceUserId: string; employee: { employeeId: number; name: string; employeeCode: string | null } }
 export interface Unmapped { deviceId: number | null; deviceName: string; serialNumber: string | null; deviceUserId: string; punches: number; firstAt: string; lastAt: string }
@@ -156,7 +160,7 @@ export const attendanceApi = {
   updatePolicy: (id: number, body: Partial<{ name: string; description: string | null; status: string; rules: Partial<Rules> }>) => api.put<{ policy: AttPolicy }>(`/attendance/policies/${id}`, body),
   removePolicy: (id: number) => api.del<{ ok: true }>(`/attendance/policies/${id}`),
   assign: (body: { scope: AssignmentRow['scope']; targetId?: number | null; policyId: number | null }) => api.put<unknown>('/attendance/policy-assignments', body),
-  devices: () => api.get<{ devices: Device[]; onlineMinutes: number }>('/attendance/devices'),
+  devices: () => api.get<{ devices: Device[]; onlineMinutes: number; alerts: number }>('/attendance/devices'),
   createDevice: (body: Partial<Device> & { name: string; serialNumber: string }) => api.post<{ device: Device }>('/attendance/devices', body),
   updateDevice: (id: number, body: Partial<Device>) => api.put<{ device: Device }>(`/attendance/devices/${id}`, body),
   removeDevice: (id: number) => api.del<{ ok: true }>(`/attendance/devices/${id}`),

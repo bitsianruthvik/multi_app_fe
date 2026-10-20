@@ -19,7 +19,7 @@ import { listRoles } from '../../api/roles';
 import { peopleApi } from '../../api/people';
 import {
   attendanceApi, dayLabel, hm, minutesWord, monthLabel, todayLocal,
-  type Action, type ApiKey, type AssignmentRow, type AttPolicy, type Device, type ImportPreview, type Mapping, type MonthState, type Rules, type Settings, type Unmapped,
+  type Action, type ApiKey, type AssignmentRow, type AttPolicy, type Device, type DeviceEvent, type ImportPreview, type Mapping, type MonthState, type Rules, type Settings, type Unmapped,
 } from '../../api/attendance';
 import { ScreenHeader } from '../TabbedScreen';
 import { PolicySentences } from './AttendanceParts';
@@ -212,11 +212,17 @@ export function AttPolicies() {
 
 /* ══ Devices ════════════════════════════════════════════════════════════════ */
 
+const eventWords = (e: DeviceEvent) => (e.kind === 'IP_CHANGED'
+  ? `Now talks from ${e.ip ?? '?'} (was ${e.previousIp ?? '?'})`
+  : `Refused a push from ${e.ip ?? '?'} (not an allowed address)`);
+
 function DeviceDialog({ device, onClose, onSaved }: { device: Device | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ name: device?.name ?? '', serialNumber: device?.serialNumber ?? '', make: device?.make ?? 'ZKTeco', model: device?.model ?? '', timezone: device?.timezone ?? 'Asia/Kolkata', protocol: device?.protocol ?? 'ADMS', status: device?.status ?? 'ACTIVE' });
+  const [ips, setIps] = useState((device?.allowedIps ?? []).join('\n'));
+  const allowedIps = ips.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
   return (
     <FormDialog open title={device ? `Change ${device.name}` : 'Register a device'} subtitle="The serial number is on the device: Menu › System info › Device info." onClose={onClose} submitDisabled={!f.name.trim() || !f.serialNumber.trim()}
-      onSubmit={async () => { if (device) await attendanceApi.updateDevice(device.id, f); else await attendanceApi.createDevice(f); onSaved(); }}>
+      onSubmit={async () => { const body = { ...f, allowedIps }; if (device) await attendanceApi.updateDevice(device.id, body); else await attendanceApi.createDevice(body); onSaved(); }}>
       <Box sx={{ display: 'grid', gap: 1.5, mt: 0.5 }}>
         <TextField size="small" label="Name (where it is)" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-field="device-name" />
         <TextField size="small" label="Serial number" required value={f.serialNumber} onChange={(e) => setF({ ...f, serialNumber: e.target.value })} data-field="device-serial" />
@@ -231,6 +237,9 @@ function DeviceDialog({ device, onClose, onSaved }: { device: Device | null; onC
           <TextField size="small" label="Timezone" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} />
         </Box>
         {device && <TextField select size="small" label="State" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as Device['status'] })}><MenuItem value="ACTIVE">Active</MenuItem><MenuItem value="DISABLED">Disabled (its pushes are refused)</MenuItem></TextField>}
+        <TextField size="small" label="Allowed addresses (optional)" multiline minRows={2} value={ips} onChange={(e) => setIps(e.target.value)} data-field="device-allowed-ips"
+          placeholder={'203.0.113.10\n198.51.100.0/24'}
+          helperText="The plant's internet addresses, one a line (a range like 198.51.100.0/24 works). When set, a push from any other address is refused and shown below. Empty = any address." />
       </Box>
     </FormDialog>
   );
@@ -293,18 +302,38 @@ export function AttDevices() {
       </Callout>
       {!devices ? <ListSkeleton rows={3} /> : (
         <Stack spacing={2}>
+          {devices.some((d) => d.events.length > 0) && (
+            <Callout title="A device changed its address, or a push was refused">
+              Check each one below. A device that moved to a new internet line is fine; an address you do not know may be someone sending punches with a copied serial number
+              — then set the device's allowed addresses (Change).
+            </Callout>
+          )}
           <SectionCard title="Devices" flush>
             {devices.length === 0 ? <Box sx={{ p: 2 }}><Typography sx={{ color: 'var(--c-text-2)' }}>No device yet.</Typography></Box> : devices.map((d) => (
               <Box key={d.id} data-device={d.id} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', px: 2, py: 1.25, borderBottom: '1px solid var(--c-divider)' }}>
                 <Box sx={{ flex: '1 1 220px', minWidth: 0 }}>
                   <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{d.name}</Typography>
-                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{[d.serialNumber, d.make, d.model, d.protocol].filter(Boolean).join(' · ')}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }} title={d.serialMasked ? 'Only the last 4 characters are shown: the serial is what the device proves itself with.' : undefined}>
+                    {[d.serialNumber, d.make, d.model, d.protocol].filter(Boolean).join(' · ')}
+                  </Typography>
+                  {d.allowedIps && d.allowedIps.length > 0 && (
+                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Allowed from {d.allowedIps.join(', ')}</Typography>
+                  )}
                 </Box>
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 220px' }}>
                   {d.lastSeenAt ? `Last heard ${new Date(d.lastSeenAt).toLocaleString('en-IN')}` : 'Never heard from'}{d.lastPunchAt ? ` · last punch ${dayLabel(d.lastPunchAt.slice(0, 10))} ${hm(d.lastPunchAt)}` : ''} · {d.punchesToday} today
                 </Typography>
                 <ToneBadge tone={d.state === 'Online' ? 'success' : d.state === 'Disabled' ? 'neutral' : 'warning'} label={d.state} />
                 {can.attendance.edit && <Button size="small" onClick={() => setEditing(d)}>Change</Button>}
+                {d.events.length > 0 && (
+                  <Box sx={{ flex: '1 1 100%', display: 'grid', gap: 0.25 }} data-device-events={d.id}>
+                    {d.events.map((e) => (
+                      <Typography key={e.id} sx={{ fontSize: 12.5, color: e.kind === 'IP_REFUSED' ? 'var(--c-danger-700)' : 'var(--c-warning-800)', overflowWrap: 'anywhere' }}>
+                        {e.at ? `${new Date(e.at).toLocaleString('en-IN')} — ` : ''}{eventWords(e)}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
               </Box>
             ))}
           </SectionCard>
