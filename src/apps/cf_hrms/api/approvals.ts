@@ -15,7 +15,8 @@ import type { AttRequest, AttRequestWithContext } from './attendance';
  */
 
 /** LEAVE (§22) and ATTENDANCE — correct a day, short permission, on duty (§28.5). */
-export type ApprovalKind = 'LEAVE' | 'ATTENDANCE';
+/** … and CLAIM — a claim against bills waiting for the manager's first look (payroll P3b; its door is claimApprovalsApi in api/payrollExit.ts). */
+export type ApprovalKind = 'LEAVE' | 'ATTENDANCE' | 'CLAIM';
 
 export interface ApprovalItem {
   kind: ApprovalKind;

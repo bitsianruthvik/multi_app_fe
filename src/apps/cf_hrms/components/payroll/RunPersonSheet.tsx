@@ -17,7 +17,7 @@ import {
 import { payrollApi, type PayComponent, type RunItem, type RunPersonDetail } from '../../api/payroll';
 import { RowActions } from '../list/RowActions';
 import { Amount, Fact } from './PayParts';
-import { KIND_ORDER, KIND_PLURAL, monthWord, parseAmount, rupees, warningWord } from './payWords';
+import { KIND_ORDER, KIND_PLURAL, LINE_SOURCE_WORD, monthWord, parseAmount, rupees, warningWord } from './payWords';
 import { longDay } from '../jobDates';
 
 interface ItemDraft { item: RunItem | null; componentId: string; amount: string; note: string }
@@ -160,7 +160,10 @@ export function RunPersonSheet({
                 {lines.map((l) => (
                   <Box key={l.id} sx={{ display: 'flex', gap: 1.5, py: 0.6, borderBottom: '1px solid var(--c-divider)', '&:last-of-type': { borderBottom: 0 } }}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: 13.5 }}>{l.name}{l.forMonth ? ` (${monthWord(l.forMonth)})` : ''}</Typography>
+                      <Typography sx={{ fontSize: 13.5 }}>
+                        {l.name}{l.forMonth ? ` (${monthWord(l.forMonth)})` : ''}
+                        {LINE_SOURCE_WORD[l.source] && <Typography component="span" data-line-source={l.source} sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 0.75 }}>· {LINE_SOURCE_WORD[l.source]}</Typography>}
+                      </Typography>
                       {(l.basis || (l.fullAmount != null && l.fullAmount !== l.amount)) && (
                         <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
                           {l.basis}

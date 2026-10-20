@@ -68,7 +68,36 @@ export const WARNING_WORDS: Record<string, { label: string; tone: BadgeTone }> =
   TDS_NO_RULES: { label: 'No tax rules', tone: 'warning' },
   INACTIVE: { label: 'Inactive, no exit date', tone: 'danger' },
   EPS_58: { label: 'Turns 58', tone: 'info' },
+  // P3b: full and final, claims, attendance and overtime in the run.
+  SETTLEMENT: { label: 'Full and final', tone: 'info' },
+  SETTLEMENT_ONLY: { label: 'Full and final only', tone: 'info' },
+  CLAIMS: { label: 'Claims', tone: 'info' },
+  ATTENDANCE: { label: 'Attendance', tone: 'warning' },
+  OVERTIME: { label: 'Overtime', tone: 'info' },
 };
+
+/** Where a run line came from, when it is not the salary structure — a small label on the person sheet. */
+export const LINE_SOURCE_WORD: Record<string, string> = {
+  ATTENDANCE: 'from attendance',
+  SETTLEMENT: 'full and final',
+  CLAIM: 'claim',
+};
+
+/* ── claims and full and final (P3b) ──────────────────────────────────── */
+
+export const CLAIM_TONE: Record<string, BadgeTone> = {
+  WAITING: 'warning', PENDING: 'warning', SUBMITTED: 'warning', RECOMMENDED: 'info',
+  APPROVED: 'info', PAID: 'success', REJECTED: 'danger', WITHDRAWN: 'neutral',
+};
+export const SETTLEMENT_TONE: Record<string, BadgeTone> = { DRAFT: 'warning', APPROVED: 'info', PAID: 'success' };
+
+/** "12.5 KB", "1.2 MB". */
+export function sizeWord(bytes: number | null | undefined): string {
+  const b = Number(bytes ?? 0);
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(b < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
 export const warningWord = (code: string) => WARNING_WORDS[code] ?? { label: code.toLowerCase().replace(/_/g, ' '), tone: 'warning' as BadgeTone };
 
 /* ── components ───────────────────────────────────────────────────────── */

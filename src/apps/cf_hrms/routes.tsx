@@ -84,6 +84,11 @@ const TaxSettings = lazy(() => import('./pages/TaxSettings'));
 const StatutoryReturns = lazy(() => import('./pages/StatutoryReturns'));
 const TaxPerquisites = lazy(() => import('./pages/TaxPerquisites'));
 const TaxForm10E = lazy(() => import('./pages/TaxForm10E'));
+// Payroll P3b: claims, claim types and the payroll policy, exits and full and final
+const PayrollClaims = lazy(() => import('./pages/PayrollClaims'));
+const PayrollClaimTypes = lazy(() => import('./pages/PayrollClaimTypes'));
+const Exits = lazy(() => import('./pages/Exits'));
+const ExitSettlement = lazy(() => import('./pages/ExitSettlement'));
 
 // Not built yet: the route answers, the menu and the command palette do not
 // offer it (navMeta.ts has no entry for these two).
@@ -231,6 +236,9 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/hiring/:id', element: guarded(TAG.hiring.view, <HiringDetail />) },
     { path: '/:company/cf_hrms/documents', element: guarded(TAG.documents.view, <Documents />) },
     { path: '/:company/cf_hrms/documents/:id', element: guarded(TAG.documents.view, <DocumentDetail />) },
+    // Exits and full and final (payroll P3b): payroll view; amounts need the named pay view (the page says so).
+    { path: '/:company/cf_hrms/exits', element: guarded(TAG.payroll.view, <Exits />) },
+    { path: '/:company/cf_hrms/exits/:employeeId', element: guarded(TAG.payroll.view, <ExitSettlement />) },
 
     // Performance (spec §18.3)
     { path: '/:company/cf_hrms/plans', element: guarded(TAG.performance.view, <PerformancePlans />) },
@@ -280,6 +288,9 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/statutory-returns', element: guarded(TAG.payroll.view, <StatutoryReturns />) },
     { path: '/:company/cf_hrms/tax-perquisites', element: guarded(TAG.payroll.view, <TaxPerquisites />) },
     { path: '/:company/cf_hrms/tax-form10e', element: guarded(TAG.payroll.view, <TaxForm10E />) },
+    // Payroll P3b: claims (amounts need the named pay view), claim types and the payroll policy.
+    { path: '/:company/cf_hrms/payroll-claims', element: guarded(TAG.payroll.view, <PayrollClaims />) },
+    { path: '/:company/cf_hrms/payroll-claim-types', element: guarded(TAG.payroll.view, <PayrollClaimTypes />) },
 
     // Setup
     { path: '/:company/cf_hrms/code-formats', element: guarded(TAG.setup.view, <CodeFormats />) },

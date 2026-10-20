@@ -10,13 +10,20 @@ import type { ReactNode } from 'react';
 import { Box, Typography } from '@mui/material';
 import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
 import FingerprintRounded from '@mui/icons-material/FingerprintRounded';
+import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
+import { ToneBadge } from '@shared/ui';
+import { CLAIM_TONE } from '../payroll/payWords';
 import type { ApprovalItem, ApprovalKind } from '../../api/approvals';
 import { LeaveStatusBadge } from '../leave/LeaveParts';
 
 const KIND_META: Record<ApprovalKind, { icon: ReactNode; label: string }> = {
   LEAVE: { icon: <EventBusyRounded />, label: 'Leave' },
   ATTENDANCE: { icon: <FingerprintRounded />, label: 'Attendance' },
+  CLAIM: { icon: <ReceiptLongRounded />, label: 'Claim' },
 };
+
+/** A claim after the manager's look: RECOMMENDED = sent to HR. */
+const CLAIM_DECIDED: Record<string, string> = { RECOMMENDED: 'Sent to HR', APPROVED: 'Approved', PAID: 'Paid', REJECTED: 'Rejected', WITHDRAWN: 'Withdrawn' };
 
 function waitingWord(n: number): string {
   if (n <= 0) return 'Asked today';
@@ -82,7 +89,9 @@ export function ApprovalRow({ item, onOpen }: { item: ApprovalItem; onOpen: (ite
             {waitingWord(item.waitingDays)}
           </Typography>
         ) : (
-          <LeaveStatusBadge status={item.status} />
+          item.kind === 'CLAIM'
+            ? <ToneBadge tone={CLAIM_TONE[item.status] ?? 'neutral'} label={CLAIM_DECIDED[item.status] ?? item.status.toLowerCase()} />
+            : <LeaveStatusBadge status={item.status} />
         )}
       </Box>
     </Box>

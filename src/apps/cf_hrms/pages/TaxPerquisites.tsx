@@ -11,6 +11,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { Callout, ConfirmDialog, EmptyState, ErrorNotice, FormDialog, ListSkeleton, PageHeader, SectionCard, StatStrip, ToneBadge, errorMessage, useToast } from '@shared/ui';
 import { extrasApi, type Facts, type PerqEntry, type PerqInput, type PerqKind, type PerqRegister, type Valued } from '../api/payrollExtras';
+import { retirementApi, type RetirementFacts, type RetirementInput, type RetirementList } from '../api/payrollExit';
 import { taxApi, type Profiles } from '../api/tax';
 import { YearSelect } from '../components/tax/TaxParts';
 import { useTaxYears } from '../components/tax/taxWords';
@@ -126,6 +127,7 @@ export default function TaxPerquisites() {
             </SectionCard>
           ))}
           {data.source && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>Source: {data.source.note}</Typography>}
+          {can.named.payView && <RetirementSection year={year} canEdit={can.payroll.edit} />}
         </Stack>
       )}
       {edit && year && (
@@ -138,7 +140,7 @@ export default function TaxPerquisites() {
   );
 }
 
-function Working({ valued }: { valued?: Valued | null }) {
+function Working({ valued }: { valued?: Pick<Valued, 'lines'> | null }) {
   const [open, setOpen] = useState(false);
   if (!valued?.lines.length) return null;
   return (
@@ -219,6 +221,91 @@ function PerquisiteDialog({ year, entry, employeeId, people, onClose, onSaved }:
           </Callout>
         )}
       </Stack>
+    </FormDialog>
+  );
+}
+
+/* ── employer contributions above the yearly limit (payroll P3b) ──────── */
+
+const FACT_FIELDS: { key: keyof RetirementFacts; label: string; help?: string }[] = [
+  { key: 'previousExcess', label: 'Excess of the years before', help: 'Contributions above the limit in earlier years, not yet counted' },
+  { key: 'previousAccretion', label: 'Accretion of the years before' },
+  { key: 'ratePct', label: 'The fund’s rate of income, %', help: 'Or the fund’s income and balances below' },
+  { key: 'fundIncome', label: 'The fund’s income of the year' },
+  { key: 'fundOpening', label: 'The fund’s opening balance' },
+  { key: 'fundClosing', label: 'The fund’s closing balance' },
+];
+
+/**
+ * PF, NPS and superannuation paid by the employer above the year's limit (₹7.5 lakh) are a perquisite, with
+ * the income they earned (the accretion). The totals are the tax engine's; HR types the facts it cannot know.
+ */
+function RetirementSection({ year, canEdit }: { year: string; canEdit: boolean }) {
+  const toast = useToast();
+  const [data, setData] = useState<RetirementList | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [edit, setEdit] = useState<RetirementList['people'][number] | null>(null);
+  const load = useCallback(() => {
+    retirementApi.list(year).then((d) => { setData(d); setError(null); }).catch(setError);
+  }, [year]);
+  useEffect(load, [load]);
+
+  const limit = data?.rule?.limit;
+  return (
+    <SectionCard
+      title={`Employer contributions above ${limit ? rupees(limit) : '₹7.5 lakh'}`}
+      subtitle={data?.rule ? `PF, NPS and superannuation paid by the company: above the limit is taxable (${data.rule.section}), with its accretion (${data.rule.accretionSection}).${data.asOf ? ` As of ${data.asOf}.` : ''}` : 'PF, NPS and superannuation paid by the company above the yearly limit.'}
+    >
+      <ErrorNotice error={error} onRetry={load} />
+      {!data && !error && <ListSkeleton rows={2} />}
+      {data?.rulesMissing && <Callout tone="warning" title="No rule for this year" sx={{ mb: 0 }}>{data.rulesMissing}</Callout>}
+      {data?.rule && !data.rule.verified && <Callout tone="warning" title="These numbers are not yet confirmed from official texts — check with your CA">{data.rule.source}</Callout>}
+      {data && !data.rulesMissing && data.people.length === 0 && <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Nobody has employer contributions this year.</Typography>}
+      {data && data.people.length > 0 && (
+        <Box data-retirement={data.people.length}>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>
+            {data.overLimit ? `${data.overLimit} ${data.overLimit === 1 ? 'person is' : 'people are'} above the limit.` : 'Nobody is above the limit.'}
+          </Typography>
+          {data.people.map((p) => (
+            <Box key={p.employee.id} sx={{ py: 1, borderBottom: '1px solid var(--c-divider)', '&:last-of-type': { borderBottom: 0 } }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography sx={{ flex: '1 1 200px', minWidth: 0, fontSize: 14, fontWeight: 600 }}>{p.employee.name} <Box component="span" sx={{ fontWeight: 400, fontSize: 12.5, color: 'var(--c-text-3)' }}>{p.employee.code}</Box></Typography>
+                {p.excess > 0 ? <ToneBadge tone="warning" label={`Taxable ${rupees(p.excess + p.accretion)}`} noIcon /> : <ToneBadge tone="neutral" label="Within the limit" noIcon />}
+                {canEdit && <Tooltip title="The facts of the fund"><IconButton size="small" onClick={() => setEdit(p)}><EditOutlined fontSize="small" /></IconButton></Tooltip>}
+              </Box>
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                Contributions {rupees(p.total)} · above the limit {rupees(p.excess)} · accretion {rupees(p.accretion)}{p.facts ? ' · facts typed' : ''}
+              </Typography>
+              <Working valued={{ lines: p.lines }} />
+            </Box>
+          ))}
+        </Box>
+      )}
+      {edit && (
+        <RetirementDialog year={year} person={edit} onClose={() => setEdit(null)} onSaved={() => { toast.success('Saved.'); load(); }} />
+      )}
+    </SectionCard>
+  );
+}
+
+function RetirementDialog({ year, person, onClose, onSaved }: { year: string; person: RetirementList['people'][number]; onClose: () => void; onSaved: () => void }) {
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(FACT_FIELDS.map((f) => [f.key, person.facts?.[f.key] != null ? String(person.facts[f.key]) : ''])));
+  const [note, setNote] = useState(person.facts?.note ?? '');
+  return (
+    <FormDialog open title={`${person.employee.name} — the fund’s facts`} subtitle={`Tax year ${year}. Empty: not known.`} maxWidth="sm" onClose={onClose}
+      onSubmit={async () => {
+        const body: RetirementInput = { note: note.trim() || null };
+        for (const f of FACT_FIELDS) { const v = (vals[f.key] ?? '').trim(); body[f.key] = v === '' ? null : v; }
+        await retirementApi.save(year, person.employee.id, body);
+        onSaved();
+      }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+        {FACT_FIELDS.map((f) => (
+          <TextField key={f.key} size="small" label={f.label} helperText={f.help} value={vals[f.key] ?? ''}
+            onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value.replace(/[₹,\s%]/g, '') }))} inputProps={{ inputMode: 'decimal' }} />
+        ))}
+      </Box>
+      <TextField size="small" label="Note" value={note} onChange={(e) => setNote(e.target.value)} multiline minRows={2} />
     </FormDialog>
   );
 }

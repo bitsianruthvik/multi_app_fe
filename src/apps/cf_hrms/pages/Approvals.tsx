@@ -22,6 +22,7 @@ import {
 import { ApprovalRow } from '../components/approvals/ApprovalRow';
 import { LeaveRequestSheet, type SheetActions } from '../components/leave/LeaveRequestSheet';
 import { AttendanceRequestSheet, type AttSheetActions } from '../components/attendance/AttendanceRequestSheet';
+import { ClaimApprovalSheet } from '../components/approvals/ClaimApprovalSheet';
 
 type TabKey = 'PENDING' | 'DECIDED';
 
@@ -56,6 +57,7 @@ function KindSheet({ open, onClose, onChanged }: { open: { kind: string; id: num
         actions={ATTENDANCE_ACTIONS}
         onChanged={onChanged}
       />
+      <ClaimApprovalSheet id={open?.kind === 'CLAIM' ? open.id : null} onClose={onClose} onChanged={onChanged} />
     </>
   );
 }
@@ -113,7 +115,7 @@ export default function Approvals() {
           icon={<TaskAltRounded />}
           title={tab === 'PENDING' ? 'Nothing is waiting for you' : 'Nothing decided yet'}
           hint={tab === 'PENDING'
-            ? 'When someone in your team asks for leave or to correct a day, it shows up here.'
+            ? 'When someone in your team asks for leave, to correct a day or to be paid back a bill, it shows up here.'
             : 'Requests you approve or reject show up here.'}
         />
       ) : (

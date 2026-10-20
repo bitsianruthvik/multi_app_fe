@@ -5,9 +5,12 @@
  *                     component a month and a year, a revision coming up, and
  *                     every salary before.
  *   Payslips          each released month, its net pay, the PDF.
+ *   Claims            what I may claim against bills, a new claim with its bills, my claims (payroll P3b).
+ *   Full and final    my settlement once HR has approved it: the statement and the PDF (only then a tab).
  *
  * Like My leave it stands alone: a shop-floor login may have only these
- * screens, so it imports `myPayApi` only — no employee id anywhere — and links
+ * screens, so it imports the self doors only (`myPayApi`, `myClaimsApi`,
+ * `mySettlementApi`) — no employee id anywhere — and links
  * to no HR screen.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -20,6 +23,9 @@ import {
   Callout, DetailSkeleton, EmptyState, ErrorNotice, PageHeader, SectionCard, errorMessage, useToast,
 } from '@shared/ui';
 import { myPayApi, type MyPay as MyPayData, type MyPayslip, type MySalary } from '../api/payroll';
+import { mySettlementApi, type MySettlement } from '../api/payrollExit';
+import { MyClaims } from '../components/payroll/MyClaims';
+import { SettlementStatement } from '../components/payroll/SettlementStatement';
 import { saveBase64File } from '../api/excel';
 import { BreakdownTable, Fact } from '../components/payroll/PayParts';
 import { PF_MODE_WORD, rupees, stampDay } from '../components/payroll/payWords';
@@ -41,9 +47,13 @@ function SalaryBlock({ s }: { s: MySalary }) {
   );
 }
 
+type TabKey = 'salary' | 'payslips' | 'claims' | 'fnf';
+
 export default function MyPay() {
   const toast = useToast();
-  const [tab, setTab] = useState<'salary' | 'payslips'>('salary');
+  const [tab, setTab] = useState<TabKey>('salary');
+  const [settlement, setSettlement] = useState<MySettlement | null>(null);
+  const [fnfBusy, setFnfBusy] = useState(false);
   const [data, setData] = useState<MyPayData | null>(null);
   const [slips, setSlips] = useState<MyPayslip[] | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -60,6 +70,8 @@ export default function MyPay() {
     myPayApi.payslips()
       .then((r) => { setSlips(r.payslips); setSlipError(null); })
       .catch(setSlipError);
+    // Full and final: only once HR has approved one; a failure just hides the tab.
+    mySettlementApi.get().then(setSettlement).catch(() => setSettlement(null));
   }, []);
   useEffect(load, [load]);
 
@@ -96,9 +108,11 @@ export default function MyPay() {
   return (
     <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
       <PageHeader title="My pay" subtitle={`${data.employee.name} · ${data.employee.code}`} />
-      <Tabs value={tab} onChange={(_, v) => setTab(v as 'salary' | 'payslips')} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }} variant="scrollable" allowScrollButtonsMobile>
+      <Tabs value={tab} onChange={(_, v) => setTab(v as TabKey)} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }} variant="scrollable" allowScrollButtonsMobile>
         <Tab value="salary" label="Salary breakdown" />
         <Tab value="payslips" label={`Payslips${slips?.length ? ` (${slips.length})` : ''}`} />
+        <Tab value="claims" label="Claims" />
+        {settlement && <Tab value="fnf" label="Full and final" />}
       </Tabs>
 
       {tab === 'salary' && (
@@ -171,6 +185,38 @@ export default function MyPay() {
             </SectionCard>
           )}
         </>
+      )}
+
+      {tab === 'claims' && <MyClaims />}
+
+      {tab === 'fnf' && settlement && (
+        <Stack spacing={2} data-my-settlement={settlement.id}>
+          <Callout
+            tone={settlement.status === 'PAID' ? 'success' : 'info'}
+            title={settlement.status === 'PAID'
+              ? `Your full and final is paid${settlement.paidAt ? ` (${stampDay(settlement.paidAt)})` : ''}`
+              : `Your full and final is approved — it is paid with the ${settlement.payMonthLabel ?? 'next'} payroll`}
+            sx={{ mb: 0 }}
+          >
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={fnfBusy}
+              sx={{ mt: 0.5 }}
+              startIcon={fnfBusy ? <CircularProgress size={14} color="inherit" /> : <PictureAsPdfOutlined fontSize="small" />}
+              onClick={async () => {
+                setFnfBusy(true);
+                try { saveBase64File(await mySettlementApi.file()); } catch (e) { toast.error(errorMessage(e, 'The statement could not be downloaded. Try again.')); } finally { setFnfBusy(false); }
+              }}
+              data-action="my-fnf-pdf"
+            >
+              Download PDF
+            </Button>
+          </Callout>
+          {settlement.statement
+            ? <SettlementStatement statement={settlement.statement} showProblems={false} />
+            : <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>The statement is in the PDF.</Typography>}
+        </Stack>
       )}
     </Box>
   );

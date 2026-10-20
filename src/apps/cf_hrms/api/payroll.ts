@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { RunAttendance } from './payrollExit';
 
 /**
  * Payroll — the client side of CF_HRMS_HIRING_SPEC.md §25.2 (backend
@@ -302,6 +303,11 @@ export interface RunTotals {
   unverifiedSettings?: string[];
   statutoryFrom?: Record<string, string | null>;
   strayItems?: number;
+  /** P3b: how the month's days were taken, and what the run paid of claims and full and final settlements. */
+  attendance?: (Pick<RunAttendance, 'mode' | 'live' | 'status' | 'closedAt'> & { override: string | null }) | null;
+  claimsPaid?: number;
+  settlementsPaid?: number;
+  claimsWaiting?: number;
 }
 
 export interface PayRun {
@@ -389,6 +395,8 @@ export interface RunCan {
   reopen: boolean;
   remove: boolean;
   bankFile: boolean;
+  /** P3b: may pay the month without attendance, with a reason. */
+  attendanceOverride?: boolean;
   /** One-time items and TDS may change (a DRAFT or CALCULATED run). */
   items: boolean;
 }
@@ -404,6 +412,8 @@ export interface RunDetail {
   /** What changed since the calculation ("a salary", "a one-time item" …): calculate again. */
   stale: string[];
   can: RunCan;
+  /** P3b: the month's attendance as the run reads it. */
+  attendance?: RunAttendance;
   /** Release only: payslips written. */
   released?: number;
 }
@@ -430,7 +440,7 @@ export interface RunLine {
   fullAmount: number | null;
   /** How it was worked out, in words. */
   basis: string | null;
-  source: 'STRUCTURE' | 'ONE_TIME' | 'ARREARS' | 'STATUTORY' | 'TDS' | string;
+  source: 'STRUCTURE' | 'ONE_TIME' | 'ARREARS' | 'STATUTORY' | 'TDS' | 'ATTENDANCE' | 'SETTLEMENT' | 'CLAIM' | string;
   forMonth: string | null;
 }
 

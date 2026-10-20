@@ -121,13 +121,13 @@ export const SECTIONS: NavSection[] = [
       // My month: days, punches, late marks, penalties; punch IN/OUT; ask to correct a day (spec §28.7).
       { key: 'my-attendance', label: 'My attendance', path: 'my-attendance', permission: SELF, keywords: ['attendance', 'punch', 'in time', 'out time', 'late', 'late mark', 'missing punch', 'correct', 'regularize', 'short permission', 'on duty', 'penalty'] },
       // My own salary breakdown and my released payslips (spec §25.2).
-      { key: 'my-pay', label: 'My pay', path: 'my-pay', permission: SELF, keywords: ['salary', 'payslip', 'pay slip', 'ctc', 'my salary', 'net pay', 'take home', 'pf', 'tds', 'download payslip'] },
+      { key: 'my-pay', label: 'My pay', path: 'my-pay', permission: SELF, keywords: ['salary', 'payslip', 'pay slip', 'ctc', 'my salary', 'net pay', 'take home', 'pf', 'tds', 'download payslip', 'claim', 'reimbursement', 'bill', 'lta', 'full and final', 'settlement'] },
       // My tax › File my return (spec §25.6): the person's own income-tax return, worked out; nothing is filed from the app.
       // My tax (spec §25.4): regime, declarations, proofs, the tax sheet, Forms 16 / 130.
       { key: 'my-tax', label: 'My tax', path: 'my-tax', permission: SELF, keywords: ['tax', 'income tax', 'tds', 'regime', 'old regime', 'new regime', 'declaration', '12bb', 'form 124', 'proof', 'investment proof', 'hra', 'rent', '80c', 'form 16', 'form 130', 'tax sheet'] },
       { key: 'my-tax-return', label: 'File my return', path: 'my-tax/return', permission: SELF, keywords: ['itr', 'income tax return', 'file my return', 'tax return', 'refund', 'form 16', 'form 130', 'itr-1', 'itr-2', 'sahaj', 'my tax', 'regime'] },
       // What waits for this login to decide — today leave. Shown with a pending count.
-      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVER, countKey: 'approvals', keywords: ['approve', 'reject', 'leave requests', 'waiting', 'pending', 'my team leave', 'decide', 'attendance correction', 'regularization', 'short permission', 'on duty'] },
+      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVER, countKey: 'approvals', keywords: ['approve', 'reject', 'leave requests', 'waiting', 'pending', 'my team leave', 'decide', 'attendance correction', 'regularization', 'short permission', 'on duty', 'claim', 'bill', 'reimbursement'] },
     ],
   },
 
@@ -157,6 +157,8 @@ export const SECTIONS: NavSection[] = [
       // which is why it is its own entry and not a filter on Employees.
       { key: 'hiring', label: 'Hiring', path: 'hiring', hasDetail: true, permission: HIRING, keywords: ['recruit', 'candidate', 'offer letter', 'appointment letter', 'new joiner', 'vacancy', 'job description', 'onboarding'] },
       { key: 'documents', label: 'Documents', path: 'documents', hasDetail: true, permission: DOCS, countKey: 'documents', keywords: ['jd', 'job description', 'responsibility profile', 'snapshot', 'pdf', 'docx', 'generated'] },
+      // Payroll P3b: people leaving or left, and their full and final settlement (exits/:employeeId).
+      { key: 'exits', label: 'Exits', path: 'exits', hasDetail: true, permission: PAY_SCREEN, keywords: ['full and final', 'f&f', 'fnf', 'settlement', 'gratuity', 'notice pay', 'leave encashment', 'relieving', 'leaving', 'resigned', 'last working day', 'exit'] },
     ],
   },
 
@@ -209,6 +211,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'statutory-settings', label: 'Statutory settings', path: 'statutory-settings', permission: PAYROLL, keywords: ['pf', 'esi', 'professional tax', 'pt', 'lwf', 'labour welfare fund', 'ceiling', 'rates', 'slabs', 'bank', 'debit account', 'ifsc'] },
       // Payroll extras P3a (spec §25.5): the month's PF ECR, ESI contribution sheet and PT return figures, from the locked run.
       { key: 'statutory-returns', label: 'Statutory returns', path: 'statutory-returns', permission: PAYROLL, keywords: ['ecr', 'pf return', 'epfo', 'uan', 'ncp days', 'esi return', 'esic', 'ip number', 'monthly contribution', 'professional tax return', 'form v', 'pt return'] },
+      // Payroll P3b: claims against bills (reimbursements, flexible benefits, LTA), and the claim types with the payroll policy.
+      { key: 'payroll-claims', label: 'Claims', path: 'payroll-claims', permission: PAY_SCREEN, keywords: ['claim', 'reimbursement', 'bill', 'expense', 'fuel', 'conveyance', 'phone', 'internet', 'lta', 'leave travel', 'meals', 'books', 'flexible benefit', 'approve claim'] },
+      { key: 'payroll-claim-types', label: 'Claim types and policy', path: 'payroll-claim-types', permission: PAYROLL, keywords: ['claim types', 'yearly limit', 'payroll policy', 'overtime rate', 'overtime formula', 'encashment rate', 'notice pay rate', 'flexible year end', 'lapse', 'manager first', 'policy'] },
     ],
   },
 

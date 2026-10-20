@@ -33,8 +33,9 @@ import AccountBalanceOutlined from '@mui/icons-material/AccountBalanceOutlined';
 import PictureAsPdfOutlined from '@mui/icons-material/PictureAsPdfOutlined';
 import {
   Callout, ConfirmDialog, DataTable, DetailSkeleton, EmptyState, ErrorNotice, Mono, PageHeader, PromptDialog, SectionCard,
-  Surface, ToneBadge, useDetailTitle, useToast, type DataColumn,
+  Surface, ToneBadge, errorMessage, useDetailTitle, useToast, type DataColumn,
 } from '@shared/ui';
+import { runAttendanceApi, type RunAttendance } from '../api/payrollExit';
 import { useCan } from '../access/can';
 import {
   payrollApi, type BankFile, type PayComponent, type RunDetail, type RunPayslip, type RunPerson,
@@ -70,7 +71,7 @@ function RunPage() {
   const [components, setComponents] = useState<PayComponent[]>([]);
   const [personId, setPersonId] = useState<number | null>(null);
   const [needsRecalc, setNeedsRecalc] = useState(false);
-  const [ask, setAsk] = useState<null | 'release' | 'paid' | 'reopen' | 'remove'>(null);
+  const [ask, setAsk] = useState<null | 'release' | 'paid' | 'reopen' | 'remove' | 'override'>(null);
   const [bank, setBank] = useState<BankFile | null>(null);
   const [payslips, setPayslips] = useState<RunPayslip[] | null>(null);
   const [slipBusy, setSlipBusy] = useState<number | null>(null);
@@ -95,7 +96,8 @@ function RunPage() {
       adopt(await fn());
       toast.success(done);
     } catch (e) {
-      setActionError(e);
+      // Attendance of the month is still open: the Callout above offers paying without it.
+      if ((e as { code?: string })?.code === 'ATTENDANCE_OPEN') { toast.error(errorMessage(e)); load(); } else setActionError(e);
     } finally {
       setBusy(null);
     }
@@ -247,6 +249,25 @@ function RunPage() {
             {data.stale.length
               ? `Changed since the calculation: ${data.stale.join(', ')}. Calculate again, review, then lock.`
               : 'An item or the TDS changed since the calculation. Calculate again to include it.'}
+          </Callout>
+        )}
+        {data.attendance && (
+          <AttendanceCallout
+            att={data.attendance}
+            canOverride={!!rc.attendanceOverride && edit}
+            onOverride={() => setAsk('override')}
+            onClear={async () => {
+              try { await runAttendanceApi.clear(runId); toast.success('Attendance is used again. Calculate again.'); setNeedsRecalc(!!run.calculatedAt); load(); } catch (e) { toast.error(errorMessage(e)); }
+            }}
+          />
+        )}
+        {!!(t?.claimsPaid || t?.settlementsPaid || t?.claimsWaiting) && (
+          <Callout title="Claims and full and final in this run">
+            {[
+              t?.claimsPaid ? `${t.claimsPaid} approved claim${t.claimsPaid === 1 ? ' is' : 's are'} paid in this run.` : '',
+              t?.settlementsPaid ? `${t.settlementsPaid} full and final settlement${t.settlementsPaid === 1 ? ' is' : 's are'} paid in this run.` : '',
+              t?.claimsWaiting ? `${t.claimsWaiting} approved claim${t.claimsWaiting === 1 ? ' is' : 's are'} not paid here (the person is not in this run).` : '',
+            ].filter(Boolean).join(' ')}
           </Callout>
         )}
         {run.reopenNote && run.reopenCount > 0 && (
@@ -438,6 +459,24 @@ function RunPage() {
           onConfirm={async (note) => { adopt(await payrollApi.markPaid(runId, note.trim() || null)); toast.success('Marked paid.'); }}
         />
       )}
+      {ask === 'override' && (
+        <PromptDialog
+          open
+          title="Pay this month without attendance?"
+          body={`${data.attendance?.label ?? run.label}: LOP comes from approved unpaid leave only — no absences, overtime or penalties from attendance. The reason is kept with the run.`}
+          label="Reason"
+          required
+          multiline
+          confirmLabel="Pay without attendance"
+          onClose={() => setAsk(null)}
+          onConfirm={async (reason) => {
+            await runAttendanceApi.override(runId, reason.trim());
+            toast.success('This month is paid without attendance. Calculate now.');
+            setNeedsRecalc(!!run.calculatedAt);
+            load();
+          }}
+        />
+      )}
       {ask === 'reopen' && (
         <PromptDialog
           open
@@ -467,5 +506,36 @@ function RunPage() {
         }}
       />
     </Box>
+  );
+}
+
+/** How the month's days are taken (P3b): from leave, from closed attendance, paid without it (with the reason), or refused. */
+function AttendanceCallout({ att, canOverride, onOverride, onClear }: {
+  att: RunAttendance; canOverride: boolean; onOverride: () => void; onClear: () => void;
+}) {
+  if (att.mode === 'LEAVE') return null;
+  if (att.mode === 'ATTENDANCE') {
+    return (
+      <Callout tone="info" title={`Attendance of ${att.label ?? 'the month'} is closed`}>
+        <Box data-run-attendance="ATTENDANCE">{att.message}{att.closedAt ? ` Closed ${stampDay(att.closedAt)}.` : ''}</Box>
+      </Callout>
+    );
+  }
+  if (att.mode === 'OVERRIDE') {
+    return (
+      <Callout tone="warning" title="Paid without attendance">
+        <Box data-run-attendance="OVERRIDE">
+          {att.message}
+          {att.override?.by || att.override?.at ? ` Decided${att.override.by ? ` by ${att.override.by}` : ''}${att.override.at ? ` on ${stampDay(att.override.at)}` : ''}.` : ''}
+        </Box>
+        {canOverride && <Button size="small" onClick={onClear} sx={{ ml: -0.75, mt: 0.5 }} data-action="attendance-use-again">Use attendance again</Button>}
+      </Callout>
+    );
+  }
+  return (
+    <Callout tone="warning" title={`Attendance of ${att.label ?? 'the month'} is still open`}>
+      <Box data-run-attendance="REFUSE">{att.message}</Box>
+      {canOverride && <Button size="small" variant="outlined" onClick={onOverride} sx={{ mt: 1 }} data-action="attendance-override">Pay without attendance…</Button>}
+    </Callout>
   );
 }
