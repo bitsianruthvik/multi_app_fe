@@ -37,7 +37,7 @@ export default function Overview() {
               spark={d.daily.map((x) => x.sales)} hint="Excl. tax, net of credit notes. Sparkline: last 30 days" />
             <KpiTile label="Sales this financial year" icon={<CalendarTodayRounded />} display={inrShort(d.salesFy)} onClick={go('sales')}
               delta={{ pct: comparable(d.salesFy, d.salesPrevFySamePeriod) ? pctChange(d.salesFy, d.salesPrevFySamePeriod) : null, label: comparable(d.salesFy, d.salesPrevFySamePeriod) ? 'vs same period last year' : 'no comparable data last year in SAP' }}
-              footer={d.interUnitFy ? `Excludes ${inrShort(d.interUnitFy)} inter-unit billing` : undefined}
+              footer={`Invoiced ${inrShort(d.invoicedFy)} − credit notes ${inrShort(d.creditNotesFy)}${d.interUnitFy ? ` · excludes ${inrShort(d.interUnitFy)} inter-unit` : ''}`}
               spark={d.monthly.map((m) => m.sales)} />
             <KpiTile label="Collections this month" icon={<SavingsRounded />} display={inrShort(d.collectionsMonth)} onClick={go('receivables')}
               spark={d.monthly.map((m) => m.collections)} footer={`Sales today ${inrShort(d.salesToday)}`} />
@@ -47,9 +47,9 @@ export default function Overview() {
           </KpiGrid>
           <KpiGrid>
             <KpiTile label="Open sales orders" icon={<ReceiptLongRounded />} display={`${d.openSalesOrders.count}`} onClick={go('sales-orders')}
-              footer={<>{inrShort(d.openSalesOrders.value)} · <b style={{ color: d.openSalesOrders.late ? 'var(--c-danger-600)' : undefined }}>{d.openSalesOrders.late} past due</b></>} />
+              footer={<>{d.openSalesOrders.customer} customer · {d.openSalesOrders.interUnit} inter-unit · <b style={{ color: d.openSalesOrders.late ? 'var(--c-danger-600)' : undefined }}>{d.openSalesOrders.late} past due</b></>} />
             <KpiTile label="Open purchase orders" icon={<ShoppingCartRounded />} display={`${d.openPurchaseOrders.count}`} onClick={go('purchase')}
-              footer={<>{inrShort(d.openPurchaseOrders.value)} · {d.openPurchaseOrders.late} past due</>} />
+              footer={<>{d.openPurchaseOrders.interUnit ? `${d.openPurchaseOrders.customer} vendor · ${d.openPurchaseOrders.interUnit} inter-unit · ` : `${inrShort(d.openPurchaseOrders.value)} · `}{d.openPurchaseOrders.late} past due</>} />
             <KpiTile label="Production this month" icon={<PrecisionManufacturingRounded />} display={qtyShort(d.productionMonthQty)} onClick={go('production?range=month')}
               footer="Output from production receipts (kg)" />
             <KpiTile label="Payables" icon={<PaymentsRounded />} display={inrShort(d.payables)} onClick={go('payables')}

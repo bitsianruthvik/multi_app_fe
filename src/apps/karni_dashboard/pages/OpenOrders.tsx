@@ -56,7 +56,7 @@ export function SalesOrders() {
     { key: 'docNum', header: 'SO', render: (r) => r.docNum, sortValue: (r) => r.docNum },
     { key: 'docDate', header: 'Date', render: (r) => r.docDate, sortValue: (r) => r.docDate },
     { key: 'unit', header: 'Unit', render: (r) => r.unit || '—', sortValue: (r) => r.unit || '' },
-    { key: 'cardName', header: 'Customer', render: (r) => r.cardName, sortValue: (r) => r.cardName },
+    { key: 'cardName', header: 'Customer', render: (r) => (r.interUnit ? <>{r.cardName} <ToneBadge label="Inter-unit" tone="neutral" /></> : r.cardName), sortValue: (r) => r.cardName },
     { key: 'salesPersonName', header: 'Sales employee', render: (r) => r.salesPersonName ?? '—', sortValue: (r) => r.salesPersonName ?? '' },
     { key: 'dueDate', header: 'Due', render: (r) => r.dueDate ?? '—', sortValue: (r) => r.dueDate ?? '' },
     { key: 'status', header: 'Status', render: (r) => late(r.late), sortValue: (r) => (r.late ? 1 : 0) },
@@ -70,7 +70,7 @@ export function SalesOrders() {
       {d && (
         <>
           <KpiGrid min={190}>
-            <KpiTile label="Open orders" display={`${d.count}`} tone="primary" footer={inrShort(d.value)} />
+            <KpiTile label="Open orders" display={`${d.count}`} tone="primary" footer={`${d.count - d.interUnitCount} customer · ${d.interUnitCount} inter-unit · ${inrShort(d.value)}`} />
             <KpiTile label="Pending to ship" display={inrShort(d.pendingValue)} footer={`${d.pendingLines} order lines`} />
             <KpiTile label="Past due lines" display={`${d.lateLines}`} tone={d.lateLines ? 'danger' : 'success'} onClick={() => { setTab('lines'); setOnlyLate(true); }} />
             <KpiTile label="Items short of stock" display={`${d.itemsShort}`} tone={d.itemsShort ? 'warning' : 'success'} onClick={() => { setTab('items'); setOnlyShort(true); }}
@@ -118,7 +118,7 @@ export function PurchaseOrders() {
     { key: 'docNum', header: 'PO', render: (r) => r.docNum, sortValue: (r) => r.docNum },
     { key: 'docDate', header: 'Date', render: (r) => r.docDate, sortValue: (r) => r.docDate },
     { key: 'unit', header: 'Unit', render: (r) => r.unit || '—', sortValue: (r) => r.unit || '' },
-    { key: 'cardName', header: 'Vendor', render: (r) => r.cardName, sortValue: (r) => r.cardName },
+    { key: 'cardName', header: 'Vendor', render: (r) => (r.interUnit ? <>{r.cardName} <ToneBadge label="Inter-unit" tone="neutral" /></> : r.cardName), sortValue: (r) => r.cardName },
     { key: 'dueDate', header: 'Due', render: (r) => r.dueDate ?? '—', sortValue: (r) => r.dueDate ?? '' },
     { key: 'status', header: 'Status', render: (r) => late(r.late), sortValue: (r) => (r.late ? 1 : 0) },
     { key: 'daysOld', header: 'Age (days)', numeric: true, align: 'right', render: (r) => r.daysOld ?? '—', sortValue: (r) => r.daysOld ?? 0 },
@@ -130,7 +130,7 @@ export function PurchaseOrders() {
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Open purchase orders" display={`${d.count}`} tone="primary" />
+            <KpiTile label="Open purchase orders" display={`${d.count}`} tone="primary" footer={d.interUnitCount ? `${d.count - d.interUnitCount} vendor · ${d.interUnitCount} inter-unit` : undefined} />
             <KpiTile label="Open value" display={inrShort(d.value)} />
             <KpiTile label="Past due date" display={`${d.late}`} tone={d.late ? 'warning' : 'success'} />
             <KpiTile label="Vendors" display={`${new Set(d.rows.map((r) => r.cardCode)).size}`} />

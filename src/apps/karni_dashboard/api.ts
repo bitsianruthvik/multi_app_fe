@@ -65,13 +65,17 @@ export interface PartyBook {
   };
 }
 
+/** Open orders as SAP counts them (inter-unit included), with the split. */
+export interface OpenSplit { count: number; customer: number; interUnit: number; value: number; late: number }
+
 export interface Overview {
   asOf: string | null; today: string; fyStart: string;
   salesToday: number; salesMonth: number; salesPrevMonthSamePeriod: number; salesFy: number; salesPrevFySamePeriod: number; interUnitFy: number;
+  invoicedFy: number; creditNotesFy: number; invoicedMonth: number; creditNotesMonth: number;
   collectionsMonth: number; paymentsMonth: number;
   receivables: number; receivablesOverdue: number; payables: number; payablesOverdue: number;
-  openSalesOrders: { count: number; value: number; late: number };
-  openPurchaseOrders: { count: number; value: number; late: number };
+  openSalesOrders: OpenSplit;
+  openPurchaseOrders: OpenSplit;
   productionMonthQty: number;
   monthly: { month: string; sales: number; collections: number }[];
   daily: { date: string; sales: number }[];
@@ -91,8 +95,8 @@ export interface SalesReport {
   items: { itemCode: string; itemName: string; group: string; uom: string; qty: number; sales: number; lines: number }[];
   itemGroups: { group: string; sales: number; qty: number }[];
   byUnit: { unit: string; sales: number; qty: number }[];
-  documents: { kind: string; docEntry: number; docNum: number; docDate: string; unit: string | null; cardCode: string; cardName: string; net: number; tax: number; total: number }[];
-  interUnit: number;
+  documents: { kind: string; docEntry: number; docNum: number; docDate: string; unit: string | null; cardCode: string; cardName: string; net: number; charges: number; tax: number; total: number }[];
+  interUnit: number; invoiced: number; creditNotes: number; charges: number;
 }
 export interface CustomerSales {
   from: string; to: string; cardCode: string; cardName: string; city: string | null; balance: number; creditLimit: number; total: number;
@@ -102,9 +106,9 @@ export interface CustomerSales {
 
 export interface OpenDoc {
   docEntry: number; docNum: number; docDate: string; dueDate: string | null; cardCode: string; cardName: string; unit: string | null;
-  total: number; net: number; daysOld: number | null; late: boolean; salesPerson?: number; salesPersonName?: string | null;
+  total: number; net: number; daysOld: number | null; late: boolean; interUnit?: boolean; salesPerson?: number; salesPersonName?: string | null;
 }
-export interface OpenDocs { asOf: string | null; count: number; value: number; late: number; rows: OpenDoc[] }
+export interface OpenDocs { asOf: string | null; count: number; value: number; late: number; interUnitCount: number; rows: OpenDoc[] }
 export interface PendingLine {
   docEntry: number; docNum: number; docDate: string; lineNum: number; unit: string | null; cardCode: string; cardName: string;
   itemCode: string; itemName: string; uom: string; ordered: number; open: number; value: number; shipDate: string | null; late: boolean;
@@ -148,12 +152,15 @@ export interface ProductionOrderRow {
 }
 export interface ProductionReport {
   asOf: string | null; from: string; to: string;
-  kpis: { openOrders: number; released: number; planned: number; lateOrders: number; output: number; outputValue: number; issued: number; outputToday: number; yield: number | null; closedInRange: number };
+  kpis: {
+    openOrders: number; released: number; planned: number; lateOrders: number; output: number; outputValue: number; issued: number; outputToday: number; yield: number | null; closedInRange: number;
+    olderOpen: number; openListLive: boolean; wastageToday: number; trimWastage: number; otherWastage: number; otherReceived: number; wastagePct: number | null;
+  };
   statusCounts: { status: string; count: number }[];
   sections: string[];
   daily: Array<{ date: string } & Record<string, number | string>>;
   bySection: { section: string; openOrders: number; planned: number; completed: number; late: number; progress: number }[];
-  machines: { machine: string; section: string; openOrders: number; planned: number; completed: number; late: number; output: number; outputValue: number; yield: number | null }[];
+  machines: { machine: string; section: string; openOrders: number; planned: number; completed: number; late: number; output: number; outputValue: number; wastage: number; wastagePct: number | null; yield: number | null }[];
   shifts: { shift: string; output: number; receipts: number }[];
   operators: { operator: string; machine: string; output: number; receipts: number }[];
   consumptionByGroup: { group: string; qty: number; value: number }[];

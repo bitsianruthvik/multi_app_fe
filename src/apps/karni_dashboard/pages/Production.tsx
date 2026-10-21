@@ -31,6 +31,8 @@ export default function Production() {
     { key: 'section', header: 'Section', render: (r) => r.section, sortValue: (r) => r.section },
     { key: 'output', header: 'Output', numeric: true, align: 'right', render: (r) => qty(r.output), sortValue: (r) => r.output },
     { key: 'outputValue', header: 'Output value', numeric: true, align: 'right', render: (r) => inr(r.outputValue), sortValue: (r) => r.outputValue, defaultHidden: true },
+    { key: 'wastage', header: 'Wastage', numeric: true, align: 'right', render: (r) => (r.wastage ? qty(r.wastage) : '—'), sortValue: (r) => r.wastage },
+    { key: 'wastagePct', header: 'Wastage %', numeric: true, align: 'right', render: (r) => pct(r.wastagePct), sortValue: (r) => r.wastagePct ?? 0, exportValue: (r) => r.wastagePct ?? '' },
     { key: 'yield', header: 'Yield', render: (r) => (r.yield == null ? '—' : <Meter pct={r.yield} tone={yieldTone(r.yield)} />), sortValue: (r) => r.yield ?? 0, exportValue: (r) => r.yield ?? '' },
     { key: 'openOrders', header: 'Open orders', numeric: true, align: 'right', render: (r) => r.openOrders, sortValue: (r) => r.openOrders },
     { key: 'planned', header: 'Planned (open)', numeric: true, align: 'right', render: (r) => qty(r.planned), sortValue: (r) => r.planned },
@@ -77,9 +79,14 @@ export default function Production() {
         <>
           <KpiGrid min={180}>
             <KpiTile label="Output" display={qtyShort(k.output)} tone="primary" spark={d.daily.map((x) => d.sections.reduce((t, sct) => t + Number(x[sct] || 0), 0))} footer={`${inrShort(k.outputValue)} at cost`} />
-            <KpiTile label="Output today" display={qtyShort(k.outputToday)} />
+            <KpiTile label="Output today" display={qtyShort(k.outputToday)} footer={k.wastageToday ? `+ ${qtyShort(k.wastageToday)} wastage` : undefined}
+              hint="Receipts of each production order's own item. Trim and other wastage, and other items received against the order, are counted apart." />
+            <KpiTile label="Wastage" display={pct(k.wastagePct)} tone={k.wastagePct != null && k.wastagePct > 5 ? 'warning' : undefined}
+              hint="Trim and other wastage (SC items) received against production orders, as a share of output plus wastage, in this period."
+              footer={`${qtyShort(k.trimWastage)} trim · ${qtyShort(k.otherWastage)} other`} />
             <KpiTile label="Yield" display={pct(k.yield)} tone={yieldTone(k.yield)} hint="Output ÷ material issued for production in this period" footer={`${qtyShort(k.issued)} material issued`} />
-            <KpiTile label="Open orders" display={`${k.openOrders}`} footer={`${k.released} released · ${k.planned} planned`} onClick={() => setTab('orders')} />
+            <KpiTile label="Released orders" display={`${k.released}`} footer={`+ ${k.planned} planned, not started${k.olderOpen ? ` · ${k.olderOpen} older not counted` : ''}`}
+              hint={k.openListLive ? 'Open production orders as SAP has them now.' : 'Orders older than 120 days are re-checked once SAP\'s full open list has synced.'} onClick={() => setTab('orders')} />
             <KpiTile label="Late orders" display={`${k.lateOrders}`} tone={k.lateOrders ? 'danger' : 'success'} onClick={() => { setTab('orders'); setOnlyLate(true); }} />
           </KpiGrid>
           <SectionCard title="Output by day" subtitle={`${d.from} to ${d.to} · production receipts by section`}>

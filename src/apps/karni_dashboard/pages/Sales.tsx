@@ -47,7 +47,8 @@ export default function Sales() {
     { key: 'docNum', header: 'No.', render: (r) => r.docNum, sortValue: (r) => r.docNum },
     { key: 'unit', header: 'Unit', render: (r) => r.unit || '—', sortValue: (r) => r.unit || '' },
     { key: 'cardName', header: 'Customer', render: (r) => r.cardName, sortValue: (r) => r.cardName },
-    { key: 'net', header: 'Excl. tax', numeric: true, align: 'right', render: (r) => inr(r.net), sortValue: (r) => r.net },
+    { key: 'net', header: 'Items', numeric: true, align: 'right', render: (r) => inr(r.net), sortValue: (r) => r.net },
+    { key: 'charges', header: 'Charges', numeric: true, align: 'right', render: (r) => (r.charges ? inr(r.charges) : '—'), sortValue: (r) => r.charges, defaultHidden: true },
     { key: 'tax', header: 'Tax', numeric: true, align: 'right', render: (r) => inr(r.tax), sortValue: (r) => r.tax, defaultHidden: true },
     { key: 'total', header: 'Incl. tax', numeric: true, align: 'right', render: (r) => inr(r.total), sortValue: (r) => r.total },
   ];
@@ -59,9 +60,10 @@ export default function Sales() {
       {d && (
         <>
           <KpiGrid min={180}>
-            <KpiTile label="Sales (excl. tax)" display={inrShort(d.total)} tone="primary" spark={(daily ? d.daily : d.monthly).map((x) => x.sales)}
-              footer={d.interUnit ? `Excludes ${inrShort(d.interUnit)} inter-unit billing` : undefined} />
-            <KpiTile label="Tax" display={inrShort(d.tax)} />
+            <KpiTile label="Sales (items, excl. tax)" display={inrShort(d.total)} tone="primary" spark={(daily ? d.daily : d.monthly).map((x) => x.sales)}
+              hint="Item line totals of invoices minus credit notes, as SAP's sales reports count them. Freight and other charges on the invoice are not included."
+              footer={`Invoiced ${inrShort(d.invoiced)} − credit notes ${inrShort(d.creditNotes)}${d.interUnit ? ` · excludes ${inrShort(d.interUnit)} inter-unit` : ''}`} />
+            <KpiTile label="Tax" display={inrShort(d.tax)} footer={d.charges ? `Freight and other charges ${inrShort(d.charges)}` : undefined} />
             <KpiTile label="Quantity sold" display={qtyShort(d.qty)} />
             <KpiTile label="Customers" display={`${d.customerCount}`} />
             <KpiTile label="Invoices and credit notes" display={`${d.documentCount}`} footer={`Avg ${inrShort(d.documentCount ? d.total / d.documentCount : 0)} per document`} />
