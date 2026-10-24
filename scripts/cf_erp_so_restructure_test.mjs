@@ -325,7 +325,7 @@ await check('execution plan: a line its own way, picked in the grid', async () =
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
   await settle(80);
   const sel = byLabel(q1('plan-line-1'), 'Line 1: production orders');
-  await pick(sel, 'Per Girder line'); await settle(400);
+  await pick(sel, 'Per sub-assembly: Girder line'); await settle(400);
   const body = bodyOf(lastCall('PUT', '/orders/3/execution-plan'));
   assert.deepEqual(body.lines.find((l) => l.lineId === 41).own, { production: { level: 'assembly', levelId: 6094 }, dispatch: { level: 'same', levelId: null } });
   assert.equal(body.lines.find((l) => l.lineId === 42).own, null, 'line 2 still follows the order');
@@ -345,6 +345,91 @@ await check('execution plan: read only after the freeze, and a problem holds the
   await settle(80);
   assert.match(text(q1('plan-problems')), /Line 2 has no Girder line/);
   assert.equal(q1('plan-save').disabled, true);
+});
+
+// ── 4b. nothing to choose, choose by result (2026-10-24) ─────────────────────
+const opt = (key, label, more = {}) => {
+  const [level, id] = key.split(':');
+  return { key, choice: { level, levelId: id ? Number(id) : null }, name: label.split(' — ')[0], label, count: 1, problem: null, hidden: false, sameAs: null, ...more };
+};
+const OPTIONS = {
+  production: {
+    options: [opt('order', 'Whole order — 1 production order'), opt('line', 'Per line — 2 production orders', { count: 2 }),
+      opt('unit', 'Per unit — 2 production orders (one per unit)', { count: 2, hidden: true, sameAs: 'line' }),
+      opt('assembly:6094', 'Per sub-assembly: Girder line — 20 production orders (each Girder line + the rest)', { count: 20 })],
+    note: 'Per unit gives the same here (every line is 1 unit).',
+  },
+  dispatch: {
+    options: [opt('same', 'Same as production orders — 2 dispatch units', { count: 2 }), opt('line', 'Per line — 2 dispatch units', { count: 2, hidden: true, sameAs: 'same' }),
+      opt('unit', 'Per unit — 2 dispatch units (one per unit)', { count: 2, hidden: true, sameAs: 'same' })],
+    note: 'Per line gives the same here (it matches the production orders); Per unit gives the same here (every line is 1 unit).',
+  },
+};
+const lineOpts = {
+  production: { options: [opt('order', "Whole order — together with the order's other lines", { count: null }), opt('line', 'Per line — 1 production order'),
+    opt('unit', 'Per unit — 1 production order', { hidden: true, sameAs: 'line' }), opt('assembly:6094', 'Per sub-assembly: Girder line — 5 production orders (each Girder line + the rest)', { count: 5 })],
+  note: 'Per unit gives the same here (the line is 1 unit).', asOrder: 'As the order: Per line — 1 production order' },
+  dispatch: { options: [opt('same', 'Same as production orders — 1 dispatch unit'), opt('line', 'Per line — 1 dispatch unit', { hidden: true, sameAs: 'same' })], note: null, asOrder: 'As the order: Same as production orders — 1 dispatch unit' },
+};
+const NOTHING = '1 production order, ships as 1 dispatch unit — nothing to choose for this order.';
+await check('the words: visible options keep the chosen one; the line table only with more than one line; nothing-to-choose saved words', () => {
+  assert.deepEqual(m.visibleOptions(OPTIONS.production, 'line').map((o) => o.key), ['order', 'line', 'assembly:6094']);
+  assert.deepEqual(m.visibleOptions(OPTIONS.production, 'unit').map((o) => o.key), ['order', 'line', 'unit', 'assembly:6094'], 'the chosen option is never hidden');
+  assert.equal(m.showsLineTable(PLAN()), true);
+  assert.equal(m.showsLineTable(PLAN({ lines: [planLine(41, 1)] })), false);
+  assert.match(m.savedWords(PLAN({ nothingToChoose: true })), /^Nothing to choose — the default is the plan/);
+  assert.deepEqual(m.barOptions(PLAN(), 'production').options.map((o) => o.label), ['Whole order', 'Per line', 'Per unit', 'Per sub-assembly: Girder line', 'Per sub-assembly: Girder segment'], 'an older server: plain words');
+});
+await check('nothing to choose: one sentence and Change; Change opens the panel, with no per-line table for one line', async () => {
+  reset();
+  globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ nothingToChoose: true, summary: NOTHING, lines: [planLine(41, 1, { quantity: 1, levels: [] })], levels: [],
+    options: { production: { options: [opt('order', 'Whole order — 1 production order', { hidden: true, sameAs: 'line' }), opt('line', 'Per line — 1 production order'), opt('unit', 'Per unit — 1 production order', { hidden: true, sameAs: 'line' })], note: 'Whole order gives the same here (the order has one line); Per unit gives the same here (the line is 1 unit).' },
+      dispatch: { options: [opt('same', 'Same as production orders — 1 dispatch unit'), opt('line', 'Per line — 1 dispatch unit', { hidden: true }), opt('unit', 'Per unit — 1 dispatch unit', { hidden: true })], note: null } } });
+  await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
+  await settle(80);
+  assert.equal(text(q1('plan-nothing')), NOTHING);
+  assert.equal(q1('prod-line'), null, 'no bars while collapsed');
+  assert.equal(q1('plan-save'), null, 'nothing to save');
+  await click(q1('plan-change')); await settle(40);
+  assert.ok(q1('prod-line'), 'Change opens the panel');
+  assert.equal(text(q1('prod-line')), 'Per line — 1 production order');
+  assert.equal(q1('prod-order'), null, 'Whole order folded in');
+  assert.equal(q1('prod-unit'), null, 'Per unit never shows on a line of 1');
+  assert.match(text(q1('prod-note')), /Per unit gives the same here \(the line is 1 unit\)/);
+  assert.equal(q1('plan-lines'), null, 'no per-line table for an order of one line');
+  assert.match(text(q1('plan-saved')), /Nothing to choose — the default is the plan/);
+});
+await check('choose by result: the bars labelled with counts, duplicates hidden with a note; the chosen one always shows', async () => {
+  reset();
+  globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ nothingToChoose: false, summary: '2 production orders, ships as 2 dispatch units.', options: OPTIONS,
+    lines: [planLine(41, 1, { options: lineOpts }), planLine(42, 2, { quantity: 1, options: lineOpts }), planLine(43, 3, { lineType: 'standard', made: false, levels: [], productionCount: 0, dispatchCount: null, options: null, item: { id: 9, code: 'PL-6', name: 'MS Plate' } })] });
+  globalThis.__routes['PUT /orders/3/execution-plan'] = () => PLAN({ dryRun: true, options: OPTIONS });
+  await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
+  await settle(80);
+  assert.equal(q1('plan-nothing'), null, 'something to choose: the whole panel');
+  assert.equal(text(q1('prod-order')), 'Whole order — 1 production order');
+  assert.equal(text(q1('prod-line')), 'Per line — 2 production orders');
+  assert.equal(text(q1('prod-assembly-6094')), 'Per sub-assembly: Girder line — 20 production orders (each Girder line + the rest)');
+  assert.equal(q1('prod-unit'), null, 'Per unit gives the same: hidden');
+  assert.equal(text(q1('prod-note')), 'Per unit gives the same here (every line is 1 unit).');
+  assert.equal(text(q1('disp-same')), 'Same as production orders — 2 dispatch units');
+  assert.equal(q1('disp-line'), null);
+  assert.match(text(q1('disp-note')), /^Per line gives the same here \(it matches the production orders\)/);
+  assert.ok(q1('plan-lines'), 'the per-line table with three lines');
+  // A line's select: "As the order" says what it gives; its Per unit (the line is 1 unit) is hidden.
+  const sel = byLabel(q1('plan-line-2'), 'Line 2: production orders');
+  const btn = sel.closest('.MuiInputBase-root').querySelector('[role="combobox"], [role="button"]');
+  await fire(btn, 'mousedown', { button: 0 }); await settle();
+  const opts = [...document.querySelectorAll('[role="option"]')].map(text);
+  assert.deepEqual(opts, ['As the order: Per line — 1 production order', "Whole order — together with the order's other lines", 'Per line — 1 production order', 'Per sub-assembly: Girder line — 5 production orders (each Girder line + the rest)']);
+  await click([...document.querySelectorAll('[role="option"]')].find((o) => text(o).startsWith('Per sub-assembly'))); await settle(400);
+  assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).lines.find((l) => l.lineId === 42).own.production, { level: 'assembly', levelId: 6094 });
+  // The saved choice stays visible though it would be folded in.
+  reset();
+  globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ plan: { production: { level: 'unit', levelId: null }, dispatch: { level: 'same', levelId: null } }, options: OPTIONS });
+  await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
+  await settle(80);
+  assert.ok(q1('prod-unit') && q1('prod-unit').getAttribute('aria-pressed') === 'true', 'the chosen Per unit shows, pressed');
 });
 
 // ── 5. the stage bodies ─────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import type {
-  DispatchLevel, ExecutionPlan, ExecutionPlanInput, ExecutionPlanView, PlanChoice, ProductionLevel,
+  DispatchLevel, ExecutionPlan, ExecutionPlanInput, ExecutionPlanLine, ExecutionPlanView, PlanChoice, PlanOption, PlanOptionGroup, ProductionLevel,
 } from '../api/executionPlan';
 
 /**
@@ -81,7 +81,44 @@ export function lineCountWords(l: { made: boolean; plan: ExecutionPlan; producti
 
 /** "Saved by Asha on 18 Oct" / "Not saved yet — the default is shown". */
 export function savedWords(view: ExecutionPlanView): string {
+  if (!view.saved?.at && view.nothingToChoose) return 'Nothing to choose — the default is the plan, no save needed.';
   if (!view.saved?.at) return 'Not saved yet — the default is shown. Check it and save.';
   const when = new Date(view.saved.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   return `Saved${view.saved.by?.name ? ` by ${view.saved.by.name}` : ''} on ${when}.`;
 }
+
+/* ── Choose by result (2026-10-24) ─────────────────────────────────────────────
+ * The server labels every option with what it produces and hides the ones that give the same as a simpler one
+ * (executionPlanModel.choicesOf). These read its answer — and, from an older server without `options`, build plain
+ * options from the words so the screen still works.
+ */
+type Kind = 'production' | 'dispatch';
+const plainOptions = <L extends string>(kind: Kind, levels: { id: number; name: string }[]): PlanOptionGroup<L> => {
+  const words = (kind === 'production' ? PRODUCTION_WORDS : DISPATCH_WORDS) as Record<string, string>;
+  const base = (kind === 'production' ? ['order', 'line', 'unit'] : ['same', 'line', 'unit']).map((level) => ({ level, levelId: null }));
+  const all = [...base, ...levels.map((lv) => ({ level: 'assembly', levelId: lv.id }))];
+  return {
+    note: null,
+    options: all.map((c) => {
+      const name = c.level === 'assembly' ? `Per sub-assembly: ${levels.find((lv) => lv.id === c.levelId)?.name ?? ''}` : words[c.level];
+      return { key: encodeChoice(c), choice: c as PlanChoice<L>, name, label: name, count: null, problem: null, hidden: false, sameAs: null };
+    }),
+  };
+};
+
+/** A bar's options (the order's choice). */
+export function barOptions<K extends Kind>(view: ExecutionPlanView, kind: K): PlanOptionGroup<K extends 'production' ? ProductionLevel : DispatchLevel> {
+  return (view.options?.[kind] ?? plainOptions(kind, view.levels)) as PlanOptionGroup<K extends 'production' ? ProductionLevel : DispatchLevel>;
+}
+
+/** A line's select options. */
+export function lineOptionGroup<K extends Kind>(line: ExecutionPlanLine, kind: K): PlanOptionGroup<K extends 'production' ? ProductionLevel : DispatchLevel> {
+  return (line.options?.[kind] ?? plainOptions(kind, line.levels)) as PlanOptionGroup<K extends 'production' ? ProductionLevel : DispatchLevel>;
+}
+
+/** The options shown: every one not folded into a simpler one — and always the one chosen now (`current`). */
+export const visibleOptions = <L extends string>(group: PlanOptionGroup<L>, current: string | null | undefined): PlanOption<L>[] =>
+  group.options.filter((o) => !o.hidden || o.key === current);
+
+/** The per-line table matters only when the order has more than one line. */
+export const showsLineTable = (view: ExecutionPlanView) => view.lines.length > 1;

@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, CircularProgress, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
+import { Box, Button, CircularProgress, Link, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import LockRounded from '@mui/icons-material/LockRounded';
 import { CfApiError } from '../../api/client';
 import {
   getExecutionPlan, saveExecutionPlan,
-  type DispatchLevel, type ExecutionPlan, type ExecutionPlanView, type PlanPreviewPart, type ProductionLevel,
+  type DispatchLevel, type ExecutionPlan, type ExecutionPlanLine, type ExecutionPlanView, type PlanPreviewPart, type ProductionLevel,
 } from '../../api/executionPlan';
 import { useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useFullScreen } from '../../hooks/useFullScreen';
 import {
-  DISPATCH_WORDS, PRODUCTION_HELP, PRODUCTION_WORDS, decodeChoice, dispatchTooBig, draftChanged, draftOf, encodeChoice, inputOf,
-  lineCountWords, savedWords, type PlanDraft,
+  PRODUCTION_HELP, barOptions, decodeChoice, dispatchTooBig, draftChanged, draftOf, encodeChoice, inputOf, lineCountWords, lineOptionGroup,
+  savedWords, showsLineTable, visibleOptions, type PlanDraft,
 } from '../../lib/executionPlan';
 import { ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
@@ -19,8 +19,6 @@ import { useToast } from '../toastContext';
 import { nudgeIfRefused } from '../salesMotion';
 import { FlashOnChange } from '../../motion';
 
-const PRODUCTION_LEVELS: ProductionLevel[] = ['order', 'line', 'unit', 'assembly'];
-const DISPATCH_LEVELS: DispatchLevel[] = ['same', 'line', 'unit', 'assembly'];
 const SHOWN = 12;
 const cellSx = { px: 1, py: 0.5, borderBottom: '1px solid var(--c-divider)', fontSize: 13, verticalAlign: 'middle' } as const;
 const selectSx = { minWidth: 170, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiSelect-select': { py: '4px' } } as const;
@@ -52,6 +50,10 @@ function PreviewList({ title, part, testId }: { title: string; part: PlanPreview
  * the same or finer). Prefilled with the usual (one production order per line, dispatched the same way); a line
  * can differ in the grid below. Every change shows at once what the order will make (a dry run on the server — the
  * same rules the save uses). Fixed once a line's design is frozen.
+ *
+ * 2026-10-24: every choice is labelled with what it makes (the server's `options`); one giving the same as a simpler
+ * one is left out, named in a note under its bar. With NOTHING TO CHOOSE the panel is one sentence and "Change";
+ * the per-line table shows only when the order has more than one line.
  */
 export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; onChanged?: () => void }) {
   const toast = useToast();
@@ -63,6 +65,8 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Nothing to choose: the panel is one sentence until "Change" opens it.
+  const [expanded, setExpanded] = useState(false);
   const seq = useRef(0);
 
   const saved = loaded.data;
@@ -87,7 +91,6 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
 
   const shown = preview ?? saved;
   const editable = !!saved?.editable && canManage;
-  const levels = useMemo(() => saved?.levels ?? [], [saved]);
   if (loaded.error) return <ErrorNotice error={loaded.error} onRetry={loaded.reload} />;
   if (!saved || !draft || !shown) return <SkeletonRows rows={4} height={64} />;
 
@@ -100,8 +103,6 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
   });
   const setOwn = (lineId: number, own: ExecutionPlan | null) => setDraft((d) => (d ? { ...d, own: { ...d.own, [lineId]: own } } : d));
   const applyTemplate = (plan: ExecutionPlan) => setDraft((d) => (d ? { production: { ...plan.production }, dispatch: { ...plan.dispatch }, own: Object.fromEntries(Object.keys(d.own).map((k) => [k, null])) } : d));
-  const firstLevel = levels[0]?.id ?? null;
-
   const save = async (button?: HTMLElement) => {
     setSaving(true); setError(null);
     try {
@@ -112,24 +113,35 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
     } catch (e) { setError(e as CfApiError); nudgeIfRefused(e, button); } finally { setSaving(false); }
   };
 
-  const levelSelect = (value: number | null, onPick: (id: number) => void, label: string, testId: string, options = levels) => (
-    <TextField select size="small" label={label} value={value ?? ''} onChange={(e) => onPick(Number(e.target.value))} sx={selectSx} disabled={!editable}
-      inputProps={{ 'data-testid': testId }}>
-      {options.map((lv) => <MenuItem key={lv.id} value={lv.id}>{lv.name}{'onEveryLine' in lv && !lv.onEveryLine ? ` (lines ${lv.lineNos.join(', ')})` : ''}</MenuItem>)}
-    </TextField>
-  );
-
-  const lineOptions = (l: ExecutionPlanView['lines'][number], kind: 'production' | 'dispatch') => {
-    const base = kind === 'production' ? PRODUCTION_LEVELS.filter((x) => x !== 'assembly') : DISPATCH_LEVELS.filter((x) => x !== 'assembly');
-    const words = kind === 'production' ? PRODUCTION_WORDS : DISPATCH_WORDS;
+  // A line's select: "As the order" (saying what that gives), then every option not folded into a simpler one.
+  const lineOptions = (l: ExecutionPlanLine, kind: 'production' | 'dispatch', current: string) => {
+    const group = lineOptionGroup(l, kind);
     return [
-      <MenuItem key="as-order" value="">As the order</MenuItem>,
-      ...base.map((x) => <MenuItem key={x} value={x}>{words[x as keyof typeof words]}</MenuItem>),
-      ...l.levels.map((lv) => <MenuItem key={`a${lv.id}`} value={`assembly:${lv.id}`}>Per {lv.name} ({lv.perUnit} a unit)</MenuItem>),
+      <MenuItem key="as-order" value="">{group.asOrder ?? 'As the order'}</MenuItem>,
+      ...visibleOptions(group, current).map((o) => (
+        <MenuItem key={o.key} value={o.key} disabled={kind === 'dispatch' && dispatchTooBig(l.plan.production.level, o.choice.level as DispatchLevel)}>{o.label}</MenuItem>
+      )),
     ];
   };
 
   const problems = shown.problems;
+  const prodGroup = barOptions(shown, 'production');
+  const dispGroup = barOptions(shown, 'dispatch');
+  const prodKey = encodeChoice(draft.production);
+  const dispKey = encodeChoice(draft.dispatch);
+  const optionTestId = (kind: string, key: string) => `${kind}-${key.replace(':', '-')}`;
+
+  // NOTHING TO CHOOSE (2026-10-24): one sentence, and "Change" opens the whole panel.
+  if (shown.nothingToChoose && !expanded && !dirty) {
+    return (
+      <SectionCard title="Execution plan" subtitle="How the order is made and shipped.">
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap' }} data-testid="execution-plan">
+          <Typography sx={{ fontSize: 14 }} data-testid="plan-nothing">{shown.summary ?? 'Nothing to choose for this order.'}</Typography>
+          <Link component="button" type="button" onClick={() => setExpanded(true)} data-testid="plan-change" sx={{ fontSize: 13.5 }}>Change</Link>
+        </Box>
+      </SectionCard>
+    );
+  }
 
   return (
     <FullScreenFrame on={full.on} onExit={() => full.set(false)}>
@@ -153,33 +165,36 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, mb: 0.75 }}>Production orders</Typography>
-              <ToggleButtonGroup exclusive size="small" value={draft.production.level} disabled={!editable} aria-label="Production order level"
-                onChange={(_, v: ProductionLevel | null) => { if (v) setOrder({ production: { level: v, levelId: v === 'assembly' ? draft.production.levelId ?? firstLevel : null } }); }}
+              {/* Choose by result: each option says what it makes; one giving the same as a simpler one is folded in. */}
+              <ToggleButtonGroup exclusive size="small" value={prodKey} disabled={!editable} aria-label="Production order level"
+                onChange={(_, v: string | null) => { if (v) setOrder({ production: decodeChoice<ProductionLevel>(v) }); }}
                 sx={{ flexWrap: 'wrap' }}>
-                {PRODUCTION_LEVELS.map((x) => (
-                  <ToggleButton key={x} value={x} disabled={!editable || (x === 'assembly' && !levels.length)} data-testid={`prod-${x}`}>
-                    <Tooltip title={PRODUCTION_HELP[x]}><span>{PRODUCTION_WORDS[x]}</span></Tooltip>
+                {visibleOptions(prodGroup, prodKey).map((o) => (
+                  <ToggleButton key={o.key} value={o.key} disabled={!editable} data-testid={optionTestId('prod', o.key)} sx={{ textTransform: 'none' }}>
+                    <Tooltip title={PRODUCTION_HELP[o.choice.level]}><span>{o.label}</span></Tooltip>
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
-              {draft.production.level === 'assembly' && <Box sx={{ mt: 1 }}>{levelSelect(draft.production.levelId, (id) => setOrder({ production: { level: 'assembly', levelId: id } }), 'BOM level', 'prod-level')}</Box>}
+              {prodGroup.note && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.5 }} data-testid="prod-note">{prodGroup.note}</Typography>}
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>{PRODUCTION_HELP[draft.production.level]}</Typography>
             </Box>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, mb: 0.75 }}>Dispatch</Typography>
-              <ToggleButtonGroup exclusive size="small" value={draft.dispatch.level} disabled={!editable} aria-label="Dispatch level"
-                onChange={(_, v: DispatchLevel | null) => { if (v) setOrder({ dispatch: { level: v, levelId: v === 'assembly' ? draft.dispatch.levelId ?? firstLevel : null } }); }}
+              <ToggleButtonGroup exclusive size="small" value={dispKey} disabled={!editable} aria-label="Dispatch level"
+                onChange={(_, v: string | null) => { if (v) setOrder({ dispatch: decodeChoice<DispatchLevel>(v) }); }}
                 sx={{ flexWrap: 'wrap' }}>
-                {DISPATCH_LEVELS.map((x) => (
-                  <ToggleButton key={x} value={x} data-testid={`disp-${x}`} disabled={!editable || dispatchTooBig(draft.production.level, x) || (x === 'assembly' && !levels.length)}>{DISPATCH_WORDS[x]}</ToggleButton>
+                {visibleOptions(dispGroup, dispKey).map((o) => (
+                  <ToggleButton key={o.key} value={o.key} data-testid={optionTestId('disp', o.key)} sx={{ textTransform: 'none' }}
+                    disabled={!editable || dispatchTooBig(draft.production.level, o.choice.level)}>{o.label}</ToggleButton>
                 ))}
               </ToggleButtonGroup>
-              {draft.dispatch.level === 'assembly' && <Box sx={{ mt: 1 }}>{levelSelect(draft.dispatch.levelId, (id) => setOrder({ dispatch: { level: 'assembly', levelId: id } }), 'BOM level', 'disp-level')}</Box>}
+              {dispGroup.note && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.5 }} data-testid="disp-note">{dispGroup.note}</Typography>}
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>Never bigger than a production order.</Typography>
             </Box>
           </Box>
 
-          <Box sx={{ overflowX: 'auto', minWidth: 0 }}>
+          {/* The per-line table only when the order has more than one line (2026-10-24). */}
+          {showsLineTable(shown) && <Box sx={{ overflowX: 'auto', minWidth: 0 }}>
             <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', minWidth: 640 }} data-testid="plan-lines">
               <thead>
                 <tr>
@@ -212,7 +227,7 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
                         {l.made
                           ? <TextField select size="small" value={own ? encodeChoice(own.production) : ''} disabled={fixed} onChange={(e) => pick('production', e.target.value)} sx={selectSx}
                               inputProps={{ 'aria-label': `Line ${l.lineNo}: production orders` }} SelectProps={{ displayEmpty: true }}>
-                              {lineOptions(l, 'production')}
+                              {lineOptions(l, 'production', own ? encodeChoice(own.production) : '')}
                             </TextField>
                           : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Taken from stock</Typography>}
                       </Box>
@@ -220,7 +235,7 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
                         {l.made && (
                           <TextField select size="small" value={own ? encodeChoice(own.dispatch) : ''} disabled={fixed} onChange={(e) => pick('dispatch', e.target.value)} sx={selectSx}
                             inputProps={{ 'aria-label': `Line ${l.lineNo}: dispatch` }} SelectProps={{ displayEmpty: true }}>
-                            {lineOptions(l, 'dispatch')}
+                            {lineOptions(l, 'dispatch', own ? encodeChoice(own.dispatch) : '')}
                           </TextField>
                         )}
                       </Box>
@@ -233,7 +248,7 @@ export function ExecutionPlanPanel({ orderId, onChanged }: { orderId: number; on
                 })}
               </tbody>
             </Box>
-          </Box>
+          </Box>}
 
           <Box sx={{ display: 'grid', gap: 0.5 }}>
             <Typography sx={{ fontSize: 14, fontWeight: 600 }} aria-live="polite" data-testid="plan-sentence">

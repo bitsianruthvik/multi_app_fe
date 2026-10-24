@@ -41,9 +41,28 @@ export interface ExecutionPlanLine {
   productionCount: number;
   dispatchCount: number | null;
   problems: string[];
+  /** The line's selects, labelled by result (null for a line from stock; absent from an older server). */
+  options?: { production: PlanOptionGroup<ProductionLevel>; dispatch: PlanOptionGroup<DispatchLevel> } | null;
 }
 
 export interface PlanPreviewPart { count: number; items: string[]; more: number; sentence: string }
+
+/**
+ * One choice, labelled with what it produces (backend executionPlanModel.choicesOf, 2026-10-24):
+ * "Per unit — 3 production orders (one per unit)". `hidden`: it gives the same as a simpler one (`sameAs`), named in
+ * the group's note. `count` is null for a line that joins the order's one production order.
+ */
+export interface PlanOption<L extends string = string> {
+  key: string;
+  choice: PlanChoice<L>;
+  name: string;
+  label: string;
+  count: number | null;
+  problem: string | null;
+  hidden: boolean;
+  sameAs: string | null;
+}
+export interface PlanOptionGroup<L extends string = string> { options: PlanOption<L>[]; note: string | null; asOrder?: string }
 
 export interface ExecutionPlanView {
   order: { id: number; code: string; status: SalesOrder['status'] };
@@ -62,6 +81,12 @@ export interface ExecutionPlanView {
   preview: { production: PlanPreviewPart; dispatch: PlanPreviewPart; limit: number };
   problems: string[];
   note: string;
+  /** Every option gives the default's production orders: the default is the plan — no save needed (2026-10-24). */
+  nothingToChoose?: boolean;
+  /** "1 production order, ships as 1 dispatch unit — nothing to choose for this order." */
+  summary?: string;
+  /** The bars' options, labelled by result. */
+  options?: { production: PlanOptionGroup<ProductionLevel>; dispatch: PlanOptionGroup<DispatchLevel> };
 }
 
 export interface ExecutionPlanInput {

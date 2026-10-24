@@ -14,7 +14,7 @@ Freezing the design rolls a line's structure out into pieces and gives each piec
 - A sentence such as *336 pieces will be written — 177 numbered one by one, 159 groups of identical parts.*
 - A checklist, each item with a tick or what is wrong and a link to the step that fixes it:
   - **Every required value is filled**
-  - **The execution plan is saved**
+  - **The execution plan is saved** (ticked by itself when the plan has nothing to choose)
   - **The structure rolls out into pieces** (every row has its item chosen)
   - **Every part says how it is cut**, **Every section part has its bar and length**, **Every plate part has its cut piece**
   - **Every made part says how it is made** (a heads-up only, see below)

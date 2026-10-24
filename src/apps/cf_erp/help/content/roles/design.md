@@ -24,7 +24,7 @@ Every line is a group on this tab, with its BOM rows and their values beside the
 See [Structure & values](help:order-structure).
 
 ## 2. Execution plan
-Check how the order is split into production orders (**Per line** is usual; **Per unit** gives one per span) and dispatch units. Click **Save the plan**, even for the default: the freeze waits for it. See [Execution plan](help:order-execution-plan).
+Check how the order is split into production orders (**Per line** is usual; **Per unit** gives one per span) and dispatch units. Each choice says what it makes. Click **Save the plan**, even for the default: the freeze waits for it. When the step says *nothing to choose for this order*, there is nothing to save. See [Execution plan](help:order-execution-plan).
 
 ## 3. Freeze design
 Pick the line in **Working on**. Work through the checklist until nothing is in the way. If made rows have no flow, **Give them a flow** now; otherwise release will ask later. Click **Freeze the design** and confirm. Every piece now has its code. A later change needs **Revise**. See [Freeze design](help:order-lock).
