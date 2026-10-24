@@ -7,21 +7,21 @@
 /** Milliseconds. */
 export const duration = {
   /** Press feedback, colour changes, tooltips. */
-  fast: 120,
+  fast: 140,
   /** Most enters: fade, rise, pop, menus. */
-  base: 160,
+  base: 200,
   /** Upper end of "most things": dialogs, snackbars, collapse. */
-  slow: 200,
+  slow: 260,
   /** Large panels / page-level transitions only (drawers). */
-  panel: 280,
+  panel: 300,
   /** A refused-action nudge, one pass. */
-  nudge: 240,
+  nudge: 280,
   /** A highlight flash (colour only) when a value changes. */
-  flash: 600,
+  flash: 900,
   /** CountUp on first show. */
-  countUp: 600,
+  countUp: 800,
   /** A milestone celebration, start to clean-up. */
-  celebrate: 900,
+  celebrate: 1000,
 } as const;
 
 export const easing = {
@@ -32,7 +32,7 @@ export const easing = {
 } as const;
 
 /** Stagger limits (rule 4): only the first `max` children, the whole run ≤ `total` ms. */
-export const stagger = { max: 12, step: 25, total: 300 } as const;
+export const stagger = { max: 12, step: 35, total: 400 } as const;
 
 /** Press feedback scale for buttons. */
 export const pressScale = 0.98;

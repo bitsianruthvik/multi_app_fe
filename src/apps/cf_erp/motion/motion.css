@@ -3,31 +3,31 @@
    Only opacity / transform / colour are animated. */
 
 :root {
-  --m-dur-fast: 120ms;
-  --m-dur-base: 160ms;
-  --m-dur-slow: 200ms;
-  --m-dur-panel: 280ms;
-  --m-dur-nudge: 240ms;
-  --m-dur-flash: 600ms;
-  --m-dur-celebrate: 900ms;
+  --m-dur-fast: 140ms;
+  --m-dur-base: 200ms;
+  --m-dur-slow: 260ms;
+  --m-dur-panel: 300ms;
+  --m-dur-nudge: 280ms;
+  --m-dur-flash: 900ms;
+  --m-dur-celebrate: 1000ms;
   --m-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --m-ease-exit: cubic-bezier(0.4, 0, 1, 1);
-  --m-flash-bg: rgba(109, 40, 217, 0.16);
+  --m-flash-bg: rgba(109, 40, 217, 0.24);
 }
-html[data-theme='dark'] { --m-flash-bg: rgba(165, 112, 239, 0.22); }
+html[data-theme='dark'] { --m-flash-bg: rgba(165, 112, 239, 0.30); }
 
 @keyframes cfm-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes cfm-rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes cfm-pop { 0% { opacity: 0; transform: scale(0.92); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes cfm-rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes cfm-pop { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
 @keyframes cfm-check-draw { from { stroke-dashoffset: var(--cfm-dash, 24); } to { stroke-dashoffset: 0; } }
 @keyframes cfm-shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
 @keyframes cfm-highlight-flash { from { background-color: var(--m-flash-bg); } to { background-color: transparent; } }
 @keyframes cfm-highlight-flash-b { from { background-color: var(--m-flash-bg); } to { background-color: transparent; } }
 @keyframes cfm-nudge {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  50% { transform: translateX(4px); }
-  75% { transform: translateX(-2px); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-4px); }
 }
 @keyframes cfm-burst {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
@@ -61,7 +61,7 @@ html[data-theme='dark'] { --m-flash-bg: rgba(165, 112, 239, 0.22); }
 .cfm-burst { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 2000; }
 .cfm-burst > span {
   position: absolute; left: 0; top: 0; display: block; font-size: 14px; line-height: 1;
-  animation: cfm-burst 700ms var(--m-ease-standard) both;
+  animation: cfm-burst 850ms var(--m-ease-standard) both;
 }
 
 /* Interactive Card / Paper hover elevation (opt-in by class; the theme also covers CardActionArea / role=button). */

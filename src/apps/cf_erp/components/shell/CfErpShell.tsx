@@ -95,7 +95,7 @@ export function CfErpShell({ children }: { children: ReactNode }) {
           // Route change: the new page fades and rises 4px into place — 160 ms, opacity/transform only (no layout shift),
           // the content is there at once so nothing waits on it. Reduced motion: motion.css's kill-switch.
           animation: 'cf-route-in var(--m-dur-base) var(--m-ease-standard)',
-          '@keyframes cf-route-in': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
+          '@keyframes cf-route-in': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
         }}>
           <ErrorBoundary level="page">
             <DetailTitleContext.Provider value={publishTitle}>{children}</DetailTitleContext.Provider>

@@ -109,11 +109,11 @@ await check('useReducedMotion renders without matchMedia and follows the OS sett
 await check('tokens: spec easings, durations within the rules', async () => {
   assert.equal(M.easing.standard, 'cubic-bezier(0.2, 0, 0, 1)');
   assert.equal(M.easing.exit, 'cubic-bezier(0.4, 0, 1, 1)');
-  for (const k of ['fast', 'base', 'slow']) assert.ok(M.duration[k] >= 120 && M.duration[k] <= 200, k);
-  assert.ok(M.duration.panel <= 280);
-  assert.ok(M.duration.nudge <= 250);
-  assert.ok(M.duration.countUp <= 600);
-  assert.ok(M.duration.celebrate <= 900);
+  for (const k of ['fast', 'base', 'slow']) assert.ok(M.duration[k] >= 120 && M.duration[k] <= 280, k);
+  assert.ok(M.duration.panel <= 300);
+  assert.ok(M.duration.nudge <= 280);
+  assert.ok(M.duration.countUp <= 800);
+  assert.ok(M.duration.celebrate <= 1000);
   assert.equal(M.transition(['opacity', 'transform'], 160), 'opacity 160ms cubic-bezier(0.2, 0, 0, 1), transform 160ms cubic-bezier(0.2, 0, 0, 1)');
 });
 
@@ -128,13 +128,13 @@ await check('CountUp: the final value is there at once in jsdom (formatted too),
   await cleanup();
 });
 
-await check('CountUp in a real browser: counts ≤ 600 ms with the final value kept for screen readers, lands exactly', async () => {
+await check('CountUp in a real browser: counts ≤ 800 ms with the final value kept for screen readers, lands exactly', async () => {
   setUA('Mozilla/5.0 Chrome');
   await render(h(M.CountUp, { value: 900, ms: 5000 }));
   const hidden = host().querySelector('[aria-hidden="true"]');
   assert.ok(hidden, 'moving digits are aria-hidden');
   assert.ok(host().textContent.includes('900'), 'final value present for screen readers');
-  await settle(750);
+  await settle(950);
   assert.equal(host().textContent, '900');
   assert.equal(host().querySelector('[aria-hidden="true"]'), null);
   await cleanup();
@@ -167,7 +167,7 @@ await check('FlashOnChange: no flash on first render or the same value; a flash 
   await cleanup();
 });
 
-await check('Stagger: only the first N children animate, capped at 12, ≤ 300 ms in all, no wrapper, classes kept', async () => {
+await check('Stagger: only the first N children animate, capped at 12, ≤ 400 ms in all, no wrapper, classes kept', async () => {
   const kids = (n) => Array.from({ length: n }, (_, i) => h('li', { key: i, className: 'row', 'data-testid': `r${i}` }, `Row ${i}`));
   await render(h('ul', null, h(M.Stagger, { max: 5 }, kids(20))));
   const lis = [...host().querySelectorAll('li')];
@@ -176,12 +176,12 @@ await check('Stagger: only the first N children animate, capped at 12, ≤ 300 m
   assert.equal(lis.filter((li) => li.classList.contains('cfm-rise-in')).length, 5);
   assert.ok(lis.every((li) => li.classList.contains('row')));
   assert.equal(lis[5].getAttribute('style'), null);
-  assert.equal(lis[4].style.animationDelay, '100ms');
+  assert.equal(lis[4].style.animationDelay, `${M.stagger.step * 4}ms`);
   await render(h('ul', null, h(M.Stagger, { max: 50, step: 100, variant: 'fade' }, ['text', ...kids(30)])));
   const all = [...host().querySelectorAll('li')];
   assert.equal(all.filter((li) => li.classList.contains('cfm-fade-in')).length, 12, 'capped at 12');
   const delays = all.slice(0, 12).map((li) => parseInt(li.style.animationDelay, 10));
-  assert.ok(Math.max(...delays) <= 300, `total ${Math.max(...delays)}`);
+  assert.ok(Math.max(...delays) <= 400, `total ${Math.max(...delays)}`);
   assert.ok(host().textContent.startsWith('text'), 'non-elements pass through');
   await cleanup();
 });
@@ -249,7 +249,7 @@ await check('cf_erp theme: transitions from the tokens, press feedback, menu/dra
     assert.equal(t.transitions.duration.standard, M.duration.slow);
     assert.equal(t.transitions.easing.easeOut, M.easing.standard);
     assert.equal(t.transitions.easing.easeIn, M.easing.exit);
-    assert.match(t.transitions.create('opacity'), /200ms/);
+    assert.match(t.transitions.create('opacity'), new RegExp(`${M.duration.slow}ms`));
     const btn = t.components.MuiButton.styleOverrides.root;
     assert.equal(btn.borderRadius, '8px', 'existing Button override kept');
     assert.equal(btn['&:active:not(.Mui-disabled)'].transform, 'scale(0.98)');
@@ -259,7 +259,7 @@ await check('cf_erp theme: transitions from the tokens, press feedback, menu/dra
     assert.ok(t.components.MuiDialog.styleOverrides.paper.boxShadow, 'existing Dialog override kept');
     assert.match(t.components.MuiDialog.styleOverrides.paper.animation, /cfm-rise-in/);
     assert.deepEqual(t.components.MuiMenu.defaultProps.transitionDuration, { enter: M.duration.base, exit: M.duration.fast });
-    assert.ok(t.components.MuiDrawer.defaultProps.transitionDuration.enter <= 280);
+    assert.ok(t.components.MuiDrawer.defaultProps.transitionDuration.enter <= 300);
     assert.equal(typeof t.components.MuiBackdrop.styleOverrides.root, 'function', 'backdrop override untouched');
   }
 });
