@@ -7,6 +7,7 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { gstRateText } from '../../lib/gst';
 import { ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { useToast } from '../toastContext';
+import { FlashOnChange, SuccessCheck, nudge } from '../../motion';
 
 /**
  * Setup › Company tax details › HSN & GST BY FAMILY (2026-10-18). A PO showed "GST ₹0 — no GST rate" because no catalog
@@ -19,18 +20,21 @@ export function TaxByFamilyCard() {
   const data = useLoad(() => getTaxFamilies(), []);
   const [draft, setDraft] = useState<Record<number, { hsn: string; rate: string; overwrite: boolean }>>({});
   const [busy, setBusy] = useState<number | null>(null);
+  const [setOk, setSetOk] = useState<{ nodeId: number; n: number } | null>(null); // motion: a check beside the family just set
   const d = data.data;
   const rowOf = (f: TaxFamily) => draft[f.nodeId] ?? { hsn: f.suggestion?.hsnCode ?? (f.hsnCodes.length === 1 ? f.hsnCodes[0] : ''), rate: f.suggestion?.rateOnList ? String(f.suggestion.gstRate) : (f.rates.length === 1 ? String(f.rates[0]) : ''), overwrite: false };
   const edit = (f: TaxFamily, patch: Partial<{ hsn: string; rate: string; overwrite: boolean }>) => setDraft((x) => ({ ...x, [f.nodeId]: { ...rowOf(f), ...patch } }));
-  const apply = async (f: TaxFamily) => {
+  const apply = async (f: TaxFamily, btn?: HTMLElement) => {
     const r = rowOf(f);
     setBusy(f.nodeId);
     try {
       const res = await setTaxFamily(f.nodeId, { hsnCode: r.hsn.trim() || null, gstRate: r.rate === '' ? null : Number(r.rate), overwrite: r.overwrite });
       toast.success(`${res.path}: ${res.items} item${res.items === 1 ? '' : 's'}${res.definitions ? ` and ${res.definitions} template${res.definitions === 1 ? '' : 's'}` : ''} set.`);
       setDraft((x) => { const n = { ...x }; delete n[f.nodeId]; return n; });
+      setSetOk((o) => ({ nodeId: f.nodeId, n: (o?.n ?? 0) + 1 }));
       data.reload();
     } catch (e) {
+      nudge(btn);
       toast.error(e instanceof CfApiError ? e.message : 'Could not set the family.');
     } finally { setBusy(null); }
   };
@@ -41,7 +45,7 @@ export function TaxByFamilyCard() {
         {!d && !data.error && <SkeletonRows rows={4} height={40} />}
         {d && (
           <Typography data-testid="tax-family-gaps" sx={{ fontSize: 13, color: d.gaps.noRate ? 'var(--c-warning-800)' : 'var(--c-text-2)' }}>
-            {d.gaps.items} catalog items · {d.gaps.noHsn} without an HSN code · {d.gaps.noRate} without a GST rate.
+            {d.gaps.items} catalog items · <FlashOnChange value={d.gaps.noHsn}>{d.gaps.noHsn}</FlashOnChange> without an HSN code · <FlashOnChange value={d.gaps.noRate}>{d.gaps.noRate}</FlashOnChange> without a GST rate.
           </Typography>
         )}
         {d && d.families.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>No catalog items yet.</Typography>}
@@ -63,7 +67,10 @@ export function TaxByFamilyCard() {
                 {(d.gstRates ?? []).map((x) => <MenuItem key={x} value={String(x)}>{gstRateText(x)}</MenuItem>)}
               </TextField>
               <FormControlLabel control={<Checkbox size="small" checked={r.overwrite} disabled={!canEdit} onChange={(e) => edit(f, { overwrite: e.target.checked })} />} label={<Typography sx={{ fontSize: 12.5 }}>Overwrite</Typography>} />
-              <Button size="small" variant="outlined" disabled={!canEdit || busy === f.nodeId || (!r.hsn.trim() && r.rate === '')} onClick={() => void apply(f)} data-testid="tax-family-set">Set</Button>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Button size="small" variant="outlined" disabled={!canEdit || busy === f.nodeId || (!r.hsn.trim() && r.rate === '')} onClick={(e) => void apply(f, e.currentTarget)} data-testid="tax-family-set">Set</Button>
+                {setOk?.nodeId === f.nodeId && <SuccessCheck key={setOk.n} size={18} label="Set" />}
+              </Box>
             </Box>
           );
         })}

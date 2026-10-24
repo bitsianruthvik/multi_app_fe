@@ -16,6 +16,7 @@ import { qtyText } from '../lib/inventory';
 import { EmptyState, ErrorNotice, Mono, PageHeader, SectionCard, StatStrip, SkeletonRows } from '../components/ui';
 import { FilterBar } from '../components/FilterBar';
 import { OrderPicker } from '../components/ServerPicker';
+import { FlashOnChange, Stagger } from '../motion';
 
 const value = (v: number | null | undefined) => (v == null ? '—' : rupeeText(v));
 
@@ -40,7 +41,7 @@ function LotRows({ lot, open, onToggle }: { lot: WipLot; open: boolean; onToggle
           </Box>
         </TableCell>
         <TableCell>{lot.level}{container && <Mono muted sx={{ ml: 0.75 }}>holds {lot.contains.length}</Mono>}</TableCell>
-        <TableCell align="right"><Mono>{qtyText(lot.quantity)}</Mono></TableCell>
+        <TableCell align="right"><FlashOnChange value={lot.quantity}><Mono>{qtyText(lot.quantity)}</Mono></FlashOnChange></TableCell>
         <TableCell align="right"><Mono>{value(lot.value)}</Mono></TableCell>
       </TableRow>
       {container && open && lot.contains.map((c, i) => (
@@ -128,13 +129,13 @@ export default function WorkInProgress() {
       )}
       {d && d.byLevel.length > 0 && (
         <Box data-testid="wip-by-level" sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1.5, mb: 3 }}>
-          {[...d.byLevel].sort((a, b) => a.depth - b.depth).map((l) => (
+          <Stagger>{[...d.byLevel].sort((a, b) => a.depth - b.depth).map((l) => (
             <Box key={`${l.depth}:${l.level}`} data-testid="wip-level" sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', px: 1.5, py: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)' }}>{l.level}</Typography>
               <Typography sx={{ fontSize: 13 }}><Mono>{l.lots}</Mono> lot{l.lots === 1 ? '' : 's'} · <Mono>{qtyText(l.pieces)}</Mono> pc</Typography>
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}><Mono>{value(l.value)}</Mono></Typography>
             </Box>
-          ))}
+          ))}</Stagger>
         </Box>
       )}
       <FilterBar search={search} onSearch={setSearch} placeholder="Search lot, item or piece code">

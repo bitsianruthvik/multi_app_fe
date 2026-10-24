@@ -11,6 +11,7 @@ import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { PURPOSE_LABEL } from '../lib/inventory';
+import { FlashOnChange } from '../motion';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
@@ -26,9 +27,9 @@ const COLUMNS: DataColumn<StockingArea>[] = [
   { key: 'name', header: 'Name', render: (a) => <Box sx={{ fontWeight: 500 }}>{a.name}</Box>, sortValue: (a) => a.name },
   { key: 'purpose', header: 'Counts as', render: (a) => <PurposeChip purpose={a.purpose} />, sortValue: (a) => a.purpose, exportValue: (a) => PURPOSE_LABEL[a.purpose] },
   { key: 'machine', header: 'Machine', render: (a) => (a.machine ? <Mono>{a.machine.code}</Mono> : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>), sortValue: (a) => a.machine?.code },
-  { key: 'items', header: 'Items', numeric: true, render: (a) => <Mono muted={!a.itemCount}>{a.itemCount ?? 0}</Mono>, sortValue: (a) => a.itemCount ?? 0 },
+  { key: 'items', header: 'Items', numeric: true, render: (a) => <FlashOnChange value={a.itemCount ?? 0}><Mono muted={!a.itemCount}>{a.itemCount ?? 0}</Mono></FlashOnChange>, sortValue: (a) => a.itemCount ?? 0 },
   { key: 'lines', header: 'Stock lines', numeric: true, render: (a) => <Mono muted={!a.lineCount}>{a.lineCount ?? 0}</Mono>, sortValue: (a) => a.lineCount ?? 0, defaultHidden: true },
-  { key: 'status', header: 'Status', render: (a) => <StatusBadge status={a.status} />, sortValue: (a) => a.status },
+  { key: 'status', header: 'Status', render: (a) => <FlashOnChange value={a.status}><StatusBadge status={a.status} /></FlashOnChange>, sortValue: (a) => a.status },
 ];
 
 /** Collection / List (§4.2) of stocking areas — each holds an inventory (decided 2026-09-22). */

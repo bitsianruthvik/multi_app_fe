@@ -12,6 +12,7 @@ import { useToast } from '../components/toastContext';
 import { FlowPicker } from '../components/FlowPicker';
 import { ScrapRateCard } from '../components/ScrapRateCard';
 import { NestShopRulesCard } from '../components/NestShopRulesCard';
+import { SuccessCheck } from '../motion';
 
 /**
  * Setup › Cutting (CF_ERP_CUT_FROM_PLAN.md §3.4, §4.4). Where cut pieces are
@@ -96,6 +97,7 @@ function CuttingForm({ places, tree, canEdit, onSaved }: { places: CutPlaces; tr
   const [minOff, setMinOff] = useState(numText(places.sectionSettings.minOffcutMm));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => {
     setPlate(draftOf(places.plate)); setSection(draftOf(places.section));
     setPlateFlow(places.flows.plate?.id ?? null); setSectionFlow(places.flows.section?.id ?? null);
@@ -113,6 +115,7 @@ function CuttingForm({ places, tree, canEdit, onSaved }: { places: CutPlaces; tr
       // The plate flow has its own endpoint; only written when it changed.
       if ((places.flows.plate?.id ?? null) !== plateFlow) out.flows.plate = (await saveCutPlateFlow(plateFlow)).flow ?? null;
       toast.success('Cutting setup saved.');
+      setSaved((n) => n + 1);
       onSaved(out);
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
   };
@@ -142,7 +145,8 @@ function CuttingForm({ places, tree, canEdit, onSaved }: { places: CutPlaces; tr
         </Box>
       </SectionCard>
       {canEdit ? (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1 }}>
+          {saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" />}
           <Button variant="contained" onClick={save} disabled={busy || bad} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
             {busy ? 'Saving…' : 'Save cutting setup'}
           </Button>

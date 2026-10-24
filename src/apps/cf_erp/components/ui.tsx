@@ -6,7 +6,7 @@
  * solid surfaces with layered elevation, status as icon + label + colour (never
  * colour alone), mono for codes and quantities, shimmer skeletons, not spinners.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Alert, Box, Button, Tooltip, Typography, type BoxProps } from '@mui/material';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
@@ -20,6 +20,7 @@ import type { CfApiError } from '../api/client';
 import type { Kind, OrderStatus, OrderType, RecordStatus, ValueRule } from '../api/types';
 import { useCountUp } from '../hooks/useCountUp';
 import { revisionLabel } from '../lib/orders';
+import { nudge } from '../motion';
 
 export type Family = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 
@@ -107,11 +108,26 @@ const FAMILY_ICON: Record<Family, typeof CheckCircleRounded> = {
   success: CheckCircleRounded, warning: HourglassEmptyRounded, danger: ErrorOutlineRounded, info: SyncRounded, neutral: RemoveCircleOutlineRounded,
 };
 
+/**
+ * How many times `value` has changed since mount (0 = never) — the "store the previous value in state" pattern, so a
+ * change is seen in the same render, with no effect and no ref read during render.
+ */
+function useChangeCount(value: unknown): number {
+  const [seen, setSeen] = useState({ value, n: 0 });
+  if (Object.is(seen.value, value)) return seen.n;
+  const next = { value, n: seen.n + 1 };
+  setSeen(next);
+  return next.n;
+}
+
 /** fab_erp's StatusBadge look: family colour, family icon, label — no border (§7.3). */
 export function Badge({ family, icon, label, title, noIcon = false }: { family: Family; icon?: ReactNode; label: string; title?: string; noIcon?: boolean }) {
   const Icon = FAMILY_ICON[family];
+  // A status that changes in place (Draft → Confirmed) pops once, so the eye catches it; never on first show.
+  // A pop rather than a colour flash: the badge's own tint would hide a flash. The key restarts it on each change.
+  const changed = useChangeCount(`${family}|${label}`);
   const badge = (
-    <Box component="span" sx={{
+    <Box component="span" key={changed} className={changed ? 'cfm-pop' : undefined} sx={{
       display: 'inline-flex', alignItems: 'center', gap: '6px', background: `var(--c-${family}-50)`, color: `var(--c-${family}-800)`,
       borderRadius: 'var(--r-sm)', padding: '3px 9px', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', lineHeight: 1.5, '& svg': { fontSize: 14 },
     }}>
@@ -245,7 +261,8 @@ export function StatStrip({ stats }: { stats: Stat[] }) {
 export function EmptyState({ icon, title, body, hint, action }: { icon?: ReactNode; title: ReactNode; body?: ReactNode; hint?: ReactNode; action?: ReactNode }) {
   const text = hint ?? body;
   return (
-    <Surface e={0} sx={{ py: 2.5, px: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 0.5, background: 'var(--c-surface-2)', borderStyle: 'dashed' }}>
+    // A gentle fade in, so "nothing here" arrives as an answer rather than a blink after the loader.
+    <Surface e={0} className="cfm-fade-in" sx={{ py: 2.5, px: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 0.5, background: 'var(--c-surface-2)', borderStyle: 'dashed' }}>
       <Box sx={{ color: 'var(--c-text-3)', '& svg': { fontSize: 26 }, mb: 0 }}>{icon ?? <InboxRounded />}</Box>
       <Typography sx={{ fontSize: 14, fontWeight: 500, color: 'var(--c-text)' }}>{title}</Typography>
       {text && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', maxWidth: 420 }}>{text}</Typography>}
@@ -254,16 +271,9 @@ export function EmptyState({ icon, title, body, hint, action }: { icon?: ReactNo
   );
 }
 
-/** Shimmer block (§5.7-5); reduced motion gets a still tint through the global guard. */
+/** Shimmer block (§5.7-5): the shared `.cfm-shimmer` (the one looping motion allowed); a still tint under reduced motion. */
 export function SkeletonBlock({ w = '100%', h = 14, r = 6 }: { w?: number | string; h?: number | string; r?: number | string }) {
-  return (
-    <Box sx={{
-      width: w, height: h, borderRadius: typeof r === 'number' ? `${r}px` : r,
-      background: 'linear-gradient(90deg, var(--c-surface-2) 25%, var(--c-divider) 37%, var(--c-surface-2) 63%)',
-      backgroundSize: '400% 100%', animation: 'cf-shimmer 1.4s ease infinite',
-      '@keyframes cf-shimmer': { '0%': { backgroundPosition: '100% 50%' }, '100%': { backgroundPosition: '0% 50%' } },
-    }} />
-  );
+  return <Box className="cfm-shimmer" sx={{ width: w, height: h, borderRadius: typeof r === 'number' ? `${r}px` : r }} />;
 }
 
 /** Placeholder rows while a list or body loads. */
@@ -326,9 +336,13 @@ export function DetailSkeleton() {
 
 /** A failed request, in words, with every problem the backend listed. */
 export function ErrorNotice({ error, onRetry, sx }: { error: CfApiError | null; onRetry?: () => void; sx?: object }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // One small "nope" when a (new) error appears, so a refusal is seen even where the eye was on the button.
+  const said = error ? `${error.message}\u0001${error.problems.join('\u0001')}` : '';
+  useEffect(() => { if (said) nudge(ref.current); }, [said]);
   if (!error) return null;
   return (
-    <Alert severity="error" sx={{ mb: 2, ...sx }} action={onRetry ? <Button color="inherit" size="small" onClick={onRetry}>Retry</Button> : undefined}>
+    <Alert ref={ref} severity="error" sx={{ mb: 2, ...sx }} action={onRetry ? <Button color="inherit" size="small" onClick={onRetry}>Retry</Button> : undefined}>
       <Box>{error.message}</Box>
       {error.problems.length > 0 && <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>{error.problems.map((p) => <li key={p}>{p}</li>)}</Box>}
     </Alert>

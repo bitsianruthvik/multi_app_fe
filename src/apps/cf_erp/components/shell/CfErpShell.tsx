@@ -92,9 +92,10 @@ export function CfErpShell({ children }: { children: ReactNode }) {
       <Box component="main" sx={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
         <Box key={pathname} sx={{
           p: { xs: 2, md: 3 }, minHeight: '100%',
-          // Route cross-fade (DESIGN_SYSTEM.md §5.7-7); reduced motion is guarded in tokens.css.
-          animation: 'cf-route-in 200ms var(--ease)',
-          '@keyframes cf-route-in': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
+          // Route change: the new page fades and rises 4px into place — 160 ms, opacity/transform only (no layout shift),
+          // the content is there at once so nothing waits on it. Reduced motion: motion.css's kill-switch.
+          animation: 'cf-route-in var(--m-dur-base) var(--m-ease-standard)',
+          '@keyframes cf-route-in': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
         }}>
           <ErrorBoundary level="page">
             <DetailTitleContext.Provider value={publishTitle}>{children}</DetailTitleContext.Provider>

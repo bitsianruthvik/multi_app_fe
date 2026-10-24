@@ -47,6 +47,8 @@ import { useWorkingLine } from '../components/OrderProcess/workingLine';
 import { PartyPicker } from '../components/ServerPicker';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { nudgeIfRefused } from '../components/salesMotion';
+import { FlashOnChange } from '../motion';
 
 const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
 
@@ -100,7 +102,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
   // §66: who supplies the material — sent only when changed (the server refuses a change once an MR is raised).
   const [supply, setSupply] = useState<MaterialSupply>(order.materialSupply ?? 'we_buy');
   useEffect(() => { setSupply(order.materialSupply ?? 'we_buy'); }, [order.materialSupply]);
-  const save = async () => {
+  const save = async (button?: HTMLElement) => {
     setBusy(true); setError(null);
     const body: Record<string, unknown> = {
       title: form.title || null, customerReference: form.customerReference || null, receivedOn: form.receivedOn || null, committedDate: form.committedDate || null,
@@ -109,7 +111,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
     if (!hasLines) body.code = form.code;
     if (order.orderType === 'customer' && customer) body.customerId = customer.id;
     if (order.orderType === 'customer' && supply !== (order.materialSupply ?? 'we_buy')) body.materialSupply = supply;
-    try { onSaved(await cfApi.put<SalesOrder>(`/orders/${order.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+    try { onSaved(await cfApi.put<SalesOrder>(`/orders/${order.id}`, body)); } catch (e) { setError(e as CfApiError); nudgeIfRefused(e, button); } finally { setBusy(false); }
   };
   return (
     <SectionCard title="Details" sx={{ maxWidth: 880 }} subtitle={order.status === 'revised' ? `Rev ${order.revision} was revised — it is kept as it was.`
@@ -131,7 +133,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
       </Box>
       {!locked && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-          <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
+          <Button variant="contained" onClick={(e) => void save(e.currentTarget)} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
         </Box>
       )}
     </SectionCard>
@@ -294,9 +296,9 @@ export default function OrderDetail() {
 
   // Anything that changes the order moves its stages too, so the two reload together.
   const orderSaved = (saved: SalesOrder) => { order.setData(saved); processView.reload(); };
-  const move = async (next: OrderStatus) => {
+  const move = async (next: OrderStatus, button?: HTMLElement) => {
     setBusy(next); setActionError(null);
-    try { orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o?.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
+    try { orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o?.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); } catch (e) { setActionError(e as CfApiError); nudgeIfRefused(e, button); } finally { setBusy(null); }
   };
 
   if (order.error) return <ErrorNotice error={order.error} onRetry={order.reload} />;
@@ -328,7 +330,7 @@ export default function OrderDetail() {
           {o.allowedTransitions.map((next) => (
             <Button key={next} variant={next === NEXT_STAGE[o.status] ? 'contained' : 'outlined'} color={next === 'cancelled' ? 'error' : 'primary'} disabled={!!busy}
               startIcon={busy === next ? <CircularProgress size={14} color="inherit" /> : undefined}
-              onClick={() => (CONFIRM_MOVE[next] ? setMoving(next) : move(next))}>
+              onClick={(e) => (CONFIRM_MOVE[next] ? setMoving(next) : move(next, e.currentTarget))}>
               {transitionLabel(o.status, next)}
             </Button>
           ))}
@@ -355,7 +357,7 @@ export default function OrderDetail() {
           {(o.value ? o.value.basis !== 'none' || lines.length > 0 : o.total && lines.length > 0) && (
             // ONE order value (2026-10-18): accepted terms once they exist ("accepted · estimate ₹…" when the line rates
             // say otherwise), else the estimate from the line rates, labelled so.
-            <Fact label="Order value">{o.value ? <OrderValueText value={o.value} /> : o.total!.unpricedLines.length >= lines.length ? <Mono muted>not priced</Mono> : <><Mono>{rupeeText(o.total!.amount)}</Mono> <Mono muted>estimate</Mono></>}</Fact>
+            <Fact label="Order value"><FlashOnChange value={o.value ? `${o.value.basis}:${o.value.amount}` : o.total?.amount}>{o.value ? <OrderValueText value={o.value} /> : o.total!.unpricedLines.length >= lines.length ? <Mono muted>not priced</Mono> : <><Mono>{rupeeText(o.total!.amount)}</Mono> <Mono muted>estimate</Mono></>}</FlashOnChange></Fact>
           )}
         </>
       )}>

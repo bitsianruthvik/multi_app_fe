@@ -10,14 +10,15 @@ import { appPath } from '../navMeta';
 import { rupeeText } from '../lib/money';
 import { LANE_HELP, tonnesText } from '../lib/contractorWorkOrders';
 import { Badge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader } from '../components/ui';
+import { FlashOnChange, Stagger } from '../motion';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
-function Card({ w }: { w: WoCard }) {
+function Card({ w, className, style }: { w: WoCard; className?: string; style?: React.CSSProperties }) {
   const company = useCompanySlug();
   return (
-    <Box component={Link} to={appPath(company, `contractor-work-orders/${w.id}`)} data-testid="wo-card" data-lane={w.lane}
+    <Box component={Link} className={className} style={style} to={appPath(company, `contractor-work-orders/${w.id}`)} data-testid="wo-card" data-lane={w.lane}
       sx={{ ...linkSx, display: 'grid', gap: 0.5, p: 1.25, border: `1px solid ${w.sentBack ? 'var(--c-danger-500, #d32f2f)' : 'var(--c-border)'}`, borderRadius: 'var(--r-md)', background: 'var(--c-surface)', minWidth: 0 }}>
       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
         <Mono chip>{w.code}</Mono>
@@ -71,11 +72,12 @@ export default function ContractorWorkOrders() {
                 <Box sx={{ px: 0.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1 }}>
                     <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-2)' }}>{lane.label}</Typography>
-                    <Mono muted>{lane.cards.length} · {rupeeText(lane.value)}</Mono>
+                    <FlashOnChange value={lane.cards.length}><Mono muted>{lane.cards.length} · {rupeeText(lane.value)}</Mono></FlashOnChange>
                   </Box>
                   <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{LANE_HELP[lane.key]}</Typography>
                 </Box>
-                {lane.cards.map((w) => <Card key={w.id} w={w} />)}
+                {/* Motion: cards fade in — on first show, and when a card moves into this lane (it mounts here). */}
+                <Stagger variant="fade">{lane.cards.map((w) => <Card key={w.id} w={w} />)}</Stagger>
               </Box>
             ))}
           </Box>

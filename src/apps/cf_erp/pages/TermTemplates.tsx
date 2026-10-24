@@ -14,6 +14,8 @@ import { DialogHeader } from '../components/FormDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ChargesGrid, MilestonesGrid, StagesGrid, type TermLists } from '../components/Acceptance/TermGrids';
 import { useToast } from '../components/toastContext';
+import { nudgeIfRefused } from '../components/salesMotion';
+import { Stagger } from '../motion';
 
 type Kind = TermTemplate['kind'];
 const KINDS: [Kind, string, string][] = [
@@ -65,7 +67,7 @@ export default function TermTemplates() {
   }, []);
   useEffect(() => { load(); }, [load]);
   const mine = (rows ?? []).filter((t) => t.kind === kind);
-  const save = async () => {
+  const save = async (button?: HTMLElement) => {
     if (!editing) return;
     setBusy(true); setSaveError(null);
     try {
@@ -74,7 +76,7 @@ export default function TermTemplates() {
       toast.success('Template saved.');
       setEditing(null);
       load();
-    } catch (e) { setSaveError(e as CfApiError); } finally { setBusy(false); }
+    } catch (e) { setSaveError(e as CfApiError); nudgeIfRefused(e, button); } finally { setBusy(false); }
   };
   const makeDefault = async (t: TermTemplate) => {
     try { await updateTemplate(t.id, { isDefault: true }); toast.success(`"${t.name}" is the default now.`); load(); } catch (e) { setError(e as CfApiError); }
@@ -93,8 +95,8 @@ export default function TermTemplates() {
       {!rows && !error && <ListSkeleton rows={3} />}
       {rows && !mine.length && <EmptyState icon={<ReceiptLongRounded />} title={`No ${meta[1].toLowerCase()} template yet.`} hint="A new acceptance starts from a short starter until there is one." />}
       <Box data-testid="tpl-list" sx={{ display: 'grid', gap: 1.25 }}>
-        {mine.map((t) => (
-          <SectionCard key={t.id} title={t.name} subtitle={summary(t, lists)}
+        <Stagger>{mine.map((t) => (
+          <Box key={t.id} sx={{ minWidth: 0 }}><SectionCard title={t.name} subtitle={summary(t, lists)}
             actions={(
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 {t.isDefault && <Badge family="success" noIcon label="Default" />}
@@ -104,8 +106,8 @@ export default function TermTemplates() {
               </Box>
             )}>
             <span />
-          </SectionCard>
-        ))}
+          </SectionCard></Box>
+        ))}</Stagger>
       </Box>
       <Dialog open={!!editing} onClose={() => !busy && setEditing(null)} maxWidth="lg" fullWidth>
         <DialogHeader title={editing?.id ? 'Edit template' : `New ${meta[1].toLowerCase()} template`} onClose={() => setEditing(null)} busy={busy} />
@@ -126,7 +128,7 @@ export default function TermTemplates() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditing(null)} disabled={busy}>Cancel</Button>
-          <Button variant="contained" disabled={busy || !editing?.name.trim()} onClick={() => void save()} data-testid="tpl-save">Save</Button>
+          <Button variant="contained" disabled={busy || !editing?.name.trim()} onClick={(e) => void save(e.currentTarget)} data-testid="tpl-save">Save</Button>
         </DialogActions>
       </Dialog>
       <ConfirmDialog open={!!deleting} danger title="Delete this template?" confirmLabel="Delete" entityName={deleting?.name ?? ''}

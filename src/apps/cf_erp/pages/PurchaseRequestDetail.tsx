@@ -27,12 +27,15 @@ import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { PoStageBadge, PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { draftOf, parseRate, rateText, reconcile, settle, toSend, type CellDraft } from '../lib/quoteCells';
+import { FlashOnChange, duration, nudge, transition } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 /** A new PR shows this many vendor columns, empty, ready for a vendor to be picked. */
 const MIN_COLUMNS = 3;
 const cellSx = { borderBottom: '1px solid var(--c-border)', padding: '8px 10px', verticalAlign: 'top', textAlign: 'left' as const };
 const headSx = { ...cellSx, background: 'var(--c-surface-2, var(--c-surface))', fontSize: 12.5, fontWeight: 600, color: 'var(--c-text-2)' };
+/** Motion: the "lowest rate" green fades in / out as quotes change, instead of jumping. */
+const bestFade = transition(['background-color', 'color'], duration.slow);
 /**
  * The frozen "Line" column: frozen only on a wide screen (md and up) and never wider than a third of the window there; on
  * a narrow one it scrolls with the rest, so it never sits over a vendor column and its "Raise PO" button (walkthrough
@@ -97,7 +100,7 @@ export default function PurchaseRequestDetail() {
         <DetailHeader
           code={p.code}
           title={p.order && p.line ? `${p.order.code} · line ${p.line.lineNo}` : `For: ${p.requisition.forLabel ?? 'general'}${p.order ? ` · ${p.order.code}` : ''}`}
-          badges={<PrStatusBadge status={p.status} />}
+          badges={<FlashOnChange value={p.status}><PrStatusBadge status={p.status} /></FlashOnChange>}
           actions={<FullScreenToggle on={full.on} onToggle={full.toggle} />}
           facts={<>
             <Fact label="Material request"><Mono chip><Box component={Link} to={appPath(company, `material-requests/${p.requisition.id}`)} sx={linkSx}>{p.requisition.code}</Box></Mono></Fact>
@@ -148,7 +151,7 @@ export default function PurchaseRequestDetail() {
                   </Box>
                   <Box component="td" sx={{ ...cellSx, textAlign: 'right' }}><Mono>{qtyText(l.needed)}</Mono> <Mono muted>{l.item.uom}</Mono></Box>
                   <Box component="td" data-testid="pr-po-raised" sx={{ ...cellSx, textAlign: 'right' }}>
-                    <Mono muted={!l.poRaised}>{qtyText(l.poRaised)}</Mono>
+                    <FlashOnChange value={l.poRaised}><Mono muted={!l.poRaised}>{qtyText(l.poRaised)}</Mono></FlashOnChange>
                     {l.received > 0 && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{qtyText(l.received)} in</Box>}
                   </Box>
                   {p.vendors.map((v) => (
@@ -243,6 +246,9 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [days, setDays] = useState(q?.deliveryDays != null ? String(q.deliveryDays) : '');
   const [remark, setRemark] = useState(q?.remark ?? '');
+  // Motion: a brief highlight once this cell's save answered; a nudge when a rate is refused (the reason shows).
+  const [savedN, setSavedN] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
   // A new answer from the server: shown unless the person is typing here, or this cell's own save is on its way.
   useEffect(() => { setDraft((d) => reconcile(d, server)); }, [server]);
   useEffect(() => { setDays(q?.deliveryDays != null ? String(q.deliveryDays) : ''); setRemark(q?.remark ?? ''); }, [q]);
@@ -254,11 +260,12 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
     const text = toSend(live.current);
     if (text == null) return;
     const rate = parseRate(text);
-    if (rate === 'invalid') { setBad(true); return; }
+    if (rate === 'invalid') { setBad(true); nudge(boxRef.current); return; }
     setBad(false);
     setDraft((d) => ({ ...d, sent: d.text }));
     const next = await onSave(rate == null ? { rate: null } : { rate, deliveryDays: q?.deliveryDays ?? null, remark: q?.remark ?? null });
     setDraft((d) => settle(d, quoteOf(next)));
+    if (next) setSavedN((n) => n + 1); else nudge(boxRef.current);
     // Typed on while it was on its way, and already left: that newer text goes now.
     if (next && !live.current.focused && toSend(live.current) != null) await commit();
   };
@@ -270,14 +277,15 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
   };
   if (!editable) {
     return (
-      <Box component="td" data-testid="pr-cell" sx={{ ...cellSx, color: best ? 'var(--c-success-700)' : undefined }}>
+      <Box component="td" data-testid="pr-cell" sx={{ ...cellSx, color: best ? 'var(--c-success-700)' : undefined, transition: bestFade }}>
         {q ? <><Mono>{quoteWords(q, line.item.uom)}</Mono>{q.remark && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{q.remark}</Box>}</> : <Mono muted>—</Mono>}
       </Box>
     );
   }
   return (
-    <Box component="td" data-testid="pr-cell" data-vendor={vendor.supplier.id} sx={{ ...cellSx, background: best ? 'var(--c-success-50)' : undefined }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+    <Box component="td" data-testid="pr-cell" data-vendor={vendor.supplier.id} sx={{ ...cellSx, background: best ? 'var(--c-success-50)' : undefined, transition: bestFade }}>
+      <FlashOnChange as="div" value={savedN}>
+      <Box ref={boxRef} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
         <TextField size="small" value={draft.text} placeholder="₹ rate" error={bad}
           onChange={(e) => {
             const text = e.target.value;
@@ -302,6 +310,7 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
           </span>
         </Tooltip>
       </Box>
+      </FlashOnChange>
       {bad && <Box sx={{ fontSize: 11.5, color: 'var(--c-danger-600)', mt: 0.25 }}>A rate is a number, like 62.5</Box>}
       {q && (q.deliveryDays != null || q.remark) && (
         <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 0.25 }}>{[q.deliveryDays != null ? `${q.deliveryDays} days` : null, q.remark].filter(Boolean).join(' · ')}</Box>

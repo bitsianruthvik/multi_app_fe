@@ -67,7 +67,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
           <ToggleButton value="stock">Stock order</ToggleButton>
         </ToggleButtonGroup>
         {orderType === 'customer' && (
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <Box className="cfm-fade-in" sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <PartyPicker role="customer" sx={{ flex: '1 1 240px' }} value={customer} onChange={setCustomer} autoFocus />
             <Button onClick={() => setCreatingParty(true)} sx={{ mt: 0.25, whiteSpace: 'nowrap' }}>New customer</Button>
           </Box>
@@ -80,7 +80,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
         </Box>
         {orderType === 'customer' && <MaterialSupplyField value={supply} onChange={setSupply} />}
         {orderType === 'customer' && specs.length > 0 && (
-          <Box data-testid="new-order-values" sx={{ display: 'grid', gap: 1, borderTop: '1px solid var(--c-border)', pt: 1.5 }}>
+          <Box data-testid="new-order-values" className="cfm-fade-in" sx={{ display: 'grid', gap: 1, borderTop: '1px solid var(--c-border)', pt: 1.5 }}>
             <Box>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>Values for the whole order</Typography>
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>

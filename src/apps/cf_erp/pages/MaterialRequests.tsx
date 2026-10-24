@@ -15,6 +15,7 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { NewMrDialog } from '../components/Stores/NewMrDialog';
+import { FadeIn, FlashOnChange } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const FOR_CHIPS: (MrFor | 'all')[] = ['all', 'sales_order', 'maintenance_order', 'stock', 'general'];
@@ -57,7 +58,7 @@ export default function MaterialRequests() {
     { key: 'supply', header: 'Material', defaultHidden: true, render: (r) => (r.supply === 'customer' ? <Badge family="info" label="Customer supplies" /> : <Typography component="span" sx={{ fontSize: 13 }}>We buy</Typography>) },
     { key: 'locked', header: 'Locked', sortValue: (r) => (r.materials ? r.lockedLines / r.materials : 1), render: (r) => (r.heldForAcceptance ? <Mono muted>Waits for the customer&rsquo;s acceptance</Mono> : <Mono muted={r.lockedLines < r.materials}>{r.lockedWords}</Mono>) },
     { key: 'pr', header: 'Purchase request', render: (r) => (r.purchaseRequest
-      ? <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${r.purchaseRequest.id}`)} sx={linkSx}>{r.purchaseRequest.code}</Box></Mono><PrStatusBadge status={r.purchaseRequest.status} /></Box>
+      ? <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${r.purchaseRequest.id}`)} sx={linkSx}>{r.purchaseRequest.code}</Box></Mono><FlashOnChange value={r.purchaseRequest.status}><PrStatusBadge status={r.purchaseRequest.status} /></FlashOnChange></Box>
       : <Mono muted>{r.supply === 'customer' ? 'The customer sends it' : 'Not made yet'}</Mono>) },
   ];
 
@@ -74,11 +75,14 @@ export default function MaterialRequests() {
       </FilterBar>
       <ErrorNotice error={load.error} onRetry={load.reload} />
       {!load.data && !load.error && <SkeletonBlock h={240} r={8} />}
+      {/* Motion: the inbox rises in once when it first arrives (not on every re-read). */}
       {load.data && (
+        <FadeIn variant="rise">
         <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} storageKey="material-requests" exportName="material-requests"
           onRowClick={(r) => navigate(appPath(company, `material-requests/${r.id}`))}
           empty={<EmptyState icon={<PlaylistAddCheckRounded />} title={term ? 'No MR matches' : 'No material requests here'}
             hint={term ? 'Clear the search.' : 'A sales order raises its MR in its Material request step; "New MR" raises one for stock or general use.'} />} />
+        </FadeIn>
       )}
       <NewMrDialog open={raising} onClose={() => setRaising(false)} onRaised={(mr) => navigate(appPath(company, `material-requests/${mr.id}`))} />
     </Box>

@@ -6,6 +6,7 @@ import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, SectionCard } from './ui';
 import { useToast } from './toastContext';
+import { SuccessCheck } from '../motion';
 
 /** Setup › Cutting: the rate our scrap is valued at (GET / PUT /stock/scrap-rate). */
 export function ScrapRateCard() {
@@ -15,6 +16,7 @@ export function ScrapRateCard() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => { if (rate.data) setDraft(rate.data.ratePerKg == null ? '' : String(rate.data.ratePerKg)); }, [rate.data]);
   const bad = draft.trim() !== '' && (Number.isNaN(Number(draft)) || Number(draft) < 0);
   const save = async () => {
@@ -23,6 +25,7 @@ export function ScrapRateCard() {
       const out = await saveScrapRate(draft.trim() === '' ? null : Number(draft));
       rate.setData(out);
       toast.success(out.ratePerKg == null ? 'Scrap rate cleared.' : 'Scrap rate saved.');
+      setSaved((n) => n + 1);
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
   };
   return (
@@ -35,6 +38,7 @@ export function ScrapRateCard() {
                 error={bad} helperText={bad ? 'Enter a number, 0 or more.' : ' '} sx={{ flex: '0 1 200px', minWidth: 0 }}
                 inputProps={{ inputMode: 'decimal', 'data-testid': 'scrap-rate-input' }} />
               {canEdit && <Button variant="outlined" onClick={() => { void save(); }} disabled={busy || bad || !rate.data}>{busy ? 'Saving…' : 'Save scrap rate'}</Button>}
+              {canEdit && saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" style={{ marginTop: 8 }} />}
             </Box>
           )}
           {rate.data?.note && <Typography data-testid="scrap-rate-note" sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{rate.data.note}</Typography>}

@@ -21,6 +21,7 @@ import { RequirementsTable, StepActions } from '../components/ReleaseView';
 import { ProgressDialog, StartStepDialog } from '../components/TrackerDialogs';
 import { PromptDialog } from '../components/PromptDialog';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 import { TrackerTree } from '../components/Tracker/TrackerTree';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -91,7 +92,7 @@ export default function Tracker() {
     { key: 'order', header: 'Order', sortValue: (s) => s.order.code, render: (s) => <Mono><Box component={Link} to={appPath(company, `orders/${s.order.id}?tab=production&line=${s.line.id}`)} sx={linkSx}>{s.order.code}</Box></Mono> },
     // Sorted by what can be worked on, not by the alphabet: "done, in progress,
     // not ready, on hold, ready" is no order at all to someone at a machine.
-    { key: 'status', header: 'Status', sortValue: (s) => PRIORITY[s.status], exportValue: (s) => STEP_STATUS_LABEL[s.status], render: (s) => <StepStatusBadge status={s.status} /> },
+    { key: 'status', header: 'Status', sortValue: (s) => PRIORITY[s.status], exportValue: (s) => STEP_STATUS_LABEL[s.status], render: (s) => <FlashOnChange value={s.status}><StepStatusBadge status={s.status} /></FlashOnChange> },
     // The button sits next to the status it answers, and is always on screen:
     // as a hover-revealed row action it could not be reached at all on the
     // touch screens this runs on at the machine.
@@ -101,7 +102,7 @@ export default function Tracker() {
         <StepActions step={s} onStart={() => setStarting(s)} onRecord={() => setRecording(s)} onHold={() => setHolding(s)} onResume={() => { void resume(s); }} />
       ),
     }] : []),
-    { key: 'progress', header: 'Done', numeric: true, sortValue: (s) => s.qtyGood / (s.quantity || 1), render: (s) => <Mono muted>{progressText(s.qtyGood, s.quantity) || '—'}</Mono> },
+    { key: 'progress', header: 'Done', numeric: true, sortValue: (s) => s.qtyGood / (s.quantity || 1), render: (s) => <FlashOnChange value={s.qtyGood}><Mono muted>{progressText(s.qtyGood, s.quantity) || '—'}</Mono></FlashOnChange> },
     {
       key: 'why', header: 'Waiting for / on',
       exportValue: (s) => (s.status === 'not_ready' ? s.blockers.map((b) => b.text).join(' ') : machineText(s)),

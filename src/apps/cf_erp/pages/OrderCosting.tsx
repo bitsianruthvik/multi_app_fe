@@ -13,6 +13,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { Badge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader } from '../components/ui';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { DialogCloseButton } from '../components/FormDialog';
+import { FlashOnChange } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const KIND_WORD: Record<string, string> = { material: 'Material', consumable: 'Consumable', customer: 'Customer\'s (₹0)', scrap: 'Scrap (credit)', offcut: 'Offcut (credit)' };
@@ -73,7 +74,8 @@ export function CostSheetBody({ sheet }: { sheet: CostSheet }) {
         <Box data-testid="cs-margin" sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, pt: 1, alignItems: 'baseline' }}>
           <Typography sx={{ fontSize: 15, fontWeight: 700 }}>Margin</Typography>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Mono sx={{ fontWeight: 700, fontSize: 15 }}>{rupeeText(sheet.margin, 2)}</Mono>
+            {/* Motion: the margin flashes when it moves (a reload after an issue, a charge earned). */}
+            <FlashOnChange value={sheet.margin}><Mono sx={{ fontWeight: 700, fontSize: 15 }}>{rupeeText(sheet.margin, 2)}</Mono></FlashOnChange>
             {sheet.marginPct != null && <Badge family={marginFamily(sheet.marginPct)} noIcon label={`${sheet.marginPct} %`} />}
           </Box>
         </Box>
@@ -162,7 +164,7 @@ export default function OrderCosting() {
       render: (r) => (r.flags ? <Badge family="warning" noIcon label={`${r.flags}`} /> : <Mono muted>—</Mono>) },
     {
       key: 'margin', header: 'Margin', numeric: true, alwaysVisible: true, sortValue: (r) => r.margin,
-      render: (r) => <Box sx={{ display: 'inline-flex', gap: 0.75, alignItems: 'center' }}><Mono>{rupeeText(r.margin)}</Mono>{r.marginPct != null && <Badge family={marginFamily(r.marginPct)} noIcon label={`${r.marginPct} %`} />}</Box>,
+      render: (r) => <Box sx={{ display: 'inline-flex', gap: 0.75, alignItems: 'center' }}><FlashOnChange value={r.margin}><Mono>{rupeeText(r.margin)}</Mono></FlashOnChange>{r.marginPct != null && <Badge family={marginFamily(r.marginPct)} noIcon label={`${r.marginPct} %`} />}</Box>,
     },
   ];
   const t = list.data?.totals;
@@ -179,7 +181,7 @@ export default function OrderCosting() {
         <ErrorNotice error={list.error} onRetry={list.reload} />
         {t && (
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }} data-testid="costing-totals">
-            All orders: charged {rupeeText(t.charged)} · material {rupeeText(t.material)} · consumables {rupeeText(t.consumables)} · credits {rupeeText(t.credits)} · margin {rupeeText(t.margin)}.
+            All orders: charged {rupeeText(t.charged)} · material {rupeeText(t.material)} · consumables {rupeeText(t.consumables)} · credits {rupeeText(t.credits)} · margin <FlashOnChange value={t.margin}>{rupeeText(t.margin)}</FlashOnChange>.
             {list.data!.generalThisMonth.value > 0 ? ` General (overhead) issues this month: ${rupeeText(list.data!.generalThisMonth.value)}.` : ''}
           </Typography>
         )}

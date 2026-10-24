@@ -17,6 +17,7 @@ import { MachineTypeCell, TimeCell } from '../components/OperationRuleEditor';
 import { useOperationRuleEditor } from '../hooks/useOperationRuleEditor';
 import { useToast } from '../components/toastContext';
 import { timeShort } from '../lib/formulaBuilder';
+import { FlashOnChange } from '../motion';
 
 const hasWork = (o: Operation) => { const w = o.mainRule?.work; return !!(w && (w.minutes != null || w.formula)); };
 const CHIPS: { value: string; label: string; test: (o: Operation) => boolean }[] = [
@@ -84,7 +85,7 @@ export default function Operations() {
     },
     { key: 'flows', header: 'Used in flows', numeric: true, render: (o) => <Mono muted={!o.flowCount}>{o.flowCount ?? 0}</Mono>, sortValue: (o) => o.flowCount ?? 0 },
     { key: 'description', header: 'Description', render: (o) => <Box sx={{ color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{o.description ?? '—'}</Box>, sortValue: (o) => o.description, defaultHidden: true },
-    { key: 'status', header: 'Status', render: (o) => <StatusBadge status={o.status} />, sortValue: (o) => o.status },
+    { key: 'status', header: 'Status', render: (o) => <FlashOnChange value={o.status}><StatusBadge status={o.status} /></FlashOnChange>, sortValue: (o) => o.status },
   ];
 
   return (

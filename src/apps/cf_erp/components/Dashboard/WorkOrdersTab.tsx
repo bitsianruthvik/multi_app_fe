@@ -29,6 +29,7 @@ import { Badge, EmptyState, Mono, Surface } from '../ui';
 import { ProgressBar } from './charts';
 import { Tile, TileGrid } from './DashParts';
 import { DownloadMenu } from './DownloadMenu';
+import { CountUp, FlashOnChange } from '../../motion';
 
 /** 1.5 → "1.5", 3 → "3": operations done in the period are fractions of steps. */
 const opsNum = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
@@ -59,9 +60,9 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
   return (
     <Box data-testid="work-orders-tab">
       <TileGrid>
-        <Tile testId="tile-wo-open" label="Open work orders" value={p.open} sub={`of ${p.workOrders} · ${p.notReleased} not released yet`}
+        <Tile testId="tile-wo-open" label="Open work orders" value={<CountUp value={p.open} />} sub={`of ${p.workOrders} · ${p.notReleased} not released yet`}
           hint="Draft, issued or in progress. A work order is released when its order line is released to the shop floor." />
-        <Tile testId="tile-wo-contractors" label="Contractors active" value={p.contractorsActive} sub={`of ${p.contractors} with work orders`}
+        <Tile testId="tile-wo-contractors" label="Contractors active" value={<CountUp value={p.contractorsActive} />} sub={`of ${p.contractors} with work orders`}
           hint="Contractors holding a work order that is issued or in progress." />
         <Tile testId="tile-wo-ops" label="Operations done" value={`${p.operationsDone}`}
           sub={<>of {p.operationsReleased} released · {p.operationsAssigned} assigned</>}
@@ -70,7 +71,7 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
           hint="A half-made operation counts half. Work orders on lines that are not released are left out until they are.">
           {p.pct != null && <Box sx={{ mt: 0.75 }}><ProgressBar pct={p.pct} label="Work orders complete" /></Box>}
         </Tile>
-        <Tile testId="tile-wo-overdue" label="Overdue" tone={p.overdue ? 'danger' : 'success'} value={p.overdue}
+        <Tile testId="tile-wo-overdue" label="Overdue" tone={p.overdue ? 'danger' : 'success'} value={<FlashOnChange value={p.overdue}><CountUp value={p.overdue} /></FlashOnChange>}
           sub={p.overdue ? 'open work orders past their due date' : 'none past their due date'}
           onClick={p.overdue ? () => setStatus('overdue') : undefined} />
         <Tile testId="tile-wo-period" label={`Done this period (${window})`} value={opsNum(p.periodOps)}

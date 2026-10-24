@@ -10,6 +10,7 @@ import { ErrorNotice, PageHeader, SectionCard, SkeletonRows } from '../component
 import { GstinField } from '../components/GstUi';
 import { useToast } from '../components/toastContext';
 import { TaxByFamilyCard } from '../components/Tax/TaxByFamilyCard';
+import { SuccessCheck } from '../motion';
 
 const empty = (s: string | null | undefined) => s ?? '';
 
@@ -50,6 +51,7 @@ function TaxForm({ settings, states, canEdit, onSaved }: { settings: TaxSettings
   const [form, setForm] = useState<TaxSettings>(settings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const [saved, setSaved] = useState(0); // motion: a check draws after each save
   useEffect(() => { setForm(settings); }, [settings]);
   const set = (patch: Partial<TaxSettings>) => setForm((f) => ({ ...f, ...patch }));
   const save = async () => {
@@ -58,6 +60,7 @@ function TaxForm({ settings, states, canEdit, onSaved }: { settings: TaxSettings
       const { stateName: _name, ...body } = form; // eslint-disable-line @typescript-eslint/no-unused-vars
       onSaved(await saveTaxSettings(body));
       toast.success('Company tax details saved.');
+      setSaved((n) => n + 1);
     } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   const field = (label: string, key: keyof TaxSettings, extra: object = {}) => (
@@ -96,7 +99,8 @@ function TaxForm({ settings, states, canEdit, onSaved }: { settings: TaxSettings
         <RatesEditor rates={form.gstRates ?? []} disabled={!canEdit} onChange={(gstRates) => set({ gstRates })} />
       </SectionCard>
       {canEdit
-        ? <Box sx={{ display: 'flex', justifyContent: 'flex-end', maxWidth: 880 }}>
+        ? <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, maxWidth: 880 }}>
+          {saved > 0 && !busy && <SuccessCheck key={saved} size={18} label="Saved" />}
           <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save tax details'}</Button>
         </Box>
         : <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You can read these details but not change them.</Typography>}

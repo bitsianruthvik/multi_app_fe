@@ -11,6 +11,8 @@ import { NO_LINES_YET, STATE_WORD, WORKING_ON_HELP, lineLabel, noStagesReason, s
 import type { DetailTab } from '../DetailLayout';
 import { ErrorNotice, SkeletonBlock } from '../ui';
 import { NextMark, StageStateMark } from './stageUi';
+import { useBecame } from '../salesMotion';
+import { SuccessCheck, prefersReducedMotion } from '../../motion';
 
 /**
  * The order's tabs, when the order follows a process: one tab per stage, in
@@ -50,10 +52,6 @@ const tabSx = (on: boolean, muted = false) => ({
 
 const noScrollbar = { scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } } as const;
 
-function prefersReducedMotion() {
-  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
-}
-
 /** Arrow keys walk the tabs (both groups, as one row); Enter or Space opens one. */
 function walkTabs(e: KeyboardEvent<HTMLElement>) {
   const keys = ['ArrowRight', 'ArrowLeft', 'Home', 'End'];
@@ -68,12 +66,15 @@ function walkTabs(e: KeyboardEvent<HTMLElement>) {
   tabs[to].focus();
 }
 
-function StageTab({ stage, position, of, on, next, focusable, onPick, checks = [] }: {
+function StageTab({ stage, position, of, on, next, focusable, onPick, checks = [], scope = null }: {
   stage: OrderStage; position: number; of: number; on: boolean; next: boolean; focusable: boolean; onPick: () => void;
+  /** Whose marks these are (the order, or a line): a stage that turns done while it stays the same draws a check once. */
+  scope?: string | number | null;
   /** Stages drawn as a check on this tab (Values on Structure): still stages, still gating — just not a tab. */
   checks?: OrderStage[];
 }) {
   const live = checks.filter((c) => c.state !== 'not_applicable');
+  const justDone = useBecame(stage.state === 'done', scope);
   return (
     <Tooltip describeChild placement="bottom-start" enterDelay={350}
       title={<>
@@ -84,7 +85,7 @@ function StageTab({ stage, position, of, on, next, focusable, onPick, checks = [
         aria-selected={on} tabIndex={focusable ? 0 : -1}
         aria-label={[stageTabName(stage, position, of, next), ...live.map((c) => `${c.label} ${STATE_WORD[c.state].toLowerCase()}`)].join(', ')}
         onClick={onPick} sx={tabSx(on, stage.state === 'not_applicable')}>
-        <StageStateMark state={stage.state} />
+        {justDone ? <SuccessCheck size={16} label="" style={{ flexShrink: 0 }} /> : <StageStateMark state={stage.state} />}
         <span>{stage.label}</span>
         {live.map((c) => (
           <Box key={c.stageKey} component="span" data-check={c.stageKey} data-state={c.state}
@@ -219,7 +220,8 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
               <Fragment key={s.stageKey}>
                 {i > 0 && <ChevronRightRounded aria-hidden sx={{ fontSize: 15, color: 'var(--c-text-3)', flexShrink: 0, mx: '-1px' }} />}
                 <StageTab stage={s} position={i + 1} of={stages.length} on={s.stageKey === active} next={s.stageKey === nextKey}
-                  focusable={s.stageKey === focusable} onPick={() => onTab(s.stageKey)} checks={checksFor?.(s.stageKey)} />
+                  focusable={s.stageKey === focusable} onPick={() => onTab(s.stageKey)} checks={checksFor?.(s.stageKey)}
+                  scope={showPicker ? line?.lineId ?? null : 'order'} />
               </Fragment>
             ))}
             {phone && reference.length > 0 && <>{divider}{referenceTabs}</>}

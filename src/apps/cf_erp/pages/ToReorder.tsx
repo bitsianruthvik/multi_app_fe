@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, TextField, Typography } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
@@ -18,6 +18,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { useToast } from '../components/toastContext';
+import { FadeIn, nudge } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -43,6 +44,7 @@ export default function ToReorder() {
   const [qty, setQty] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<CfApiError | null>(null);
+  const raiseRef = useRef<HTMLButtonElement>(null);
   // Prefilled: every row ticked, the suggestion typed in.
   useEffect(() => {
     setTicked(new Set(rows.map((r) => r.item.id)));
@@ -58,7 +60,7 @@ export default function ToReorder() {
       invalidateNavCounts();
       toast.success(`${out.requisition.code} raised for stock${out.purchaseRequest ? ` — on ${out.purchaseRequest.code} for Purchase` : ''}.`);
       navigate(appPath(company, `material-requests/${out.requisition.id}`));
-    } catch (e) { setRefusal(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e))); } finally { setBusy(false); }
+    } catch (e) { setRefusal(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e))); nudge(raiseRef.current); } finally { setBusy(false); }
   };
 
   const toggle = (id: number) => setTicked((t) => { const n = new Set(t); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -100,7 +102,7 @@ export default function ToReorder() {
         <PageHeader title="To reorder"
           subtitle="Suggested by AI from each item's procurement method: min / max items below their minimum, periodic items whose period is over. Tick, adjust, raise ONE MR for stock — it goes straight to Purchase."
           actions={<>
-            {canRaise && <Button variant="contained" startIcon={<PlaylistAddRounded />} disabled={busy || !rows.length || problems.length > 0} onClick={() => void raise()} data-testid="reorder-raise">
+            {canRaise && <Button ref={raiseRef} variant="contained" startIcon={<PlaylistAddRounded />} disabled={busy || !rows.length || problems.length > 0} onClick={() => void raise()} data-testid="reorder-raise">
               Raise MR{ticked.size ? ` for ${ticked.size} item${ticked.size === 1 ? '' : 's'}` : ''}
             </Button>}
             <FullScreenToggle on={full.on} onToggle={full.toggle} />
@@ -115,10 +117,12 @@ export default function ToReorder() {
         )}
         {!load.data && !load.error && <SkeletonBlock h={240} r={8} />}
         {load.data && (
+          <FadeIn variant="rise">
           <DataTable rows={rows} columns={columns} getRowId={(r) => r.item.id} storageKey="to-reorder" exportName="to-reorder"
             onRowClick={(r) => toggle(r.item.id)}
             empty={<EmptyState icon={<AutorenewRounded />} title={term ? 'Nothing matches' : 'Nothing to reorder'}
               hint={term ? 'Clear the search.' : 'Items bought to min / max or periodically appear here when they need buying. Set the method on an item’s Procurement card.'} />} />
+          </FadeIn>
         )}
       </Box>
     </FullScreenFrame>

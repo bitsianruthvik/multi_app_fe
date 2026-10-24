@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Box, Button, Dialog, DialogActions, DialogContent, FormControlLabel, Switch, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
@@ -18,6 +18,7 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DialogHeader } from '../components/FormDialog';
 import { useToast } from '../components/toastContext';
 import { PlanHealthCard } from '../components/Planner3/PlanHealthCard';
+import { SuccessCheck, celebrate, duration, easing, nudge } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const th = { px: 0.75, py: 0.5, fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--c-text-3)', textAlign: 'left', borderBottom: '1px solid var(--c-divider)' } as const;
@@ -125,6 +126,8 @@ function RebaselineBody({ ctx }: { ctx: RebaselineContext }) {
 function OwnRequestsSwitch({ on, canSet, onChanged }: { on: boolean; canSet: boolean; onChanged: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [flips, setFlips] = useState(0); // motion: a check draws beside the switch after each change that saved
+  const ref = useRef<HTMLLabelElement>(null);
   if (!canSet) {
     return on ? <Typography data-testid="own-requests-note" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Self-approval is on: a person may decide what they asked for themselves (testing phase).</Typography> : null;
   }
@@ -133,13 +136,14 @@ function OwnRequestsSwitch({ on, canSet, onChanged }: { on: boolean; canSet: boo
     try {
       await setOwnAllowed(next);
       toast.success(next ? 'Self-approval is on.' : 'Self-approval is off — somebody else decides what you asked for.');
+      setFlips((n) => n + 1);
       onChanged();
-    } catch (e) { toast.error((e as CfApiError).message ?? 'Could not change it.'); } finally { setBusy(false); }
+    } catch (e) { nudge(ref.current); toast.error((e as CfApiError).message ?? 'Could not change it.'); } finally { setBusy(false); }
   };
   return (
-    <FormControlLabel data-testid="own-requests-switch" sx={{ ml: 0 }}
+    <FormControlLabel ref={ref} data-testid="own-requests-switch" sx={{ ml: 0 }}
       control={<Switch checked={on} disabled={busy} onChange={(e) => void flip(e.target.checked)} slotProps={{ input: { 'aria-label': 'Allow approving your own requests' } }} />}
-      label={<Typography sx={{ fontSize: 13.5 }}>Allow approving your own requests <Box component="span" sx={{ color: 'var(--c-text-2)' }}>— for testing and early use. Turn it off for the four-eyes rule (somebody else decides).</Box></Typography>} />
+      label={<Typography sx={{ fontSize: 13.5 }}>Allow approving your own requests <Box component="span" sx={{ color: 'var(--c-text-2)' }}>— for testing and early use. Turn it off for the four-eyes rule (somebody else decides).</Box>{flips > 0 && <SuccessCheck key={flips} size={16} label="" style={{ marginLeft: 6, verticalAlign: 'text-bottom' }} />}</Typography>} />
   );
 }
 
@@ -187,24 +191,35 @@ export default function Approvals() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [decideError, setDecideError] = useState<CfApiError | null>(null);
+  // Motion: the decided card fades out while the list reloads; clearing the last waiting one celebrates once
+  // (the "Nothing waits for you" EmptyState then fades in by itself).
+  const [leaving, setLeaving] = useState<number | null>(null);
+  const clearedLast = useRef(false);
   const want = status === 'decided' ? 'decided' : 'pending';
   const load = useCallback(() => {
     setError(null);
-    listApprovals({ status: want, type: (type || '') as ApprovalType | '' }).then(setData).catch((e) => setError(e as CfApiError));
+    listApprovals({ status: want, type: (type || '') as ApprovalType | '' }).then(setData).catch((e) => setError(e as CfApiError)).finally(() => setLeaving(null));
   }, [want, type]);
   useEffect(() => { setData(null); load(); }, [load]);
+  useEffect(() => {
+    if (!data || !clearedLast.current) return;
+    clearedLast.current = false;
+    if (want === 'pending' && data.rows.length === 0) celebrate();
+  }, [data, want]);
+  const total = data ? Object.values(data.counts).reduce((s, n) => s + (n ?? 0), 0) : undefined;
   const decide = async () => {
     if (!asking) return;
     setBusy(true); setDecideError(null);
     try {
       await decideApproval(asking.a.id, asking.d, note.trim() || undefined);
       toast.success(asking.d === 'approve' ? 'Approved.' : 'Sent back.');
+      setLeaving(asking.a.id);
+      clearedLast.current = want === 'pending' && total === 1;
       setAsking(null); setNote('');
       invalidateNavCounts();
       load();
     } catch (e) { setDecideError(e as CfApiError); } finally { setBusy(false); }
   };
-  const total = data ? Object.values(data.counts).reduce((s, n) => s + (n ?? 0), 0) : undefined;
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
@@ -222,7 +237,11 @@ export default function Approvals() {
       {data && !data.rows.length && <EmptyState icon={<FactCheckRounded />} title={want === 'pending' ? 'Nothing waits for you.' : 'Nothing decided yet.'} />}
       {data && data.rows.length > 0 && (
         <Box data-testid="approvals-list" sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
-          {data.rows.map((a) => <ApprovalCard key={a.id} a={a} me={user?.id ?? null} ownAllowed={!!data.ownAllowed} onDecide={(x, d) => { setAsking({ a: x, d }); setNote(''); setDecideError(null); }} />)}
+          {data.rows.map((a) => (
+            <Box key={a.id} sx={{ minWidth: 0, transition: `opacity ${duration.slow}ms ${easing.exit}, transform ${duration.slow}ms ${easing.exit}`, ...(leaving === a.id && { opacity: 0, transform: 'translateY(-4px)', pointerEvents: 'none' }) }}>
+              <ApprovalCard a={a} me={user?.id ?? null} ownAllowed={!!data.ownAllowed} onDecide={(x, d) => { setAsking({ a: x, d }); setNote(''); setDecideError(null); }} />
+            </Box>
+          ))}
         </Box>
       )}
       <Dialog open={!!asking} onClose={() => !busy && setAsking(null)} maxWidth="sm" fullWidth>

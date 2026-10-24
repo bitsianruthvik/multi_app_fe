@@ -22,6 +22,7 @@ import { Badge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, PageHeader,
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useToast } from '../components/toastContext';
 import { ContractorWorkCard } from '../components/ContractorWork/ContractorWorkCard';
+import { FlashOnChange, celebrate, nudge } from '../motion';
 
 const STEP_FAMILY: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
   done: 'success', in_progress: 'warning', ready: 'info', not_ready: 'neutral', on_hold: 'danger',
@@ -39,21 +40,22 @@ export default function ProductionOrderDetail() {
   const po = load.data;
   if (!po) return load.error ? <ErrorNotice error={load.error} onRetry={load.reload} /> : <DetailSkeleton />;
   const s = PO_STATE[po.state];
-  const run = async (fn: () => Promise<string>) => {
+  // Motion: the pressed button (`anchor`) is nudged when the server refuses; a dispatch that closes the order celebrates once.
+  const run = async (fn: () => Promise<string>, anchor?: HTMLElement | null) => {
     setBusy(true); setError(null);
-    try { toast.success(await fn()); load.reload(); invalidateNavCounts(); } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
+    try { toast.success(await fn()); load.reload(); invalidateNavCounts(); } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); nudge(anchor); } finally { setBusy(false); }
   };
   const canProduce = isPermitted('cf_erp_production_manage');
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
-      <PageHeader title={<Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}><Mono sx={{ fontWeight: 600 }}>{po.code}</Mono><Badge family={s.family} label={s.label} noIcon /></Box>}
+      <PageHeader title={<Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}><Mono sx={{ fontWeight: 600 }}>{po.code}</Mono><FlashOnChange value={po.state}><Badge family={s.family} label={s.label} noIcon /></FlashOnChange></Box>}
         subtitle={po.label}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-            {canProduce && po.actions.release && <Button variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy} onClick={() => run(async () => { const r = await releaseProductionOrders([po.id]); return releaseToast(r.released, r.fromMr); })}>Release</Button>}
-            {canProduce && po.actions.takeBack && <Button color="inherit" startIcon={<UndoRounded />} disabled={busy} onClick={() => run(async () => { await takeBackProductionOrder(po.id); return `${po.code} taken back.`; })}>Take back</Button>}
+            {canProduce && po.actions.release && <Button variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy} onClick={(e) => run(async () => { const r = await releaseProductionOrders([po.id]); return releaseToast(r.released, r.fromMr); }, e.currentTarget)}>Release</Button>}
+            {canProduce && po.actions.takeBack && <Button color="inherit" startIcon={<UndoRounded />} disabled={busy} onClick={(e) => run(async () => { await takeBackProductionOrder(po.id); return `${po.code} taken back.`; }, e.currentTarget)}>Take back</Button>}
             {isPermitted('cf_erp_inventory_manage') && po.actions.dispatch && <Button variant="contained" color="success" startIcon={<LocalShippingRounded />} disabled={busy}
-              onClick={() => run(async () => { const r = await dispatchProductionOrder(po.id); return r.closed ? `${po.code} dispatched and closed.` : `${po.code}: finished units dispatched.`; })}>Dispatch</Button>}
+              onClick={(e) => { const anchor = e.currentTarget; void run(async () => { const r = await dispatchProductionOrder(po.id); if (r.closed) celebrate(anchor); return r.closed ? `${po.code} dispatched and closed.` : `${po.code}: finished units dispatched.`; }, anchor); }}>Dispatch</Button>}
             {po.state !== 'yet_to_plan' && <Button startIcon={<AccountTreeRounded />} component={Link} to={appPath(company, trackerPathOf(po.id))}>Open in Tracker</Button>}
             <FullScreenToggle on={fs.on} onToggle={fs.toggle} />
           </Box>

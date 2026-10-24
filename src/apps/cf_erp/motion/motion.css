@@ -1,0 +1,83 @@
+/* CF_ERP motion — keyframes and helper classes (TM/CF_ERP_MOTION_SPEC.md).
+   Loaded once by components/shell/CfErpThemeScope.tsx. Values mirror tokens.ts.
+   Only opacity / transform / colour are animated. */
+
+:root {
+  --m-dur-fast: 140ms;
+  --m-dur-base: 200ms;
+  --m-dur-slow: 260ms;
+  --m-dur-panel: 300ms;
+  --m-dur-nudge: 280ms;
+  --m-dur-flash: 900ms;
+  --m-dur-celebrate: 1000ms;
+  --m-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --m-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --m-flash-bg: rgba(109, 40, 217, 0.24);
+}
+html[data-theme='dark'] { --m-flash-bg: rgba(165, 112, 239, 0.30); }
+
+@keyframes cfm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cfm-rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes cfm-pop { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes cfm-check-draw { from { stroke-dashoffset: var(--cfm-dash, 24); } to { stroke-dashoffset: 0; } }
+@keyframes cfm-shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+@keyframes cfm-highlight-flash { from { background-color: var(--m-flash-bg); } to { background-color: transparent; } }
+@keyframes cfm-highlight-flash-b { from { background-color: var(--m-flash-bg); } to { background-color: transparent; } }
+@keyframes cfm-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-4px); }
+}
+@keyframes cfm-burst {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) scale(1) rotate(var(--rot, 0deg)); }
+}
+
+.cfm-fade-in { animation: cfm-fade-in var(--m-dur-base) var(--m-ease-standard) both; }
+.cfm-rise-in { animation: cfm-rise-in var(--m-dur-slow) var(--m-ease-standard) both; }
+.cfm-pop { animation: cfm-pop var(--m-dur-base) var(--m-ease-standard) both; }
+.cfm-flash { animation: cfm-highlight-flash var(--m-dur-flash) var(--m-ease-standard); border-radius: 4px; }
+.cfm-flash-b { animation: cfm-highlight-flash-b var(--m-dur-flash) var(--m-ease-standard); border-radius: 4px; }
+.cfm-nudge { animation: cfm-nudge var(--m-dur-nudge) var(--m-ease-standard) 1; }
+
+/* Loading placeholder (the only looping motion allowed). */
+.cfm-shimmer {
+  background: linear-gradient(90deg, var(--c-surface-2, rgba(0,0,0,.05)) 25%, var(--c-surface-3, rgba(0,0,0,.09)) 50%, var(--c-surface-2, rgba(0,0,0,.05)) 75%);
+  background-size: 200% 100%;
+  animation: cfm-shimmer 1.4s linear infinite;
+}
+
+/* SuccessCheck */
+.cfm-check { display: inline-block; vertical-align: middle; }
+.cfm-check circle { animation: cfm-pop var(--m-dur-base) var(--m-ease-standard) both; transform-origin: center; transform-box: fill-box; }
+.cfm-check path {
+  stroke-dasharray: var(--cfm-dash, 24);
+  animation: cfm-check-draw var(--m-dur-slow) var(--m-ease-standard) 80ms both;
+}
+
+/* celebrate() burst */
+.cfm-burst { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 2000; }
+.cfm-burst > span {
+  position: absolute; left: 0; top: 0; display: block; font-size: 14px; line-height: 1;
+  animation: cfm-burst 850ms var(--m-ease-standard) both;
+}
+
+/* Interactive Card / Paper hover elevation (opt-in by class; the theme also covers CardActionArea / role=button). */
+.cfm-interactive { transition: box-shadow var(--m-dur-base) var(--m-ease-standard); }
+.cfm-interactive:hover { box-shadow: var(--e-2); }
+
+/* Kill-switch: no motion at all under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .cfm-fade-in, .cfm-rise-in, .cfm-pop, .cfm-flash, .cfm-flash-b, .cfm-nudge,
+  .cfm-check circle, .cfm-check path, .cfm-shimmer {
+    animation: none !important;
+  }
+  .cfm-burst { display: none !important; }
+  html[data-app='cf_erp'] *, html[data-app='cf_erp'] *::before, html[data-app='cf_erp'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

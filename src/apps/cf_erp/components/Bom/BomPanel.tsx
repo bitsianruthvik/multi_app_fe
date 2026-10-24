@@ -69,6 +69,8 @@ import { LinkChoiceDialog } from './LinkChoiceDialog';
 import { LinkMembersPopover, type LinkMember } from './LinkMembersPopover';
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
 import { UnsavedDialog } from '../UnsavedGuard';
+import { nudgeIfRefused, useFreshKeys } from '../salesMotion';
+import { FlashOnChange, SuccessCheck } from '../../motion';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -208,9 +210,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // below a long tree — so it is brought into view, once it has rendered. A
   // jump, not an animation: it is the answer to what they just pressed.
   const [showRefusal, setShowRefusal] = useState(0);
+  // The bar button that was pressed (Save / Check): a refusal (422) nudges it once — the notice says why.
+  const barButton = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (showRefusal) errorAt.current?.scrollIntoView({ block: 'start' });
-  }, [showRefusal]);
+    if (showRefusal) nudgeIfRefused(bom.actionError, barButton.current);
+  }, [showRefusal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The slow screens after this one (Lock, release) quote how big the line is.
   useEffect(() => { if (gridLineId != null && state) rememberLineSize(gridLineId, { rows: state.stats.nodes - 1 }); }, [gridLineId, state]);
@@ -306,6 +311,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const savedGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, undefined, gapScope) : null), [gapsOn, gridValues.data, gapScope]);
   const savedGapIds = useMemo(() => (savedGaps ? new Set(savedGaps.keys()) : null), [savedGaps]);
   const rows = useMemo(() => (gapsOn && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [gapsOn, onlyMissing, savedGapIds, gridValues.data, treeRows]);
+  // Rows just added (a copy waiting, or saved rows the tree did not have) and rows just marked to go flash once.
+  const freshAdded = useFreshKeys(state ? [...flat.map((f) => f.node.key), ...allRows.filter((r) => r.paste).map((r) => r.node.key)] : null);
+  const freshGone = useFreshKeys(state ? [...goneKeys] : null);
+  const flashKeys = useMemo(() => new Set([...freshAdded, ...freshGone]), [freshAdded, freshGone]);
   // Linked copies: the server's block, what the waiting changes reach, and how a value reads.
   const links = orderGrid ? gridValues.data?.links ?? null : null;
   const reader = useMemo(() => valueReader(gridValues.data), [gridValues.data]);
@@ -1161,7 +1170,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle} linkCell={linkCell} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null}
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null} flashKeys={flashKeys}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
@@ -1183,10 +1192,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       {editOn && (
         <Box sx={{ position: 'sticky', bottom: 12, zIndex: 'var(--z-sticky)', minWidth: 0 }}>
           <Surface e={2} role="region" aria-label="Edit mode — changes waiting to be saved"
-            sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: { xs: 0.75, md: 1.25 }, borderColor: dirty ? 'var(--c-warning-200)' : 'var(--c-border)' }}>
+            sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: { xs: 0.75, md: 1.25 }, borderColor: dirty ? 'var(--c-warning-200)' : 'var(--c-border)', transition: 'border-color var(--m-dur-base) var(--m-ease-standard)' }}>
             <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }} aria-live="polite">
-                {changes.length ? `${plural(shownChanges, 'change', 'changes')} waiting` : 'No unsaved changes'}
+                <FlashOnChange value={changes.length ? shownChanges : 0}>{changes.length ? `${plural(shownChanges, 'change', 'changes')} waiting` : 'No unsaved changes'}</FlashOnChange>
                 {breakdown && <Box component="span" sx={{ fontWeight: 400, color: 'var(--c-text-2)' }}>{` · ${breakdown}`}</Box>}
               </Typography>
               {Object.keys(pending.remove).length > 0 && (
@@ -1195,8 +1204,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 </Typography>
               )}
               {checkedNow && (
-                <Typography sx={{ fontSize: 12, color: 'var(--c-success-800)', mt: 0.25, overflowWrap: 'anywhere' }}>
-                  Checked, nothing refused. Save would do this: {checkedNow.summary.sentence}.
+                <Typography className="cfm-fade-in" sx={{ fontSize: 12, color: 'var(--c-success-800)', mt: 0.25, overflowWrap: 'anywhere' }}>
+                  <SuccessCheck size={14} label="" style={{ marginRight: 4, verticalAlign: '-2px' }} />Checked, nothing refused. Save would do this: {checkedNow.summary.sentence}.
                   {firstNewCode && <> First new code: <Mono>{firstNewCode}</Mono>.</>}
                   {checkedNow.links && checkedNow.links.touched.some((t) => t.choice === 'all') && <span data-testid="check-links-all"> It also changes the copies of {checkedNow.links.touched.filter((t) => t.choice === 'all').map((t) => t.label).join(', ')}.</span>}
                   {checkedNow.links && checkedNow.links.breaks.length > 0 && <span data-testid="check-links-breaks"> {brokenSentence(checkedNow.links.breaks.length)} ({checkedNow.links.breaks.map((b) => b.label).join(', ')})</span>}
@@ -1208,13 +1217,13 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               <Button onClick={discard} disabled={!dirty || !!busy}>Cancel</Button>
               <Tooltip disableInteractive enterDelay={400} title="Runs the save and takes it back — every problem it would meet, and what it would make.">
                 <span>
-                  <Button onClick={onCheck} disabled={!changes.length || invalid.length > 0 || !!busy}
+                  <Button onClick={(e) => { barButton.current = e.currentTarget; onCheck(); }} disabled={!changes.length || invalid.length > 0 || !!busy}
                     startIcon={busy === 'check' ? <CircularProgress size={14} color="inherit" /> : undefined}>
                     {busy === 'check' ? 'Checking…' : 'Check'}
                   </Button>
                 </span>
               </Tooltip>
-              <Button variant="contained" onClick={onSave} title="Save (Ctrl+S)" data-testid="bom-save" disabled={!changes.length || invalid.length > 0 || !!busy}
+              <Button variant="contained" onClick={(e) => { barButton.current = e.currentTarget; onSave(); }} title="Save (Ctrl+S)" data-testid="bom-save" disabled={!changes.length || invalid.length > 0 || !!busy}
                 startIcon={busy === 'save' ? <CircularProgress size={14} color="inherit" /> : undefined}>
                 {busy === 'save' ? 'Saving…' : changes.length ? `Save ${plural(shownChanges, 'change', 'changes')}` : 'Save'}
               </Button>

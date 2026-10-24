@@ -5,6 +5,7 @@ import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { ErrorNotice, SectionCard, SkeletonRows } from '../ui';
 import { REASON_WORDS } from '../../lib/planner3';
+import { CountUp, FadeIn } from '../../motion';
 
 /**
  * PLAN HEALTH (Step 5, user 2026-10-18): on the Management dashboard — the SAVED plan against the baseline: how many
@@ -23,11 +24,12 @@ export function PlanHealthCard() {
         {h.loading && !d ? <SkeletonRows rows={3} /> : d && !d.baseline ? (
           <Typography sx={{ fontSize: 13.5 }}>Nothing to compare yet — the first saved plan sets the baseline.</Typography>
         ) : d && (
-          <>
+          <FadeIn style={{ display: 'grid', gap: 8 }}>
+            {/* Motion: the card fades in when its figures arrive; the three figures count up on first show. */}
             <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-              <Box><Typography sx={{ fontSize: 26, fontWeight: 700 }} data-testid="plan-health-pct">{d.onTimePct == null ? '—' : `${d.onTimePct}%`}</Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>on time ({d.onTime} of {d.compared})</Typography></Box>
-              <Box><Typography sx={{ fontSize: 26, fontWeight: 700, color: d.late ? 'var(--c-danger-700)' : 'inherit' }}>{d.late}</Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>late against the baseline</Typography></Box>
-              <Box><Typography sx={{ fontSize: 26, fontWeight: 700 }}>{d.slipDays}</Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>days of slip in all</Typography></Box>
+              <Box><Typography sx={{ fontSize: 26, fontWeight: 700 }} data-testid="plan-health-pct">{d.onTimePct == null ? '—' : <CountUp value={d.onTimePct} format={(n) => `${n}%`} />}</Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>on time ({d.onTime} of {d.compared})</Typography></Box>
+              <Box><Typography sx={{ fontSize: 26, fontWeight: 700, color: d.late ? 'var(--c-danger-700)' : 'inherit' }}><CountUp value={d.late} /></Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>late against the baseline</Typography></Box>
+              <Box><Typography sx={{ fontSize: 26, fontWeight: 700 }}><CountUp value={d.slipDays} /></Typography><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>days of slip in all</Typography></Box>
             </Box>
             {d.byReason.length > 0 && (
               <Box data-testid="plan-health-reasons" sx={{ display: 'grid', gap: 0.25 }}>
@@ -47,7 +49,7 @@ export function PlanHealthCard() {
                 ))}
               </Box>
             )}
-          </>
+          </FadeIn>
         )}
       </Box>
     </SectionCard>

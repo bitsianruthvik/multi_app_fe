@@ -4,6 +4,7 @@ import { COUNT_TONE, appPath, type BadgeTone, type NavSection } from '../../navM
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useNavCounts } from '../../hooks/useNavCounts';
 import { useCompanySlug } from '../../hooks/useLoad';
+import { FlashOnChange } from '../../motion';
 
 /**
  * Row 2 of the top navigation — the active section's screens, each with a live
@@ -52,11 +53,11 @@ export function SectionNav({ section }: { section: NavSection | null }) {
           }}>
             {screen.label}
             {count !== undefined && count > 0 && (
-              <Box component="span" aria-label={`${count}${meta?.suffix ? ` ${meta.suffix}` : ''}`} sx={{
+              <Box component="span" className="cfm-pop" aria-label={`${count}${meta?.suffix ? ` ${meta.suffix}` : ''}`} sx={{
                 display: 'inline-flex', alignItems: 'center', gap: 0.375, px: 0.625, height: 18, borderRadius: 999,
                 background: tone.bg, color: tone.fg, fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 10.5, fontWeight: 500,
               }}>
-                {count}
+                <FlashOnChange value={count}>{count}</FlashOnChange>
                 {meta?.suffix && <Box component="span" sx={{ fontFamily: 'var(--font-ui)', fontSize: 10 }}>{meta.suffix}</Box>}
               </Box>
             )}

@@ -89,7 +89,10 @@ export default function HelpDrawer({ open, request, onClose, onShortcuts }: {
           {matched.map((t) => <Tab key={t.id} label={t.title} />)}
         </Tabs>
       )}
-      <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2 }}>{body}</Box>
+      <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 2 }}>
+        {/* Another topic (a tab, a link, Back) or the search results: the new text fades in, so the switch is seen. */}
+        <Box key={query.trim() ? 'search' : `topic:${current?.id ?? ''}`} className="cfm-fade-in">{body}</Box>
+      </Box>
       <Box sx={{ display: 'flex', gap: 1, px: 2, py: 1.25, borderTop: '1px solid var(--c-divider)', flexWrap: 'wrap' }}>
         <Button size="small" variant="outlined" startIcon={<MenuBookRounded />} onClick={() => toManual(current && !query.trim() ? `?topic=${encodeURIComponent(current.id)}` : '')}>
           Open the full manual

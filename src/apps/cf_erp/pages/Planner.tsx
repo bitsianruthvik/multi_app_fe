@@ -22,6 +22,8 @@ import { useUrlParam } from '../hooks/useUrlState';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { appPath } from '../navMeta';
 import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, SkeletonRows, StatStrip } from '../components/ui';
+import { SuccessCheck, duration, transition } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 import { HelpButton } from '../help/HelpButton';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useToast } from '../components/toastContext';
@@ -192,6 +194,8 @@ export default function Planner() {
   const days = p?.days ?? [];
   const mode: PlanMode = p?.mode ?? 'auto';
   const scroller = useRef<HTMLDivElement>(null);
+  // Motion (shop-floor light): a tick beside "Save plan" once saved; the grid dims while it is worked out again.
+  const [savedTick, markSaved] = useSavedCheck();
 
   const fail = (e: unknown) => toast.error(e instanceof CfApiError ? e.message : String(e));
   const run = async (fn: () => Promise<unknown>, done?: string) => {
@@ -201,6 +205,7 @@ export default function Planner() {
   const setMode = (m: PlanMode) => { if (!canEdit || m === p?.storedMode) { setLook(null); return; } setLook(null); run(() => putPlanMode(m), m === 'auto' ? 'Automatic — planned by AI.' : 'Manual — planned by Management.'); };
   const save = () => canEdit && run(async () => {
     const r = await savePlan(look ?? undefined);
+    markSaved();
     toast.success(r.baseline?.first ? `Plan saved — baseline v${r.baseline.version} set.` : `Plan saved (${r.saved.productionOrders} production orders).`);
   });
   const input = (o: PlanOrder, patch: { rank?: number | null; earliestStart?: string | null; pinned?: boolean }) => canEdit && run(() => putOrderInputs([{ id: o.id, ...patch }]));
@@ -256,6 +261,7 @@ export default function Planner() {
               {canEdit && p && <Button size="small" variant="text" onClick={() => setLook(look ? null : (p.storedMode === 'auto' ? 'manual' : 'auto'))} data-testid="plan-look">{look ? 'Back to the stored mode' : `Look at ${p.storedMode === 'auto' ? 'manual' : 'automatic'}`}</Button>}
               <Tooltip title="Work the plan out again (R)"><span><Button size="small" variant="outlined" startIcon={<RefreshRounded />} onClick={plan.reload} disabled={plan.loading}>Re-plan</Button></span></Tooltip>
               {canEdit && <Button size="small" variant="contained" startIcon={<SaveRounded />} onClick={save} disabled={busy || !p} data-testid="plan-save">Save plan</Button>}
+              {savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Plan saved" />}
               {canEdit && p?.baseline && <Button size="small" variant="outlined" startIcon={<FlagRounded />} onClick={() => setAsking(true)} disabled={busy || !!p.pendingRebaseline} data-testid="plan-rebaseline">Re-baseline…</Button>}
               <FullScreenToggle on={fs.on} onToggle={fs.toggle} />
             </Box>
@@ -283,7 +289,7 @@ export default function Planner() {
         {plan.loading && !p ? <SkeletonRows rows={8} height={52} /> : p && !orders.length ? (
           <EmptyState icon={<ViewTimelineRounded />} title="Nothing to plan." hint="Create production orders on a sales order's Production step and release them." />
         ) : p && (
-          <Box ref={scroller} data-testid="plan-grid" sx={{ overflow: 'auto', maxHeight: fs.on ? 'calc(100vh - 260px)' : 'calc(100vh - 340px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)' }}>
+          <Box ref={scroller} data-testid="plan-grid" sx={{ overflow: 'auto', maxHeight: fs.on ? 'calc(100vh - 260px)' : 'calc(100vh - 340px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', opacity: plan.loading ? 0.6 : 1, transition: transition(['opacity'], duration.base) }}>
             <Box sx={{ width: LABEL_W + days.length * COL }}>
               <DayHeader days={days} />
               {view === 'types'

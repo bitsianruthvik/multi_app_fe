@@ -14,6 +14,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { FormDialog } from '../components/FormDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 
 /** Add or edit one operator: a name, and optionally the machines they usually work on. */
 function OperatorDialog({ open, existing, machines, onClose, onSaved }: { open: boolean; existing: OperatorRow | null; machines: Machine[]; onClose: () => void; onSaved: () => void }) {
@@ -51,7 +52,7 @@ export default function Operators() {
     { key: 'name', header: 'Name', render: (o) => <Box sx={{ fontWeight: 500 }}>{o.name}</Box>, sortValue: (o) => o.name, alwaysVisible: true },
     { key: 'code', header: 'Code', render: (o) => <Mono muted={!o.code}>{o.code ?? '—'}</Mono>, sortValue: (o) => o.code, defaultHidden: true },
     { key: 'machines', header: 'Usual machines', render: (o) => o.machineIds.map(machineName).join(', ') || '—', exportValue: (o) => o.machineIds.map(machineName).join(', ') },
-    { key: 'status', header: 'Status', render: (o) => <StatusBadge status={o.status} />, sortValue: (o) => o.status },
+    { key: 'status', header: 'Status', render: (o) => <FlashOnChange value={o.status}><StatusBadge status={o.status} /></FlashOnChange>, sortValue: (o) => o.status },
   ];
   return (
     <Box>

@@ -15,6 +15,8 @@ import { NO_SCRAP_RATE, TRACKING_HEADING, VIEW_CATEGORY_FAMILY, VIEW_CATEGORY_LA
 import { BatchStatusBadge } from './inventoryUi';
 import { UnitStatusBadge } from './PieceHistoryDialog';
 import { Badge, ErrorNotice, Mono, SkeletonRows, Surface } from './ui';
+import { FlashOnChange } from '../motion';
+import { staggerRow } from '../hooks/useSavedCheck';
 
 export function ViewCategoryBadge({ category }: { category: StockViewRow['category'] }) {
   return <Badge family={VIEW_CATEGORY_FAMILY[category] ?? 'neutral'} label={VIEW_CATEGORY_LABEL[category] ?? category} />;
@@ -183,7 +185,7 @@ export function StockViewTable({ rows, showOwner, loading, sort, onSort, onOpenP
                     </Box>
                   </tr>
                 )}
-                <tr data-testid="stock-row" data-key={r.key} data-open={r.open ?? ''}>
+                <tr data-testid="stock-row" data-key={r.key} data-open={r.open ?? ''} {...staggerRow(i)}>
                   <Box component="td" sx={{ ...td, p: 0.5 }}>
                     {r.open && (
                       <IconButton size="small" data-testid="row-expand" aria-expanded={isOpen} aria-label={r.open === 'lots' ? 'Show the lots' : 'Show the pieces'} onClick={() => toggle(r.key)}>
@@ -208,7 +210,7 @@ export function StockViewTable({ rows, showOwner, loading, sort, onSort, onOpenP
                   <Box component="td" sx={{ ...td, display: HIDE.md }}>{r.area.code}<Box sx={muted}>{r.area.name}</Box></Box>
                   {showOwner && <Box component="td" sx={{ ...td, display: HIDE.md }}>{partyName(r.owner)}</Box>}
                   <Box component="td" sx={td}>
-                    <Mono>{qtyText(r.quantity)} {r.item.uom}</Mono>
+                    <FlashOnChange value={r.quantity}><Mono>{qtyText(r.quantity)} {r.item.uom}</Mono></FlashOnChange>
                     {r.open === 'lots' && r.lots > 0 && <Box sx={muted}>in {r.lots} lot{r.lots === 1 ? '' : 's'}</Box>}
                   </Box>
                   <Box component="td" sx={{ ...td, display: HIDE.sm }}><Mono>{r.kg == null ? '—' : kgText(r.kg)}</Mono></Box>

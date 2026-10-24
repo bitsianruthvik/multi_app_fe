@@ -7,6 +7,7 @@ import { cfApi } from '../api/client';
 import type { Formula, FormulaKind } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
+import { FadeIn } from '../motion';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -62,7 +63,7 @@ export default function Formulas() {
     <Box>
       <PageHeader title="Value formulas" subtitle="Reusable expressions for calculated values (weight from length × width × thickness × density) and roll-ups. Changing one recalculates every item that uses it. Operation times are typed on the operation’s rule instead."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, formula: null })}>New formula</Button>} />
-      <StatStrip stats={stats} />
+      <FadeIn variant="rise"><StatStrip stats={stats} /></FadeIn>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or expression">
         {([['', 'All'], ['value', 'Value'], ['rollup', 'Roll-up']] as const).map(([v, label]) => (
           <FacetChip key={v || 'all'} label={label} active={kind === v} count={base.filter((f) => !v || f.kind === v).length} onClick={() => setKind(v)} />

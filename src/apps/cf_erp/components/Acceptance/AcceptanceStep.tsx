@@ -26,6 +26,8 @@ import { DialogHeader } from '../FormDialog';
 import { useToast } from '../toastContext';
 import { StageChecklist } from './StageChecklist';
 import { ChargesGrid, MilestonesGrid, StagesGrid } from './TermGrids';
+import { nudgeIfRefused, useBecame } from '../salesMotion';
+import { FlashOnChange, SuccessCheck } from '../../motion';
 
 /** The estimate, in a few figures. lineEstimate = the order's estimate from the line rates (shown when it differs). */
 function EstimateBox({ e, lineEstimate = null }: { e: Estimate; lineEstimate?: number | null }) {
@@ -42,7 +44,7 @@ function EstimateBox({ e, lineEstimate = null }: { e: Estimate; lineEstimate?: n
       {figures.map(([k, label, v]) => (
         <Box key={k} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', p: 1.25, minWidth: 0 }}>
           <Typography sx={{ fontSize: 11.5, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>{label}</Typography>
-          <Typography sx={{ fontSize: 16, fontWeight: 600 }} data-testid={`acc-est-${k}`}>{v}</Typography>
+          <Typography sx={{ fontSize: 16, fontWeight: 600 }} data-testid={`acc-est-${k}`}><FlashOnChange value={v}>{v}</FlashOnChange></Typography>
         </Box>
       ))}
       <Typography sx={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--c-text-3)' }}>
@@ -114,6 +116,8 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
     }, 350);
     return () => window.clearTimeout(t);
   }, [terms, view, editable, order.id]);
+  // Terms approved while this screen is open (never on first show): the accepted strip draws its check once.
+  const justAccepted = useBecame(!!view?.locked && !view?.pending, view ? order.id : null);
 
   if (loaded.error) return <ErrorNotice error={loaded.error} onRetry={loaded.reload} />;
   if (!view || !terms) return <SkeletonRows rows={5} height={64} />;
@@ -123,15 +127,15 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
   const anyWeBuy = view.order.lines.some((l) => l.supply === 'we_buy');
   const up = (patch: Partial<Terms>) => setTerms((t) => (t ? { ...t, ...patch } : t));
 
-  const run = async (fn: () => Promise<void>) => { setBusy(true); setError(null); try { await fn(); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); } };
-  const send = () => run(async () => {
+  const run = async (fn: () => Promise<void>, button?: HTMLElement) => { setBusy(true); setError(null); try { await fn(); } catch (e) { setError(e as CfApiError); nudgeIfRefused(e, button); } finally { setBusy(false); } };
+  const send = (button?: HTMLElement) => run(async () => {
     const v = await saveAcceptance(order.id, termsBody(terms), note.trim() || undefined);
     loaded.setData(v);
     setNote('');
     invalidateNavCounts();
     toast.success(v.approved && v.pending ? 'Rate change sent to Management.' : 'Sent to Management for approval.');
     onChanged?.();
-  });
+  }, button);
   const takeBack = () => run(async () => { loaded.setData(await withdrawAcceptance(order.id)); invalidateNavCounts(); toast.success('Taken back. Change it and send again.'); onChanged?.(); });
   const download = (format: 'pdf' | 'xlsx') => run(async () => { saveBlob(await mrDocument(order.id, format), `MR-${order.code.replace(/[^A-Za-z0-9._-]+/g, '-')}.${format}`); });
   const changeOrderSupply = (v: MaterialSupply) => run(async () => { await cfApi.put<SalesOrder>(`/orders/${order.id}`, { materialSupply: v }); toast.success('Material supply saved.'); loaded.reload(); onChanged?.(); });
@@ -167,7 +171,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
               {editable && (
                 <Button variant="contained" size="small" startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <SendRounded />}
                   disabled={busy || checking || problems.length > 0 || (!!view.approved && !dirty && !view.pending)}
-                  onClick={() => void send()} data-testid="acc-send">{saveLabel(view)}</Button>
+                  onClick={(e) => void send(e.currentTarget)} data-testid="acc-send">{saveLabel(view)}</Button>
               )}
               <FullScreenToggle on={full.on} onToggle={full.toggle} />
             </Box>
@@ -181,7 +185,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
             {view.pending && <Alert severity="info" data-testid="acc-pending">Waiting for Management since {new Date(view.pending.savedAt).toLocaleDateString('en-IN')}. {view.saveMeans}</Alert>}
             {view.locked && !view.pending && (
               <Box role="status" data-testid="acc-locked" sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, borderRadius: 'var(--r-md)', background: 'var(--c-success-50)', border: '1px solid var(--c-success-200)', fontSize: 13 }}>
-                <LockRounded sx={{ fontSize: 17 }} aria-hidden />
+                {justAccepted ? <SuccessCheck size={17} label="" /> : <LockRounded sx={{ fontSize: 17 }} aria-hidden />}
                 Accepted {view.approved?.decidedAt ? `on ${new Date(view.approved.decidedAt).toLocaleDateString('en-IN')}` : ''}{view.approved?.decidedBy?.name ? ` by ${view.approved.decidedBy.name}` : ''}. These terms are locked. {view.saveMeans}
               </Box>
             )}

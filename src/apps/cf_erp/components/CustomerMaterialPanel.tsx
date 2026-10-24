@@ -15,6 +15,7 @@ import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { useToast } from './toastContext';
 import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows, StatStrip } from './ui';
+import { FlashOnChange } from '../motion';
 
 const EPS = 1e-6;
 
@@ -176,7 +177,8 @@ export function CustomerMaterialPanel({ order }: { order: SalesOrder }) {
     { key: 'item', header: 'Item', alwaysVisible: true, sortValue: (i) => i.item.code ?? i.item.name, render: (i) => <Box sx={{ py: 0.5 }}><Mono>{i.item.code ?? '—'}</Mono><Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{i.item.name}</Typography></Box> },
     ...([['received', 'Received'], ['issued', 'Used'], ['scrapped', 'Scrapped'], ['returned', 'Returned'], ['withUs', 'With us']] as const).map(([k, header]) => ({
       key: k, header, numeric: true, alwaysVisible: true, sortValue: (i: ReconItem) => i[k].qty,
-      render: (i: ReconItem) => (i[k].qty === 0 ? <Mono muted>—</Mono> : <Mono>{qtyKgText(i[k], i.uom)}</Mono>),
+      // A quantity that moves (material received, returned) flashes once.
+      render: (i: ReconItem) => <FlashOnChange value={i[k].qty}>{i[k].qty === 0 ? <Mono muted>—</Mono> : <Mono>{qtyKgText(i[k], i.uom)}</Mono>}</FlashOnChange>,
     })),
   ];
 

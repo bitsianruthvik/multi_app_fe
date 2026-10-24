@@ -16,6 +16,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { FlowDialog } from '../components/FlowDialogs';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 
 const STATUS_CHIPS = [['', 'All'], ['active', 'Active'], ['draft', 'Drafts'], ['obsolete', 'Obsolete']] as const;
 const matches = (f: Flow, term: string) => !term || [f.code, f.name, f.description].some((v) => v?.toLowerCase().includes(term));
@@ -34,7 +35,7 @@ const COLUMNS: DataColumn<Flow>[] = [
   { key: 'steps', header: 'Steps', numeric: true, render: (f) => <Mono>{f.stepCount ?? 0}</Mono>, sortValue: (f) => f.stepCount ?? 0 },
   { key: 'used', header: 'Used by', numeric: true, render: (f) => <Mono muted={!f.usedBy}>{f.usedBy ?? 0}</Mono>, sortValue: (f) => f.usedBy ?? 0 },
   { key: 'description', header: 'Description', render: (f) => <Box sx={{ color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{f.description ?? '—'}</Box>, sortValue: (f) => f.description, defaultHidden: true },
-  { key: 'status', header: 'Status', render: (f) => <StatusBadge status={f.status} />, sortValue: (f) => f.status },
+  { key: 'status', header: 'Status', render: (f) => <FlashOnChange value={f.status}><StatusBadge status={f.status} /></FlashOnChange>, sortValue: (f) => f.status },
 ];
 
 type CutPlateFlow = { flow: Pick<Flow, 'id' | 'code' | 'name' | 'status'> | null };

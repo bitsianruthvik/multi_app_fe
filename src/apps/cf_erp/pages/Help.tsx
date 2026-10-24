@@ -10,6 +10,7 @@ import { helpIndex } from '../help/load';
 import { AREA_LABEL, HELP_ROLES, ROLE_LABEL, areasInUse, manualForRole, searchTopics, topicsForArea, type HelpTopic } from '../help/registry';
 import { RoleChips, TopicArticle, TopicList } from '../help/HelpParts';
 import type { MarkdownLinks } from '../help/MarkdownView';
+import { FadeIn } from '../motion';
 
 /**
  * The full manual (TM/CF_ERP_HELP_SPEC.md): every topic by role and by area, search, one topic on the right.
@@ -135,7 +136,8 @@ export default function Help() {
             ))}
           </Box>
         </Box>
-        <Box sx={{ minWidth: 0 }}>{main}</Box>
+        {/* Motion: the reading pane fades in when another topic, manual or area is opened (not on each search keystroke). */}
+        <FadeIn key={`${role}|${topicId}|${area}|${q ? 'q' : ''}`} style={{ minWidth: 0 }}>{main}</FadeIn>
       </Box>
       {printCopy}
     </Box>

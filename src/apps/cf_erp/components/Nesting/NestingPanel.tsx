@@ -63,6 +63,8 @@ import { PlateChangeProvider, PlateChangesPanel } from './PlateChange';
 import { usePlateChange } from './plateChangeContext';
 import { NestCompareTab } from './NestCompareTab';
 import { getNestAlternative } from '../../api/nesting';
+import { nudgeIfRefused } from '../salesMotion';
+import { celebrate } from '../../motion';
 
 /**
  * THE NESTING SCREEN — a sales order line's cut pieces laid out on real plates.
@@ -709,7 +711,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     setRun(null); setProposal(null); rememberRun(lineId, null);
   };
 
-  const accept = async () => {
+  const accept = async (anchor?: HTMLElement) => {
     if (!proposal) return;
     setBusy('accept'); setActionError(null);
     try {
@@ -717,6 +719,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       const out = await plateChange.submit('Use this nesting', (f) => cfApi.post<NestingAccepted | PlateChangeRequested>(`${path}/accept`, { ...body, ...f }, { timeoutMs: LONG_WRITE_MS }));
       // Sent for approval (a PO covers the line), or the reason was not given: the proposal stays on screen.
       if (!out) return;
+      // The nesting written down is a milestone: one small burst, from the button (measured before it goes).
+      celebrate(anchor);
       setProposal(null); setRun(null); rememberRun(lineId, null);
       saved.reload(); filesLoad.reload();
       onChanged?.();
@@ -725,7 +729,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       const made = (out as NestingAccepted).customPlates?.created ?? [];
       const graded = (out as NestingAccepted).gradeCheck;
       toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the customer’s plates.` : ''}${made.length ? ` Added to the catalog: ${made.map((m) => m.code).join(', ')}.` : ''}${graded && ((graded.mismatches?.length ?? 0) || graded.unknown.length) ? ` ${graded.sentence}` : ''}`);
-    } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
+    } catch (e) { setActionError(e as CfApiError); nudgeIfRefused(e, anchor); } finally { setBusy(null); }
   };
 
   /**
@@ -976,7 +980,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           */}
           {proposal && (
             <>
-              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* A proposal arriving rises in: its header, what using it does, and the buttons. */}
+              <Box className="cfm-rise-in" sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Badge family={basis.family} label={basis.label} title={basis.help} />
                 <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 260px', minWidth: 0 }}>
                   Nothing here is written down yet. Read it, then use it or discard it.
@@ -1011,12 +1016,12 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
                 <Box>{ACCEPT_AGAIN}</Box>
               </Note>
               <RestSummary plan={proposal} />
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
+              <Box className="cfm-rise-in" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
                 <Tooltip title={canManage ? 'Writes this layout down. It becomes what the shop cuts to and what the order buys.' : NO_MANAGE}>
                   <span>
                     <Button variant="contained" color="primary" data-testid="nest-use" disabled={!canManage || locked || t.plates === 0}
                       startIcon={busy === 'accept' ? <CircularProgress size={14} color="inherit" /> : <TaskAltRounded />}
-                      onClick={accept}>
+                      onClick={(e) => void accept(e.currentTarget)}>
                       Use this nesting
                     </Button>
                   </span>

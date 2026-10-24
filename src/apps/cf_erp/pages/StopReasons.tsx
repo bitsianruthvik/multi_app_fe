@@ -13,6 +13,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { FormDialog } from '../components/FormDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 
 /** Add or edit one reason. The order here is the order the chips appear at the machine. */
 function ReasonDialog({ open, existing, nextOrder, onClose, onSaved }: { open: boolean; existing: StopReasonRow | null; nextOrder: number; onClose: () => void; onSaved: () => void }) {
@@ -51,7 +52,7 @@ export default function StopReasons() {
     { key: 'label', header: 'Reason', render: (r) => <Box sx={{ fontWeight: 500 }}>{r.label}</Box>, sortValue: (r) => r.label, alwaysVisible: true },
     { key: 'code', header: 'Code', render: (r) => <Mono muted={!r.code}>{r.code || '—'}</Mono>, sortValue: (r) => r.code, defaultHidden: true },
     { key: 'note', header: 'Asks for a note', render: (r) => (r.needsNote ? 'Yes' : '—'), sortValue: (r) => (r.needsNote ? 1 : 0) },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} />, sortValue: (r) => r.status },
+    { key: 'status', header: 'Status', render: (r) => <FlashOnChange value={r.status}><StatusBadge status={r.status} /></FlashOnChange>, sortValue: (r) => r.status },
   ];
   return (
     <Box>

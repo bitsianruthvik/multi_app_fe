@@ -186,7 +186,8 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
     <Modal open={open} onClose={onClose} aria-labelledby="cf-palette-label" sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', pt: '12vh', px: 2 }}>
       <Box className="glass" onKeyDown={onKeyDown} sx={{
         width: '100%', maxWidth: 620, borderRadius: 'var(--r-lg)', border: '1px solid var(--glass-border)', boxShadow: 'var(--e-3)', overflow: 'hidden', outline: 'none',
-        animation: 'cf-palette-in 160ms var(--ease)', '@keyframes cf-palette-in': { from: { opacity: 0, transform: 'scale(.98)' }, to: { opacity: 1, transform: 'scale(1)' } },
+        // ⌘K: the panel fades in from 98% (160 ms) — quick enough that typing straight away is never lost (autofocus is immediate).
+        animation: 'cf-palette-in var(--m-dur-base) var(--m-ease-standard)', '@keyframes cf-palette-in': { from: { opacity: 0, transform: 'scale(.98)' }, to: { opacity: 1, transform: 'scale(1)' } },
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, height: 56, borderBottom: '1px solid var(--c-divider)' }}>
           <SearchRounded sx={{ fontSize: 20, color: 'var(--c-text-3)' }} aria-hidden />
@@ -202,7 +203,8 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
             </Box>
           )}
           {groups.map((group) => (
-            <Box key={group.title}>
+            // Records come back from the server after a pause: their group fades in, so the arrival is seen.
+            <Box key={group.title} className={group.title === 'Records' ? 'cfm-fade-in' : undefined}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 2, pt: 1, pb: 0.5, fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', '& svg': { fontSize: 13 } }}>
                 {group.icon}{group.title}
               </Box>

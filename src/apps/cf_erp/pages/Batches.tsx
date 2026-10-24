@@ -14,6 +14,7 @@ import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../compone
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { BatchStatusBadge } from '../components/inventoryUi';
+import { FlashOnChange } from '../motion';
 
 const STATUS_CHIPS = [['', 'All'], ['available', 'Available'], ['on_hold', 'On hold'], ['rejected', 'Rejected']] as const;
 
@@ -44,7 +45,7 @@ const COLUMNS: DataColumn<Batch>[] = [
     key: 'owner', header: 'Owner', sortValue: (b) => ownerLabel(b.owner), exportValue: (b) => ownerLabel(b.owner),
     render: (b) => <OwnerTag name={b.owner ? ownerLabel(b.owner) : null} />,
   },
-  { key: 'onHand', header: 'On hand', numeric: true, sortValue: (b) => b.onHand ?? 0, render: (b) => <>{qtyText(b.onHand)} <Mono muted>{b.item.uom}</Mono></> },
+  { key: 'onHand', header: 'On hand', numeric: true, sortValue: (b) => b.onHand ?? 0, render: (b) => <><FlashOnChange value={b.onHand}>{qtyText(b.onHand)}</FlashOnChange> <Mono muted>{b.item.uom}</Mono></> },
   {
     key: 'unitCost', header: 'Unit cost', numeric: true, defaultHidden: true, sortValue: (b) => (b.owner ? null : b.unitCost), exportValue: (b) => (b.owner ? '' : b.unitCost ?? ''),
     render: (b) => (b.owner ? <Mono muted>—</Mono> : <Money value={b.unitCost} digits={2} />),
@@ -53,7 +54,7 @@ const COLUMNS: DataColumn<Batch>[] = [
     key: 'value', header: 'Value', numeric: true, sortValue: (b) => batchValue(b), exportValue: (b) => batchValue(b) ?? '',
     render: (b) => (b.owner ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12.5 }} title="A customer's material costs us nothing">theirs</Box> : <Money value={batchValue(b)} />),
   },
-  { key: 'status', header: 'Status', sortValue: (b) => b.status, exportValue: (b) => BATCH_STATUS_LABEL[b.status], render: (b) => <BatchStatusBadge status={b.status} note={b.statusNote} /> },
+  { key: 'status', header: 'Status', sortValue: (b) => b.status, exportValue: (b) => BATCH_STATUS_LABEL[b.status], render: (b) => <FlashOnChange value={b.status}><BatchStatusBadge status={b.status} note={b.statusNote} /></FlashOnChange> },
 ];
 
 /** Collection / List (§4.2) of batches — one per delivery lot of an item kept by batch. */

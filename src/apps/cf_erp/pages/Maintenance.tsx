@@ -23,6 +23,8 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 import { DowntimeDialog, NewOrderDialog, PlanDialog, RaiseFaultDialog, type MachineOption } from '../components/Maintenance/MaintenanceDialogs';
 import { BOARD_STATUS, MO_STATUS, SOURCE_LABEL, boardOrder, durationText, plainKey, whenText } from '../lib/maintenance';
+import { FlashOnChange, Stagger, SuccessCheck, duration, transition } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 
 /**
  * MAINTENANCE (init.sql §82; user decisions 2026-10-18): the Machines board, Maintenance orders, Preventive plans and
@@ -52,21 +54,27 @@ const machinesOf = (b: Board | null | undefined): MachineOption[] => (b?.machine
  * MACHINES BOARD
  * ============================================================================================== */
 
-function MachineCard({ m, onOpen, onFault, canFault }: { m: BoardMachine; onOpen: (id: number) => void; onFault: (m: BoardMachine) => void; canFault: boolean }) {
+function MachineCard({ m, onOpen, onFault, canFault, className, style }: {
+  m: BoardMachine; onOpen: (id: number) => void; onFault: (m: BoardMachine) => void; canFault: boolean;
+  /** From <Stagger> (motion): the enter animation of the first cards. */
+  className?: string; style?: React.CSSProperties;
+}) {
   const s = BOARD_STATUS[m.status];
   const line = m.status === 'down' ? `${m.fault?.code} · down ${durationText(m.downMinutes)}`
     : m.status === 'planned' ? `${m.plannedNow?.reason} until ${whenText(m.plannedNow?.end)}`
       : m.status === 'stopped' ? `${m.stopReason} since ${whenText(m.since)}`
         : m.status === 'running' ? `${m.jobsRunning} job${m.jobsRunning === 1 ? '' : 's'} running` : 'No job on it';
   return (
-    <Box data-testid="board-card" data-status={m.status} sx={{
+    <Box className={className} style={style} data-testid="board-card" data-status={m.status} sx={{
       p: 1.5, borderRadius: 'var(--r-md)', border: '1px solid var(--c-border)', background: 'var(--c-surface)', display: 'grid', gap: 0.75,
       borderLeft: `4px solid var(--c-${s.family}-500, var(--c-border))`, minWidth: 0,
+      // Motion: a status change (running → down…) slides the stripe colour over and flashes the badge.
+      transition: transition(['border-color'], duration.slow),
     }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
         <Mono>{m.code}</Mono>
         <Typography noWrap sx={{ fontSize: 13.5, flex: 1, minWidth: 0 }}>{m.name}</Typography>
-        <Badge family={s.family} label={s.label} noIcon />
+        <FlashOnChange value={m.status}><Badge family={s.family} label={s.label} noIcon /></FlashOnChange>
       </Box>
       <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }} noWrap>{line}</Typography>
       {m.nextPlanned && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }} noWrap>Next planned: {whenText(m.nextPlanned.start)} · {durationText(m.nextPlanned.minutes)} · {m.nextPlanned.reason}</Typography>}
@@ -93,6 +101,8 @@ export default function MaintenanceBoard() {
   const board = useLoad(() => getBoard(), []);
   const [filter, setFilter] = useUrlParam('show', 'all');
   const [fault, setFault] = useState<{ machine: MachineOption | null } | null>(null);
+  // Motion: a tick beside "Raise a fault" once a fault is submitted.
+  const [faultTick, markFault] = useSavedCheck();
   const openMo = (id: number) => navigate(appPath(company, `maintenance-orders/${id}`));
   useKeys({ f: () => canFault && setFault({ machine: null }), r: board.reload });
   const rows = useMemo(() => boardOrder((board.data?.machines ?? []).filter((m) => filter === 'all' || m.status === filter)), [board.data, filter]);
@@ -105,6 +115,7 @@ export default function MaintenanceBoard() {
           actions={(
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               {canFault && <Button variant="contained" color="error" startIcon={<ReportProblemRounded />} onClick={() => setFault({ machine: null })} data-testid="board-fault">Raise a fault</Button>}
+              {faultTick > 0 && <SuccessCheck key={faultTick} size={20} label="Fault raised" />}
               <Tooltip title="Read again (R)"><span><Button size="small" variant="outlined" startIcon={<RefreshRounded />} onClick={board.reload} disabled={board.loading}>Refresh</Button></span></Tooltip>
               <FullScreenToggle on={fs.on} onToggle={fs.toggle} />
             </Box>
@@ -126,7 +137,7 @@ export default function MaintenanceBoard() {
         </Box>
         {board.loading && !board.data ? <SkeletonRows rows={6} /> : (
           <Box data-testid="board-grid" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fill, minmax(300px, 1fr))' }, gap: 1.25 }}>
-            {rows.map((m) => <MachineCard key={m.id} m={m} onOpen={openMo} canFault={canFault} onFault={(x) => setFault({ machine: { id: x.id, code: x.code, name: x.name } })} />)}
+            <Stagger>{rows.map((m) => <MachineCard key={m.id} m={m} onOpen={openMo} canFault={canFault} onFault={(x) => setFault({ machine: { id: x.id, code: x.code, name: x.name } })} />)}</Stagger>
           </Box>
         )}
         {board.data && rows.length === 0 && <EmptyState icon={<BuildRounded />} title="No machines here." />}
@@ -147,7 +158,7 @@ export default function MaintenanceBoard() {
         )}
         <RaiseFaultDialog open={!!fault} machine={fault?.machine ?? null} machines={machinesOf(board.data)} reasons={board.data?.reasons ?? null}
           onClose={() => setFault(null)}
-          onDone={(r) => { setFault(null); toast.success(r.message); board.reload(); }} />
+          onDone={(r) => { setFault(null); markFault(); toast.success(r.message); board.reload(); }} />
       </Box>
     </FullScreenFrame>
   );
@@ -178,7 +189,7 @@ export function MaintenanceOrders() {
     { key: 'machine', header: 'Machine', sortValue: (r) => r.machine.code, render: (r) => <><Mono>{r.machine.code}</Mono> <Typography component="span" sx={{ fontSize: 13 }}>{r.machine.name}</Typography></> },
     { key: 'title', header: 'Job', sortValue: (r) => r.title, render: (r) => r.title },
     { key: 'source', header: 'From', sortValue: (r) => r.source, render: (r) => SOURCE_LABEL[r.source] },
-    { key: 'status', header: 'Status', sortValue: (r) => r.status, exportValue: (r) => r.statusLabel, render: (r) => <Badge family={MO_STATUS[r.status].family} label={r.falseAlarm ? 'False alarm' : MO_STATUS[r.status].label} noIcon /> },
+    { key: 'status', header: 'Status', sortValue: (r) => r.status, exportValue: (r) => r.statusLabel, render: (r) => <FlashOnChange value={r.status}><Badge family={MO_STATUS[r.status].family} label={r.falseAlarm ? 'False alarm' : MO_STATUS[r.status].label} noIcon /></FlashOnChange> },
     { key: 'down', header: 'Machine', sortValue: (r) => (r.machineDown ? 0 : 1), render: (r) => (r.machineDown ? <Badge family="danger" label="Down" noIcon /> : '—') },
     { key: 'raised', header: 'Raised', sortValue: (r) => r.raisedAt, render: (r) => whenText(r.raisedAt) },
     { key: 'downtime', header: 'Downtime', numeric: true, sortValue: (r) => r.downtimeMinutes ?? -1, render: (r) => durationText(r.downtimeMinutes) },
@@ -237,7 +248,7 @@ export function MaintenancePlans() {
     { key: 'every', header: 'Every', sortValue: (r) => every(r), render: every },
     { key: 'since', header: 'Since last done', sortValue: (r) => since(r), render: since },
     { key: 'progress', header: 'Due', numeric: true, sortValue: (r) => r.progressPct,
-      render: (r) => (r.status !== 'active' ? 'Off' : r.due ? <Badge family="danger" label="Due" noIcon /> : `${r.progressPct} %${r.nextDueOn ? ` · ${r.nextDueOn}` : ''}`) },
+      render: (r) => <FlashOnChange value={`${r.status}:${r.due}:${r.progressPct}`}>{r.status !== 'active' ? 'Off' : r.due ? <Badge family="danger" label="Due" noIcon /> : `${r.progressPct} %${r.nextDueOn ? ` · ${r.nextDueOn}` : ''}`}</FlashOnChange> },
     { key: 'order', header: 'Open order', sortValue: (r) => r.openOrder?.code ?? '',
       render: (r) => (r.openOrder ? <ButtonBase onClick={(e) => { e.stopPropagation(); navigate(appPath(company, `maintenance-orders/${r.openOrder!.id}`)); }} sx={{ color: 'var(--c-primary-700)', fontSize: 13 }}>{r.openOrder.code}</ButtonBase> : '—') },
   ];
@@ -286,7 +297,7 @@ export function PlannedDowntime() {
     { key: 'when', header: 'When', sortValue: (r) => r.text, render: (r) => r.text },
     { key: 'reason', header: 'Reason', sortValue: (r) => r.reason, render: (r) => r.reason },
     { key: 'range', header: 'From – until', sortValue: (r) => r.startsOn, render: (r) => (r.kind === 'once' ? '—' : `${r.startsOn} – ${r.endsOn ?? 'no end'}`) },
-    { key: 'next', header: 'Next', sortValue: (r) => r.next?.[0]?.start ?? '', render: (r) => (r.next?.length ? r.next.map((o) => whenText(o.start)).join(' · ') : 'None coming') },
+    { key: 'next', header: 'Next', sortValue: (r) => r.next?.[0]?.start ?? '', render: (r) => { const next = r.next?.length ? r.next.map((o) => whenText(o.start)).join(' · ') : 'None coming'; return <FlashOnChange value={next}>{next}</FlashOnChange>; } },
   ];
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>

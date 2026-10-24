@@ -10,6 +10,7 @@ import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, PageHeader, StatStrip } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { InvoicesTable } from '../components/InvoicesTable';
+import { FadeIn } from '../motion';
 
 const CHIPS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' }, { value: 'draft', label: 'Drafts' }, { value: 'issued', label: 'Issued' }, { value: 'cancelled', label: 'Cancelled' },
@@ -40,7 +41,7 @@ export default function Invoices() {
   return (
     <Box>
       <PageHeader title="Invoices" subtitle="A tax invoice goes with each dispatch. Review the draft, issue it, then take its files to the government portals." />
-      <StatStrip stats={stats} />
+      <FadeIn variant="rise"><StatStrip stats={stats} /></FadeIn>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number, order or customer">
         {CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={c.value === 'all' ? counts?.all : counts?.status[c.value]} onClick={() => setStatus(c.value)} />)}
       </FilterBar>

@@ -4,6 +4,7 @@ import { rupeeText } from '../lib/money';
 import { taxPartsText } from '../lib/gst';
 import { Mono } from './ui';
 import { OrderValueText } from './OrderValueText';
+import { FlashOnChange } from '../motion';
 
 /**
  * The order's total from the LINE RATES, with what is missing from it said plainly — a partial total must not pass for
@@ -24,7 +25,7 @@ export function OrderTotalBar({ total, lineCount, value }: { total: OrderTotal; 
     {byTerms && (
       <Box data-testid="order-total-terms" sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'baseline', gap: 1.5, px: 2, pt: 1.25, borderTop: '1px solid var(--c-divider)' }}>
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order value (customer acceptance), before tax</Typography>
-        <OrderValueText value={value} compact />
+        <FlashOnChange value={value?.amount}><OrderValueText value={value} compact /></FlashOnChange>
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', width: '100%', textAlign: 'right' }}>The line rates below are the sales estimate only — billing and costing use the acceptance.</Typography>
       </Box>
     )}
@@ -47,7 +48,7 @@ export function OrderTotalBar({ total, lineCount, value }: { total: OrderTotal; 
               <Part label={byTerms ? 'Estimate incl. GST' : 'Total incl. GST'} value={rupeeText(total.gross)} strong={!byTerms} />
             </Box>
           )
-          : <>{taxMissing && <Typography data-testid="order-tax-missing" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>GST not worked out{total.taxNote ? `: ${total.taxNote}` : ' for every line.'}</Typography>}<Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{byTerms ? 'Estimate from the line rates, before tax' : 'Order total, before tax'}</Typography><Mono sx={{ fontWeight: byTerms ? 400 : 600, fontSize: 14 }}>{rupeeText(total.amount)}</Mono></>}
+          : <>{taxMissing && <Typography data-testid="order-tax-missing" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>GST not worked out{total.taxNote ? `: ${total.taxNote}` : ' for every line.'}</Typography>}<Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{byTerms ? 'Estimate from the line rates, before tax' : 'Order total, before tax'}</Typography><FlashOnChange value={total.amount}><Mono sx={{ fontWeight: byTerms ? 400 : 600, fontSize: 14 }}>{rupeeText(total.amount)}</Mono></FlashOnChange></>}
     </Box>
     </>
   );
@@ -57,7 +58,8 @@ function Part({ label, value, strong = false }: { label: string; value: string; 
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.75 }}>
       <Typography component="span" sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{label}</Typography>
-      <Mono sx={strong ? { fontWeight: 600, fontSize: 14 } : { fontSize: 13.5 }}>{value}</Mono>
+      {/* A figure that moves after a save flashes once, so the eye finds it. */}
+      <FlashOnChange value={value}><Mono sx={strong ? { fontWeight: 600, fontSize: 14 } : { fontSize: 13.5 }}>{value}</Mono></FlashOnChange>
     </Box>
   );
 }

@@ -17,6 +17,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 import { SpecDialog } from '../components/SpecDialog';
 import { TYPE_LABEL } from '../lib/specTypes';
+import { FadeIn } from '../motion';
 
 
 const matches = (s: Specification, term: string) => !term || s.code.toLowerCase().includes(term) || s.name.toLowerCase().includes(term);
@@ -61,11 +62,11 @@ export default function Specifications() {
     <Box>
       <PageHeader title="Specifications" subtitle="The library of characteristics — thickness, grade, weight. Each is defined once and attached by rules to classification nodes, definitions and items."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, spec: null })}>New specification</Button>} />
-      <StatStrip stats={[
+      <FadeIn variant="rise"><StatStrip stats={[
         { label: 'Shown', value: rows.length },
         { label: 'Unused', value: rows.filter((s) => s.ruleCount === 0).length, tone: 'warning', hint: 'No rule attaches them yet' },
         { label: 'Pick-lists', value: rows.filter((s) => s.dataType === 'option').length },
-      ]} />
+      ]} /></FadeIn>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
         {chips.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={type === v} count={base.filter((s) => !v || s.dataType === v).length} onClick={() => setType(v)} />)}
       </FilterBar>

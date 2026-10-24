@@ -56,6 +56,7 @@ import { ValueHistory } from '../components/ValueHistory';
 import { ValueReasonsDialog } from '../components/ValueReasonsDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { SuccessCheck } from '../motion';
 
 /** HSN, GST rate and service tick, wherever the server puts them (on the record, or on its item). */
 function recordTax(r: MasterRecord): { hsn: string | null; rate: number | null; isService: boolean } {
@@ -122,7 +123,9 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   const [error, setError] = useState<CfApiError | null>(null);
   const toast = useToast();
   /** A new flow may have added values its operations read — say which. */
-  const saved = (r: MasterRecord) => { if (r.flowSpecs?.words) toast.info(r.flowSpecs.words); onSaved(r); };
+  // Motion: a check draws beside the button after each save.
+  const [savedN, setSavedN] = useState(0);
+  const saved = (r: MasterRecord) => { if (r.flowSpecs?.words) toast.info(r.flowSpecs.words); setSavedN((n) => n + 1); onSaved(r); };
   const isTemp = record.item?.itemType === 'temporary';
   const isSelection = record.definition?.definitionType === 'selection';
   // HSN / SAC and the GST rate live on a catalog item and on a template — what an order line is priced from.
@@ -269,7 +272,8 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
         )}
       </Box>
       {readOnly && !flowOnly ? null : canEdit ? (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mt: 2 }}>
+          {savedN > 0 && !busy && <SuccessCheck key={savedN} size={18} label="Saved" />}
           <Button variant="contained" onClick={save}
             disabled={busy || !form.name.trim() || (flowOnly && (form.defaultFlowId ?? null) === (record.defaultFlowId ?? null))}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>

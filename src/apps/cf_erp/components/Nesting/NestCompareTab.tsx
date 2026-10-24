@@ -256,7 +256,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
               {plan.why && <Typography data-testid="compare-tab-swap-why" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{plan.why}</Typography>}
             </Box>
           )}
-          {swapDone && <Alert severity="success" data-testid="compare-tab-swap-done" onClose={() => setSwapDone(null)}>{swapDone}</Alert>}
+          {swapDone && <Alert severity="success" className="cfm-fade-in" data-testid="compare-tab-swap-done" onClose={() => setSwapDone(null)}>{swapDone}</Alert>}
           {unlike && (
             <Alert severity="warning" data-testid="compare-tab-unlike">
               {`The two sides do not hold the same pieces (${data.likeForLike?.uploadedPieces} and ${data.likeForLike?.autoPieces}). Read the figures with care.`}

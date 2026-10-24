@@ -75,7 +75,12 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
                 position: 'relative', display: 'inline-flex', alignItems: 'center', height: 52, px: 1.5, textDecoration: 'none', flexShrink: 0,
                 fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap',
                 color: active ? 'var(--c-text)' : 'var(--c-text-2)', transition: 'color var(--t-fast) var(--ease)', '&:hover': { color: 'var(--c-text)' },
-                '&::after': { content: '""', position: 'absolute', left: 8, right: 8, bottom: -1, height: 2, borderRadius: '2px 2px 0 0', background: active ? 'var(--c-primary-500)' : 'transparent' },
+                // The underline grows out from the middle of the section you just moved to (transform + opacity, 160 ms).
+                '&::after': {
+                  content: '""', position: 'absolute', left: 8, right: 8, bottom: -1, height: 2, borderRadius: '2px 2px 0 0', background: 'var(--c-primary-500)',
+                  opacity: active ? 1 : 0, transform: active ? 'scaleX(1)' : 'scaleX(0.4)',
+                  transition: 'opacity var(--m-dur-base) var(--m-ease-standard), transform var(--m-dur-base) var(--m-ease-standard)',
+                },
               }}>
                 {section.label}
               </Box>

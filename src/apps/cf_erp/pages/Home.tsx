@@ -39,6 +39,7 @@ import { WorkQueueCard } from '../components/WorkQueueCard';
 import { EntityList, EntityRow } from '../components/EntityList';
 import { flattenTree } from '../lib/tree';
 import { showRevision } from '../lib/orders';
+import { FadeIn, Stagger } from '../motion';
 
 type QueueTone = 'primary' | 'warning' | 'danger' | 'info' | 'success';
 interface Queue { key: string; title: string; count: number; unit: string; tone: QueueTone; description: string; actionLabel: string; path: string }
@@ -135,8 +136,9 @@ export default function Home() {
         </>
       ) : data && (
         <>
-          {stats.length > 0 && <StatStrip stats={stats} />}
-          {money.length > 0 && <StatStrip stats={money} />}
+          {/* Motion: the tile strips fade in one after the other (the figures count up inside StatStrip). */}
+          {stats.length > 0 && <FadeIn variant="rise"><StatStrip stats={stats} /></FadeIn>}
+          {money.length > 0 && <FadeIn variant="rise" delay={60}><StatStrip stats={money} /></FadeIn>}
 
           <Typography component="h2" sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>
             Waiting on you
@@ -146,10 +148,15 @@ export default function Home() {
               hint="Overdue orders, inquiries to quote, drafts, machines without shifts and stock on hold show up here." />
           ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 1.5, alignItems: 'stretch' }}>
-              {queues.map((q) => (
-                <WorkQueueCard key={q.key} icon={QUEUE_ICON[q.key] ?? <ChecklistRounded />} title={q.title} count={q.count} unit={q.unit}
-                  description={q.description} actionLabel={q.actionLabel} onAction={() => go(q.path)} tone={q.tone} />
-              ))}
+              {/* Motion: the queue cards rise in, staggered (first 12 only). */}
+              <Stagger>
+                {queues.map((q) => (
+                  <div key={q.key} style={{ display: 'grid' }}>
+                    <WorkQueueCard icon={QUEUE_ICON[q.key] ?? <ChecklistRounded />} title={q.title} count={q.count} unit={q.unit}
+                      description={q.description} actionLabel={q.actionLabel} onAction={() => go(q.path)} tone={q.tone} />
+                  </div>
+                ))}
+              </Stagger>
             </Box>
           )}
 
@@ -161,12 +168,16 @@ export default function Home() {
                   <Typography sx={{ color: 'var(--c-text-2)', py: 2 }}>No open orders.</Typography>
                 ) : (
                   <EntityList>
-                    {data.orders.map((o) => (
-                      <EntityRow key={o.id} onClick={() => go(`orders/${o.id}`)}
-                        code={<Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><Mono chip>{o.code}</Mono>{showRevision(o) && <RevisionBadge revision={o.revision} />}</Box>}
-                        primary={o.title ?? o.customer?.name ?? 'Stock order'} secondary={o.title ? o.customer?.name : undefined}
-                        trailing={<>{o.overdue && <DangerBadge label="Past date" />}<OrderStatusBadge status={o.status} /></>} />
-                    ))}
+                    <Stagger variant="fade">
+                      {data.orders.map((o) => (
+                        <div key={o.id}>
+                          <EntityRow onClick={() => go(`orders/${o.id}`)}
+                            code={<Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><Mono chip>{o.code}</Mono>{showRevision(o) && <RevisionBadge revision={o.revision} />}</Box>}
+                            primary={o.title ?? o.customer?.name ?? 'Stock order'} secondary={o.title ? o.customer?.name : undefined}
+                            trailing={<>{o.overdue && <DangerBadge label="Past date" />}<OrderStatusBadge status={o.status} /></>} />
+                        </div>
+                      ))}
+                    </Stagger>
                   </EntityList>
                 )}
               </SectionCard>

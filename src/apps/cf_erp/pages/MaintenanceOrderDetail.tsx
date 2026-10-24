@@ -18,6 +18,7 @@ import { PromptDialog } from '../components/PromptDialog';
 import { useToast } from '../components/toastContext';
 import { CloseOrderDialog, MrFromOrderDialog } from '../components/Maintenance/MaintenanceDialogs';
 import { MO_STATUS, NEXT_LABEL, SOURCE_LABEL, costText, durationText, plainKey, whenText } from '../lib/maintenance';
+import { FlashOnChange, nudge } from '../motion';
 
 const linkSx = { color: 'var(--c-primary-700)', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } };
 
@@ -38,8 +39,9 @@ export default function MaintenanceOrderDetail() {
   const [prompt, setPrompt] = useState<'false' | 'cancel' | null>(null);
   const o = mo.data;
   const active = !!o && ['open', 'in_progress', 'waiting_parts'].includes(o.status);
-  const move = async (to: MoStatus) => {
-    try { const r = await setOrderStatus(o!.id, { status: to }); mo.setData(r); toast.success(`${r.code}: ${MO_STATUS[to].label}.`); } catch (e) { toast.error((e as CfApiError).message); }
+  // Motion: the pressed button (`anchor`) is nudged when the move is refused; the status badge flashes when it changes.
+  const move = async (to: MoStatus, anchor?: HTMLElement | null) => {
+    try { const r = await setOrderStatus(o!.id, { status: to }); mo.setData(r); toast.success(`${r.code}: ${MO_STATUS[to].label}.`); } catch (e) { nudge(anchor); toast.error((e as CfApiError).message); }
   };
   const keys = useRef<Record<string, () => void>>({});
   keys.current = {
@@ -62,7 +64,7 @@ export default function MaintenanceOrderDetail() {
           title={<Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button size="small" startIcon={<ArrowBackRounded />} onClick={() => navigate(appPath(company, 'maintenance-orders'))}>Orders</Button>
             <Mono>{o.code}</Mono> {o.title}
-            <Badge family={st.family} label={o.falseAlarm ? 'False alarm' : st.label} noIcon />
+            <FlashOnChange value={o.status}><Badge family={st.family} label={o.falseAlarm ? 'False alarm' : st.label} noIcon /></FlashOnChange>
             {o.machineDown && <Badge family="danger" label={`Machine down ${durationText(o.downtimeMinutes)}`} noIcon />}
           </Box>}
           subtitle={`${SOURCE_LABEL[o.source]} · ${o.machine.code} ${o.machine.name} · raised ${whenText(o.raisedAt)}${o.raisedBy ? ` by ${o.raisedBy}` : ''}`}
@@ -70,7 +72,7 @@ export default function MaintenanceOrderDetail() {
         {canManage && active && (
           <Box data-testid="mo-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {o.next.map((to) => (
-              <Button key={to} variant={to === 'in_progress' ? 'contained' : 'outlined'} startIcon={to === 'in_progress' ? <PlayArrowRounded /> : undefined} onClick={() => move(to)} data-testid={`mo-move-${to}`}>
+              <Button key={to} variant={to === 'in_progress' ? 'contained' : 'outlined'} startIcon={to === 'in_progress' ? <PlayArrowRounded /> : undefined} onClick={(e) => move(to, e.currentTarget)} data-testid={`mo-move-${to}`}>
                 {NEXT_LABEL[to]}{to === 'in_progress' ? ' (S)' : ''}
               </Button>
             ))}

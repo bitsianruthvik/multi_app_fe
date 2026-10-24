@@ -18,6 +18,7 @@ import { NewOrderDialog } from '../components/NewOrderDialog';
 import { OrderValueText } from '../components/OrderValueText';
 import { orderValueText } from '../lib/orderValue';
 import { useToast } from '../components/toastContext';
+import { staggerRowsSx } from '../components/salesMotion';
 
 /**
  * The status chips. The SERVER filters by them (GET /orders?chip=…) and counts
@@ -34,6 +35,8 @@ const STATUS_CHIPS: { value: string; label: string }[] = [
 ];
 /** Columns the server can sort by (salesOrderService ORDER_SORT). */
 const SERVER_SORT = ['code', 'project', 'type', 'lines', 'committed', 'received', 'status'];
+
+const ROWS_IN = staggerRowsSx();
 
 const COLUMNS: DataColumn<SalesOrder>[] = [
   {
@@ -117,12 +120,15 @@ export default function Orders() {
         <FacetChip label="Show earlier revisions" active={withEarlier} onClick={() => setRevisions(withEarlier ? '' : 'all')} />
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
+      {/* The first rows rise in as a page of orders lands. */}
+      <Box sx={ROWS_IN}>
       <DataTable rows={list.rows} columns={COLUMNS} getRowId={(o) => o.id} onRowClick={open} loading={!list.loaded}
         server={{ ...list.server, sortable: SERVER_SORT }}
         storageKey="orders" exportName="orders" defaultSortKey="code" defaultSortDir="desc"
         empty={<EmptyState icon={<ReceiptLongRounded />} title={filtered ? 'No order matches these filters' : 'No orders yet'}
           hint={filtered ? 'Clear the search or pick another status.' : 'Start with an inquiry — its structure can be designed before anything is confirmed.'}
           action={filtered ? <Button onClick={clear}>Clear filters</Button> : canManage && <Button variant="contained" onClick={() => setCreating(true)}>New order</Button>} />} />
+      </Box>
       <NewOrderDialog open={creating} onClose={() => setCreating(false)} onCreated={(o) => {
         invalidateNavCounts();
         toast.success(`${o.code} created as ${o.status === 'draft' ? 'a draft' : 'an inquiry'}.`);

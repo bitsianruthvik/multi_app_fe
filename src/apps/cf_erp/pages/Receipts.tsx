@@ -19,6 +19,7 @@ import { OrderPicker } from '../components/ServerPicker';
 import { PromptDialog } from '../components/PromptDialog';
 import { ReceiptDialog } from '../components/Accounts/AccountsDialogs';
 import { useToast } from '../components/toastContext';
+import { SuccessCheck, celebrate } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -38,7 +39,13 @@ export default function Receipts() {
   const [recording, setRecording] = useState(false);
   const [removing, setRemoving] = useState<Receipt | null>(null);
   useEffect(() => { const t = window.setTimeout(() => { if (typed !== search) setSearch(typed); }, 300); return () => window.clearTimeout(t); }, [typed, search, setSearch]);
-  const onSaved = (r: ReceiptResult) => { setRecording(false); toast.success(r.closed ? `${r.message} ${r.order.order.code} is closed.` : r.message); list.reload(); };
+  // Motion: a recorded payment draws a check beside the button; the payment that makes the order fully paid celebrates once.
+  const [recorded, setRecorded] = useState(0);
+  const onSaved = (r: ReceiptResult) => {
+    setRecording(false); toast.success(r.closed ? `${r.message} ${r.order.order.code} is closed.` : r.message); list.reload();
+    setRecorded((n) => n + 1);
+    if (r.order.fullyPaid && r.allocated > 0) celebrate(document.querySelector('[data-testid="receipt-new"]'));
+  };
   const columns: DataColumn<Receipt>[] = [
     { key: 'date', header: 'Date', sortValue: (r) => r.date, render: (r) => <Mono>{r.date}</Mono>, alwaysVisible: true },
     { key: 'code', header: 'Receipt', sortValue: (r) => r.code, render: (r) => <Mono muted>{r.code}</Mono> },
@@ -64,6 +71,7 @@ export default function Receipts() {
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }} data-testid="receipt-start">
             <OrderPicker openOnly={false} value={pick} onChange={setPick} label="Order the payment is for" size="small" sx={{ minWidth: 320 }} />
             <Button variant="contained" startIcon={<PaymentsRounded />} disabled={!pick} onClick={() => setRecording(true)} data-testid="receipt-new">Record a payment</Button>
+            {recorded > 0 && <SuccessCheck key={recorded} size={20} label="Payment recorded" />}
           </Box>
         )}
         <ErrorNotice error={list.error} onRetry={list.reload} />

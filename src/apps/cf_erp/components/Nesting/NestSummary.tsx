@@ -4,6 +4,7 @@ import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import ContentCutRounded from '@mui/icons-material/ContentCutRounded';
 import { CapsLabel, Mono, Surface } from '../ui';
+import { FlashOnChange } from '../../motion';
 
 /**
  * THE LINE'S NESTING IN FOUR FIGURES, and what is still to do.
@@ -30,7 +31,7 @@ export function NestSummaryStrip({ figures, children }: { figures: SummaryFigure
               <Box sx={{
                 fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 20, fontWeight: 600, lineHeight: 1.2, overflowWrap: 'anywhere',
                 color: f.warn ? 'var(--c-warning-800)' : 'var(--c-text)',
-              }}>{f.value}</Box>
+              }}><FlashOnChange value={f.value}>{f.value}</FlashOnChange></Box>
             </Box>
           );
           return f.hint ? <Tooltip key={f.key} title={f.hint} placement="top-start">{cell}</Tooltip> : <Box key={f.key} sx={{ minWidth: 0 }}>{cell}</Box>;

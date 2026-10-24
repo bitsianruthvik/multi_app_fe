@@ -22,6 +22,7 @@ import { OrdersTab } from '../components/Dashboard/OrdersTab';
 import { WorkOrdersTab } from '../components/Dashboard/WorkOrdersTab';
 // §82: downtime hours this week and what maintenance cost.
 import { MaintenanceCard } from '../components/Maintenance/MaintenanceCard';
+import { FadeIn } from '../motion';
 
 type TabKey = 'machines' | 'orders' | 'work-orders';
 /** While the period reaches today, the numbers are live: read again every few minutes. */
@@ -115,11 +116,14 @@ export default function Dashboard() {
       {!canOrders && <Typography sx={{ color: 'var(--c-text-2)' }}>You need production view or orders view to see the dashboard.</Typography>}
       <ErrorNotice error={current.error} onRetry={() => setTick((n) => n + 1)} />
       {!current.data && current.loading && <><StatSkeleton count={6} /><SkeletonRows rows={5} height={140} /></>}
-      {tab === 'machines' && machines.data && (
-        <MachinesTab data={machines.data} atRisk={orders.data ? { late: orders.data.totals.late, atRisk: orders.data.totals.atRisk } : null} />
-      )}
-      {tab === 'orders' && orders.data && <OrdersTab data={orders.data} />}
-      {tab === 'work-orders' && workOrders.data && <WorkOrdersTab data={workOrders.data} />}
+      {/* Motion: the tab's content fades in when the tab changes and when it first arrives (keyed on the tab, not on a refresh). */}
+      <FadeIn key={`${tab}:${current.data ? 1 : 0}`}>
+        {tab === 'machines' && machines.data && (
+          <MachinesTab data={machines.data} atRisk={orders.data ? { late: orders.data.totals.late, atRisk: orders.data.totals.atRisk } : null} />
+        )}
+        {tab === 'orders' && orders.data && <OrdersTab data={orders.data} />}
+        {tab === 'work-orders' && workOrders.data && <WorkOrdersTab data={workOrders.data} />}
+      </FadeIn>
     </Box>
   );
 }
