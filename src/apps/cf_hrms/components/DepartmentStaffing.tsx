@@ -133,8 +133,8 @@ export function DepartmentStaffingPanel({
       </Typography>
       {roles.length === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>
-          No positions sit in this department.
-          {hasChildren ? ' The departments under it hold their own — open one of them.' : ''}
+          No positions sit in this org unit.
+          {hasChildren ? ' The units under it hold their own — open one of them.' : ''}
         </Typography>
       ) : (
         <>

@@ -110,7 +110,7 @@ export const digitsLabel = (format: string | null | undefined) => {
 };
 
 export const SEQ_SCOPE_WORDS = {
-  prefix: 'It counts again from 1 whenever the text before it changes — a new department, a new year or a new location each get their own count.',
+  prefix: 'It counts again from 1 whenever the text before it changes — a new org unit, a new year or a new location each get their own count.',
   scheme: 'One count for the whole rule, whatever comes before it.',
 };
 

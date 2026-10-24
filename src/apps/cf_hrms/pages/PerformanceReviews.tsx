@@ -21,6 +21,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { labelFilterDefs, useLabels } from '../components/labels';
 import { DueChip, ReviewStatusBadge } from '../components/performance/ReviewParts';
 import { REVIEW_KIND_OPTIONS, REVIEW_STATE_OPTIONS, REVIEW_STATUS_LABEL } from '../components/performance/reviewWords';
+import { unitLabel } from '../components/orgUnits';
 
 const STATUS_OPTIONS = (['OPEN', 'EMPLOYEE_DONE', 'DONE', 'CANCELLED'] as const).map((s) => ({ value: s, label: REVIEW_STATUS_LABEL[s] }));
 
@@ -50,14 +51,14 @@ export default function PerformanceReviews() {
 
   const defs: FilterDef[] = useMemo(() => {
     const deps = departments
-      ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
+      ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [...new Map(items.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()].map(([id, name]) => ({ value: String(id), label: name }));
     return [
       { key: 'state', label: 'Due / overdue / done', options: REVIEW_STATE_OPTIONS },
       { key: 'period', label: 'Period', options: (data?.periods ?? []).map((p) => ({ value: String(p.id), label: p.name })) },
       { key: 'kind', label: 'Kind', options: REVIEW_KIND_OPTIONS },
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
-      { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
       ...labelFilterDefs(labelList),
       {
         key: 'manager', label: 'Manager', searchable: true,

@@ -250,7 +250,7 @@ export function PositionFacts({
           (roleTitle ?? '—')
         ),
     },
-    { label: 'Department', value: node?.departmentName ?? card?.departmentName ?? '—' },
+    { label: 'Org unit', value: node?.departmentName ?? card?.departmentName ?? '—' },
     { label: 'Location', value: node?.locationName ?? card?.locationName ?? '—' },
     // Read-only here: a position's leave policy is decided by its role, its location or the company.
     ...(canSeeLeave

@@ -21,6 +21,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { Amount, NeedPayView } from '../components/payroll/PayParts';
 import { longDay } from '../components/jobDates';
+import { useUnitKinds } from '../components/orgUnits';
 
 export default function Salaries() {
   const can = useCan();
@@ -52,6 +53,7 @@ function SalariesList() {
     { key: 'has', label: 'Salary', options: [{ value: 'with', label: 'With a salary' }, { value: 'without', label: 'Without a salary' }] },
   ], [data]);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<SalaryListItem>[] = useMemo(() => [
     {
       key: 'person', header: 'Person', alwaysVisible: true,
@@ -67,7 +69,7 @@ function SalariesList() {
       sortValue: (r) => r.employee.name,
       exportValue: (r) => `${r.employee.name} (${r.employee.code})`,
     },
-    { key: 'department', header: 'Department', render: (r) => r.employee.departmentName ?? '—', sortValue: (r) => r.employee.departmentName ?? '' },
+    { key: 'department', header: 'Org unit', render: (r) => withKind(r.employee.departmentName) || '—', sortValue: (r) => r.employee.departmentName ?? '' },
     { key: 'position', header: 'Position', defaultHidden: true, render: (r) => r.employee.positionTitle ?? '—', sortValue: (r) => r.employee.positionTitle ?? '' },
     {
       key: 'ctc', header: 'CTC a year', numeric: true,
@@ -86,7 +88,7 @@ function SalariesList() {
       ) : ''),
       sortValue: (r) => r.salary?.effectiveFrom ?? '', exportValue: (r) => r.salary?.effectiveFrom ?? '',
     },
-  ], []);
+  ], [withKind]);
 
   const rows = data?.items ?? [];
   return (

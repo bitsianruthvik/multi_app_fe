@@ -19,6 +19,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { labelFilterDefs, useLabels } from '../components/labels';
+import { useUnitKinds } from '../components/orgUnits';
 
 /**
  * Positions — one chair for one person on one shift (DESIGN_SYSTEM.md §4.2 Collection).
@@ -87,7 +88,7 @@ export default function Positions() {
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const filterDefs: FilterDef[] = useMemo(() => [
-    { key: 'department', label: 'Department (and below)', searchable: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
+    { key: 'department', label: 'Org unit (and below)', searchable: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
     ...labelFilterDefs(labelList),
     { key: 'role', label: 'Role', searchable: true, options: (options?.roles ?? []).map((r) => ({ value: String(r.id), label: r.name })) },
     { key: 'shift', label: 'Shift', options: (options?.shifts ?? []).map((s) => ({ value: String(s.id), label: s.name })) },
@@ -113,6 +114,7 @@ export default function Positions() {
     ];
   }, [items]);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<PositionRow>[] = useMemo(() => [
     {
       key: 'code', header: 'Code', width: 150, alwaysVisible: true,
@@ -133,7 +135,7 @@ export default function Positions() {
       sortValue: (p) => p.displayTitle,
       exportValue: (p) => p.displayTitle,
     },
-    { key: 'department', header: 'Department', render: (p) => p.departmentName ?? '—', sortValue: (p) => p.departmentName ?? '' },
+    { key: 'department', header: 'Org unit', render: (p) => withKind(p.departmentName, p.departmentId) || '—', sortValue: (p) => p.departmentName ?? '' },
     { key: 'location', header: 'Location', render: (p) => p.locationName ?? '—', sortValue: (p) => p.locationName ?? '' },
     {
       key: 'shift', header: 'Shift', width: 120,
@@ -160,7 +162,7 @@ export default function Positions() {
       render: (p) => <StatusBadge status={p.status} map={STATUS_TONES} />,
       sortValue: (p) => p.status,
     },
-  ], []);
+  ], [withKind]);
 
   if (error && !data) return <ErrorNotice error={error} onRetry={load} />;
 

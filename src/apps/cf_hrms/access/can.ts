@@ -194,7 +194,7 @@ export type Can = Record<Area, AreaFlags> & {
   has: (tag?: string) => boolean;
   /** The person's access role, in the company's words — null until the server has answered. */
   role: AccessMe['role'] | null;
-  /** "Whole company" or the departments they are limited to. */
+  /** "Whole company" or the org units they are limited to. */
   scope: AccessMe['scope'] | null;
   /** The server has answered: a missing right is really missing, not just not loaded yet. */
   settled: boolean;
@@ -254,7 +254,7 @@ export const HIDDEN_CONTACT = 'Hidden — you do not have access to contact deta
 export function scopeWords(scope: AccessMe['scope'] | null): string {
   if (!scope) return '';
   if (scope.all) return 'Whole company';
-  if (!scope.departmentNames.length) return 'No department yet';
+  if (!scope.departmentNames.length) return 'No org unit yet';
   const [first, ...rest] = scope.departmentNames;
   return rest.length ? `Only ${first} and the ${rest.length} under it` : `Only ${first}`;
 }

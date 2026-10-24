@@ -128,7 +128,7 @@ export function LabelViewOptions({
         onClick={(e) => setAnchor(e.currentTarget)}
         sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
       >
-        {performance ? 'Colour and labels' : 'Labels'}
+        {performance ? 'Colour and kinds' : 'Kinds'}
       </Button>
       <Popover
         open={!!anchor}
@@ -137,7 +137,7 @@ export function LabelViewOptions({
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         slotProps={{ paper: { sx: { width: 320, maxWidth: 'calc(100vw - 32px)', p: 2 } } }}
       >
-        <Stack spacing={1.5} role="dialog" aria-label="Labels on the chart">
+        <Stack spacing={1.5} role="dialog" aria-label="Kinds of org unit on the chart">
           {performance && (
             <TextField
               select
@@ -159,10 +159,10 @@ export function LabelViewOptions({
           <Box>
             <FormControlLabel
               control={<Switch size="small" checked={colourBy} onChange={(e) => onColourBy(e.target.checked)} />}
-              label={<Typography sx={{ fontSize: 14 }}>Colour by label</Typography>}
+              label={<Typography sx={{ fontSize: 14 }}>Colour by kind</Typography>}
               sx={{ ml: 0 }}
             />
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Each department box takes the colour of its label.</Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Each org unit box takes the colour of its kind.</Typography>
           </Box>
           <TextField
             select
@@ -172,14 +172,14 @@ export function LabelViewOptions({
             onChange={(e) => onFilter(e.target.value === '' ? '' : String(e.target.value))}
             slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
           >
-            <MenuItem value="">Any label</MenuItem>
+            <MenuItem value="">Any kind</MenuItem>
             {labels.map((l) => (
               <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
             ))}
           </TextField>
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-            Positions outside the chosen label are drawn faint, not removed. A department&apos;s own label counts — not
-            the label of the departments above it. Yours only — kept in this browser.
+            Positions outside the chosen kind are drawn faint, not removed. An org unit&apos;s own kind counts — not
+            the kind of the units above it. Yours only — kept in this browser.
           </Typography>
           </>)}
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>

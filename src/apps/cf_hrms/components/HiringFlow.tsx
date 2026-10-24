@@ -700,7 +700,7 @@ export function HiringFlow({
               )
             }
           />
-          <FactItem label="Department" value={hiring.departmentName ?? 'Not set'} />
+          <FactItem label="Org unit" value={hiring.departmentName ?? 'Not set'} />
           <FactItem label="Shift" value={hiring.shift?.name ?? 'Not set'} />
           <FactItem
             label="Reports to"
@@ -958,7 +958,7 @@ export function HiringFlow({
                 <Typography sx={{ ...groupLabel, mb: 1 }}>Offer</Typography>
                 <Box sx={fieldGrid}>
                   <TextField {...field} label="Designation" value={form.designation} onChange={(e) => set('designation', e.target.value)} />
-                  <TextField {...field} label="Department" value={form.departmentName} onChange={(e) => set('departmentName', e.target.value)} />
+                  <TextField {...field} label="Department" helperText="As it prints on the letter" value={form.departmentName} onChange={(e) => set('departmentName', e.target.value)} />
                   <TextField {...field} label="Reporting to (title)" value={form.reportingToTitle} onChange={(e) => set('reportingToTitle', e.target.value)} />
                   <TextField
                     {...field}

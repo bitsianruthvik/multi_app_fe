@@ -352,12 +352,12 @@ function buildTree(preview: Preview): TreeNode[] {
   };
   const pathNode = (path: { id: number; name: string; label: string | null }[]) => {
     let parent: TreeNode | null = null;
-    for (const p of path) parent = node(`d${p.id}`, p.name, false, parent, p.label && p.label !== 'Department' ? p.label.toLowerCase() : undefined);
+    for (const p of path) parent = node(`d${p.id}`, p.name, false, parent, p.label ? p.label.toLowerCase() : undefined);
     return parent;
   };
   for (const d of preview.departments) {
     const parent = d.parentKey ? byKey.get(`new:${d.parentKey}`) ?? null : pathNode(d.path);
-    node(`new:${d.key}`, d.name || 'New department', true, parent, d.label?.toLowerCase());
+    node(`new:${d.key}`, d.name || 'New org unit', true, parent, d.label?.toLowerCase());
   }
   for (const p of preview.positions) {
     const parent = p.departmentKey ? byKey.get(`new:${p.departmentKey}`) ?? null : pathNode(p.path);

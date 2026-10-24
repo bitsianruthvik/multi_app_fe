@@ -42,7 +42,7 @@ export function AttToday() {
     <>
       <ScreenHeader
         title="Today"
-        subtitle="Who is in, late, absent, on leave or not punched yet — by department."
+        subtitle="Who is in, late, absent, on leave or not punched yet — by org unit."
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <TextField size="small" type="date" value={date} onChange={(e) => setDate(e.target.value)} inputProps={{ 'aria-label': 'Date' }} />

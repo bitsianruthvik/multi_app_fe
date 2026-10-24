@@ -109,7 +109,7 @@ export interface ErrorLogRow {
 
 export const SCOPE_LABEL: Record<AccessScope, string> = {
   COMPANY: 'Whole company',
-  DEPARTMENT: 'Only their department and below',
+  DEPARTMENT: 'Their org unit and everything under it',
 };
 
 export const accessApi = {

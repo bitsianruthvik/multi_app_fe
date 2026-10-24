@@ -32,7 +32,7 @@ export interface LabelRef { id: number; name: string }
 export interface Effective { policy: Ref | null; from: 'ROLE' | 'LABEL' | 'LOCATION' | 'COMPANY' | null;
   /** The label it came from (spec §17), when `from` is LABEL: its department's one label. */
   label?: LabelRef | null;
-  /** "Office staff — from the role" / "Shop floor — from the label Machine" / "No leave policy" */ line: string }
+  /** "Office staff — from the role" / "Shop floor — from the kind Machine" / "No leave policy" */ line: string }
 
 export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string; leaveTypeName: string; isPaid: boolean; sortOrder: number;
   basis: LeaveBasis; days: number | null;

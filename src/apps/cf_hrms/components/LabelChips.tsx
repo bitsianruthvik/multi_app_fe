@@ -1,12 +1,12 @@
 import { Box } from '@mui/material';
 
-/** A department's ONE label as a small chip (spec §9). Nothing when it has none. */
+/** An org unit's kind (its ONE label, spec §9 / §33) as a small chip. Nothing when it has none. */
 export function LabelChip({ name, size = 'sm' }: { name: string | null | undefined; size?: 'sm' | 'xs' }) {
   if (!name) return null;
   return (
     <Box
       component="span"
-      title={`Label: ${name}`}
+      title={`Kind: ${name}`}
       sx={{
         display: 'inline-flex',
         alignItems: 'center',

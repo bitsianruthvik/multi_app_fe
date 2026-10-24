@@ -61,7 +61,7 @@ export function OrgChartPanel({
                 exclusive
                 value={arrange}
                 onChange={(_, v) => v && onArrange(v as Arrange)}
-                aria-label="How to arrange the roles reporting to this one inside the department"
+                aria-label="How to arrange the roles reporting to this one inside the org unit"
               >
                 <ToggleButton value="auto">Automatic</ToggleButton>
                 <ToggleButton value="side">Side by side</ToggleButton>
@@ -78,7 +78,7 @@ export function OrgChartPanel({
             {teamSize > 0
               ? `Arranges the ${teamSize} role${teamSize === 1 ? '' : 's'} reporting to this one inside ${department.name}. `
               : ''}
-            Departments open and close as a whole — click a department&apos;s name on the chart.
+            Org units open and close as a whole — click a unit&apos;s name on the chart.
           </Typography>
         </Stack>
       ) : teamSize === 0 ? (

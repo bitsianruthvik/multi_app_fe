@@ -65,20 +65,20 @@ function LabelAssignments({
   const labels = assignments.labels ?? [];
   return (
     <SectionCard
-      title="By label"
-      subtitle="A department label can have its own policy: every position in a department carrying it gets it, unless its role has one. Departments under it do not."
+      title="By kind of org unit"
+      subtitle="A kind of org unit (Department, Section, Machine …) can have its own policy: every position in an org unit of that kind gets it, unless its role has one. The units under it do not."
     >
       {labels.length === 0 ? (
-        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>The company has no department labels.</Typography>
+        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>The company has no kinds of org unit.</Typography>
       ) : (
         <Stack spacing={1} data-assign-labels="">
           {labels.map((l) => (
             <Box key={l.labelId} data-assign={`label-${l.labelId}`} sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.75 }}>
               <Typography sx={{ fontSize: 14, fontWeight: 500, flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>{l.name}</Typography>
-              {policySelect(l.policy?.id ?? '', (policyId) => onAssign(l.labelId, policyId), 'No policy of its own', `b${l.labelId}`, `Leave policy for the label ${l.name}`)}
+              {policySelect(l.policy?.id ?? '', (policyId) => onAssign(l.labelId, policyId), 'No policy of its own', `b${l.labelId}`, `Leave policy for the kind ${l.name}`)}
               {canRemove && l.policy && (
                 <Tooltip title="Take the policy off this label">
-                  <IconButton size="small" aria-label={`Remove the policy of the label ${l.name}`} disabled={busy === `b${l.labelId}`} onClick={() => onAssign(l.labelId, null)}>
+                  <IconButton size="small" aria-label={`Remove the policy of the kind ${l.name}`} disabled={busy === `b${l.labelId}`} onClick={() => onAssign(l.labelId, null)}>
                     <CloseRounded fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -363,21 +363,21 @@ export default function LeavePolicies() {
           ) : (
             <Stack spacing={2}>
               <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', lineHeight: 1.55, maxWidth: 760 }}>
-                A position gets the policy of its role if the role has one of its own; otherwise the policy of a label
-                its department carries; otherwise the policy of its location; otherwise the company’s. The most specific
+                A position gets the policy of its role if the role has one of its own; otherwise the policy of the kind
+                of its org unit; otherwise the policy of its location; otherwise the company’s. The most specific
                 one wins.
               </Typography>
 
               {assignments.unassignedPositions > 0 && (
                 <Callout tone="warning" title={`${assignments.unassignedPositions} position${assignments.unassignedPositions === 1 ? ' has' : 's have'} no leave policy`} sx={{ mb: 0 }}>
                   <Typography sx={{ fontSize: 13, lineHeight: 1.55 }}>
-                    Nothing covers them: no company policy is chosen, and neither their location, their department’s labels nor their role has one.
+                    Nothing covers them: no company policy is chosen, and neither their location, the kind of their org unit nor their role has one.
                     Choosing a company policy covers everyone who is not covered more specifically.
                   </Typography>
                 </Callout>
               )}
 
-              <SectionCard title="The company" subtitle="For everyone, unless their location, a label of their department or their role says otherwise.">
+              <SectionCard title="The company" subtitle="For everyone, unless their location, the kind of their org unit or their role says otherwise.">
                 <Box data-assign="company" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
                   {policySelect(assignments.company.policy?.id ?? '', (policyId) => void assign('company', { scope: 'COMPANY', policyId }), 'No company policy', 'company', 'The company’s leave policy')}
                 </Box>
@@ -422,7 +422,7 @@ export default function LeavePolicies() {
                           <Typography sx={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{r.title}</Typography>
                           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{r.positionCount} position{r.positionCount === 1 ? '' : 's'}</Typography>
                         </Box>
-                        {policySelect(r.policy?.id ?? '', (policyId) => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId }), 'Follows its label or location', `r${r.roleId}`, `Leave policy for ${r.title}`)}
+                        {policySelect(r.policy?.id ?? '', (policyId) => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId }), 'Follows its org unit kind or location', `r${r.roleId}`, `Leave policy for ${r.title}`)}
                         {canRemove && (
                           <Tooltip title="Back to following the location">
                             <IconButton size="small" aria-label={`Remove the policy of ${r.title}`} disabled={busy === `r${r.roleId}`} onClick={() => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId: null })}>

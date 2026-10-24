@@ -488,7 +488,7 @@ function RoleJdBody({
       )}
 
       {/* The position-specific version says which position it is for, and what that
-          position adds — department, location, shift, machines, formal line. */}
+          position adds — org unit, location, shift, machines, formal line. */}
       {ctx?.position && (
         <SectionCard
           title="At this position"
@@ -516,7 +516,7 @@ function RoleJdBody({
                 ),
               },
               { label: 'Title', value: ctx.position.positionTitle ?? ctx.position.displayTitle },
-              { label: 'Department', value: ctx.position.departmentName },
+              { label: 'Org unit', value: ctx.position.departmentName },
               { label: 'Location', value: ctx.position.locationName },
               { label: 'Shift', value: ctx.position.shiftName ?? ctx.position.shiftCode },
             ]}
@@ -639,7 +639,7 @@ function AssignmentBlock({
               </Box>
             ),
           },
-          { label: 'Department', value: a.departmentName },
+          { label: 'Org unit', value: a.departmentName },
           { label: 'Location', value: a.locationName },
           { label: 'Allocation', value: a.allocationText ?? (a.allocationPercent != null ? `${a.allocationPercent}%` : null) },
           { label: 'Default shift', value: a.shiftName ?? a.shiftCode },

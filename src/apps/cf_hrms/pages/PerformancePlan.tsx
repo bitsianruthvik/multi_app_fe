@@ -264,7 +264,7 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
                   <Box component="span">{p.period.name}</Box>
                   <Typography component="span" sx={{ display: 'block', fontSize: 12.5, color: 'var(--c-text-2)' }}>{periodDates(p.period.start, p.period.end)}</Typography>
                 </FactItem>
-                <FactItem label="Department" value={p.departmentName ?? '—'} />
+                <FactItem label="Org unit" value={p.departmentName ?? '—'} />
                 <FactItem label="Manager">
                   {p.manager
                     ? (

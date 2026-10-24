@@ -47,8 +47,10 @@ import { RoleContentSection } from '../components/RoleContentSection';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
 import { AsOnBar, JobHistoryList } from '../components/JobDating';
 import { todayIso } from '../components/jobDates';
+import { useUnitKinds } from '../components/orgUnits';
 
 export default function RoleDetail() {
+  const withKind = useUnitKinds();
   const { id } = useParams<{ id: string }>();
   const roleId = Number(id);
   const company = useCompanySlug();
@@ -165,7 +167,7 @@ export default function RoleDetail() {
       }
       facts={
         <>
-          <FactItem label="Department" value={role.departmentName ?? '—'} />
+          <FactItem label="Default org unit" value={withKind(role.departmentName) || '—'} />
           <FactItem label="KRAs" value={role.kraCount} />
           <FactItem label="Responsibilities" value={role.responsibilityCount} />
           <FactItem label="KPIs" value={role.kpiCount} />
@@ -184,7 +186,7 @@ export default function RoleDetail() {
   const crossLinks = (
     <>
       {role.departmentName && seeDepartments && (
-        <CrossLink icon={<ApartmentRounded />} label={role.departmentName} to={`/${company}/cf_hrms/departments`} />
+        <CrossLink icon={<ApartmentRounded />} label={withKind(role.departmentName)} to={`/${company}/cf_hrms/org-units`} />
       )}
       {seePositions && (
         <CrossLink icon={<WorkOutlineRounded />} label="Positions" count={role.positionCount} to={`/${company}/cf_hrms/positions`} />
@@ -229,13 +231,13 @@ export default function RoleDetail() {
             <SectionCard title="Placement" subtitle="Where this kind of work usually sits, and when the definition applies.">
               <Stack direction="row" flexWrap="wrap" sx={{ gap: 3 }}>
                 <FactItem
-                  label="Default department"
+                  label="Default org unit"
                   value={
                     role.departmentName && !seeDepartments ? (
-                      role.departmentName
+                      withKind(role.departmentName)
                     ) : role.departmentName ? (
-                      <Box component={Link} to={`/${company}/cf_hrms/departments`} sx={{ color: 'var(--c-primary-700)', textDecoration: 'none' }}>
-                        {role.departmentName}
+                      <Box component={Link} to={`/${company}/cf_hrms/org-units`} sx={{ color: 'var(--c-primary-700)', textDecoration: 'none' }}>
+                        {withKind(role.departmentName)}
                       </Box>
                     ) : (
                       '—'
@@ -247,7 +249,7 @@ export default function RoleDetail() {
                 <FactItem label="Effective to" value={role.effectiveTo ?? '—'} />
               </Stack>
               <Box sx={{ mt: 2, fontSize: 12.5, color: 'var(--c-text-3)', maxWidth: 720, lineHeight: 1.6 }}>
-                A department here is a default, not a placement. The actual department and location belong to the
+                An org unit here is a default, not a placement. The actual org unit and location belong to the
                 Position, and the person doing the work holds that position.
               </Box>
             </SectionCard>

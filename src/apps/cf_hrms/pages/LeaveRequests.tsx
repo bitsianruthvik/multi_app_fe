@@ -27,6 +27,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { LeaveStatusBadge } from '../components/leave/LeaveParts';
 import { LeaveRequestSheet, type SheetActions } from '../components/leave/LeaveRequestSheet';
 import { AskOnBehalfSheet } from '../components/leave/AskOnBehalfSheet';
+import { unitLabel } from '../components/orgUnits';
 
 const STATUS_OPTIONS = (Object.keys(LEAVE_STATUS_LABEL) as (keyof typeof LEAVE_STATUS_LABEL)[])
   .map((s) => ({ value: s, label: LEAVE_STATUS_LABEL[s] }));
@@ -78,12 +79,12 @@ export default function LeaveRequests() {
 
   const defs: FilterDef[] = useMemo(() => {
     const deps = departments
-      ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
+      ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [];
     return [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
       { key: 'leaveTypeId', label: 'Leave type', options: types.map((t) => ({ value: String(t.id), label: t.name })) },
-      ...(deps.length ? [{ key: 'departmentId', label: 'Department (and below)', searchable: true, options: deps }] : []),
+      ...(deps.length ? [{ key: 'departmentId', label: 'Org unit (and below)', searchable: true, options: deps }] : []),
       { key: 'from', label: 'Off on or after', kind: 'date' as const },
       { key: 'to', label: 'Off on or before', kind: 'date' as const },
     ];

@@ -100,7 +100,7 @@ export function RoleLeavePolicy({ roleId, roleTitle, company }: { roleId: number
           {own.name}
         </Box>
       ) : (
-        <Box component="span" sx={{ color: 'var(--c-text-2)' }}>Follows its label, location or the company</Box>
+        <Box component="span" sx={{ color: 'var(--c-text-2)' }}>Follows its org unit kind, location or the company</Box>
       )}
       {canManage && (
         <Button size="small" variant="text" onClick={openChange} sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }}>
@@ -132,7 +132,7 @@ export function RoleLeavePolicy({ roleId, roleTitle, company }: { roleId: number
           sx={{ mt: 0.75 }}
           helperText="A role’s own policy applies to every position of the role, whatever its location."
         >
-          {(canRemove || !own) && <MenuItem value="">Follows its label, location or the company</MenuItem>}
+          {(canRemove || !own) && <MenuItem value="">Follows its org unit kind, location or the company</MenuItem>}
           {(policies ?? []).filter((p) => p.status !== 'ARCHIVED' || p.id === own?.id).map((p) => (
             <MenuItem key={p.id} value={p.id} disabled={p.status !== 'ACTIVE' && p.id !== own?.id}>
               {p.name}{p.status !== 'ACTIVE' ? ' — a draft; make it active first' : ''}

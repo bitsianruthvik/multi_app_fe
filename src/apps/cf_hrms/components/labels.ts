@@ -1,16 +1,16 @@
 /**
- * The department label on the screens: ONE label per department (spec §9; the
- * groups of §15 were removed on 2026-10-16).
+ * An org unit's KIND on the screens: its ONE label (spec §9; the groups of §15
+ * were removed on 2026-10-16; "kind" is the word since §33, 2026-10-24).
  *
  *   useLabels()        the company's labels (and the shifts "New positions start on"
  *                      offers), read once per screen
- *   labelFilterDefs()  the list toolbar's "Label" filter: the address param the
- *                      server reads, `label=12`
+ *   labelFilterDefs()  the list toolbar's kind filter ("Kind" on Org units, "Org unit
+ *                      kind" elsewhere): the address param the server reads, `label=12`
  *   matchesLabel()     the server's rule, for a screen that filters in the browser
  *   labelFilterText()  what an active filter says: the label's name
- *   labelColour()      a soft colour per label, for "Colour by label" on the org chart
+ *   labelColour()      a soft colour per kind, for "Colour by kind" on the org chart
  *
- * A department's label is its OWN — a parent "Plant" does not label its children.
+ * An org unit's kind is its OWN — a parent "Plant" does not pass it to its children.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { orgApi, type DepartmentLabel, type ShiftChoice } from '../api/organisation';
@@ -35,12 +35,12 @@ export function useLabels(enabled = true): { labels: DepartmentLabel[]; shifts: 
   return { ...state, reload, loaded };
 }
 
-/** The "Label" filter (none while there are no labels). `withCounts` = departments per label. */
-export function labelFilterDefs(labels: DepartmentLabel[], { withCounts = false } = {}): FilterDef[] {
+/** The kind filter (none while there are no kinds). `withCounts` = org units of each kind. */
+export function labelFilterDefs(labels: DepartmentLabel[], { withCounts = false, label = 'Org unit kind' } = {}): FilterDef[] {
   if (!labels.length) return [];
   return [{
     key: 'label',
-    label: 'Label',
+    label,
     options: labels.map((l) => ({ value: String(l.id), label: l.name, ...(withCounts ? { count: l.departmentCount } : {}) })),
   }];
 }
@@ -58,20 +58,20 @@ function wanted(param: string, labels: DepartmentLabel[]): Set<number> {
   return out;
 }
 
-/** Does a department with this label pass `label=…`? The same rule as the server: any of. */
+/** Does an org unit of this kind pass `label=…`? The same rule as the server: any of. */
 export function matchesLabel(param: string, labelId: number | null | undefined, labels: DepartmentLabel[]): boolean {
   if (!param) return true;
   return labelId != null && wanted(param, labels).has(labelId);
 }
 
-/** "Machine" — what an active label filter says. */
+/** "Machine" — what an active kind filter says. */
 export function labelFilterText(param: string, labels: DepartmentLabel[]): string {
   const ids = wanted(param, labels);
   return labels.filter((l) => ids.has(l.id)).map((l) => l.name).join(' · ');
 }
 
 /**
- * Soft colours for "Colour by label" (one per label, in the list's order).
+ * Soft colours for "Colour by kind" (one per kind, in the list's order).
  * Translucent, so they sit on the light and the dark theme alike.
  */
 const PALETTE: Array<{ fill: string; edge: string }> = [

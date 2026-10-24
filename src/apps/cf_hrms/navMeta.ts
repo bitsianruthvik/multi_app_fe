@@ -27,7 +27,7 @@ import { TAG, SCREEN_TAGS } from './access/can';
  * §12.1). The tags live in `access/can.ts`; this file only says which screen
  * belongs to which area:
  *
- *   org        Departments, Locations
+ *   org        Org units, Locations
  *   roles      Roles, Libraries
  *   positions  Org chart, Positions
  *   employees  Employees          hiring     Hiring          documents  Documents
@@ -137,7 +137,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Organisation',
     screens: [
       { key: 'org-chart', label: 'Org chart', path: 'org-chart', permission: POSITIONS, keywords: ['chart', 'hierarchy', 'tree', 'reporting', 'structure', 'vacancies'] },
-      { key: 'departments', label: 'Departments', path: 'departments', permission: ORG, countKey: 'departments', keywords: ['function', 'division', 'section', 'machine', 'line', 'area', 'labels'] },
+      { key: 'org-units', label: 'Org units', path: 'org-units', permission: ORG, countKey: 'departments', keywords: ['department', 'departments', 'org unit', 'function', 'division', 'section', 'machine', 'line', 'area', 'kind', 'labels'] },
       { key: 'roles', label: 'Roles', path: 'roles', hasDetail: true, permission: ROLES, countKey: 'roles', keywords: ['job', 'title', 'jd', 'kind of work', 'purpose', 'kra'] },
       { key: 'positions', label: 'Positions', path: 'positions', hasDetail: true, permission: POSITIONS, countKey: 'vacancies', keywords: ['headcount', 'vacancy', 'vacant', 'strength'] },
       { key: 'locations', label: 'Locations', path: 'locations', permission: ORG, countKey: 'locations', keywords: ['plant', 'unit', 'site', 'branch', 'office'] },
@@ -240,9 +240,9 @@ export const SECTIONS: NavSection[] = [
     key: 'setup',
     label: 'Setup',
     screens: [
-      // How every code is built — departments, roles, positions, locations,
+      // How every code is built — org units, roles, positions, locations,
       // employees and letter reference numbers. Nobody types a code.
-      { key: 'code-formats', label: 'Code formats', path: 'code-formats', permission: SETUP, keywords: ['employee code', 'position code', 'department code', 'role code', 'numbering', 'prefix', 'running number', 'reference number', 'sequence', 'coding rules'] },
+      { key: 'code-formats', label: 'Code formats', path: 'code-formats', permission: SETUP, keywords: ['employee code', 'position code', 'department code', 'org unit code', 'role code', 'numbering', 'prefix', 'running number', 'reference number', 'sequence', 'coding rules'] },
       { key: 'letters', label: 'Letters', path: 'letters', permission: SETUP, keywords: ['offer letter', 'appointment letter', 'template', 'docx', 'placeholder', 'signatory', 'probation', 'notice period', 'letterhead'] },
       // Six word lists a role is written from, one screen with a tab each.
       { key: 'libraries', label: 'Libraries', path: 'libraries', permission: ROLES, keywords: ['kra', 'key result area', 'responsibilities', 'duty', 'kpi', 'indicator', 'measure', 'skills', 'competency', 'qualifications', 'education', 'certification', 'authorities', 'approve', 'limit'] },

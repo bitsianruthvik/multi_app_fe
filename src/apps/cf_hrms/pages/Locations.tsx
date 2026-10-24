@@ -420,7 +420,7 @@ export default function Locations() {
         danger
         title="Remove this location?"
         entityName={doomed?.path}
-        body="Departments, holidays, positions and people that point at it will block the removal and say how many. Set it inactive if you only want it out of the pickers."
+        body="Org units, holidays, positions and people that point at it will block the removal and say how many. Set it inactive if you only want it out of the pickers."
         confirmLabel="Remove"
         onConfirm={remove}
         onClose={() => setDoomed(null)}

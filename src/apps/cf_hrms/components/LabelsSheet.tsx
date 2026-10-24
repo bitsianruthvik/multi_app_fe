@@ -5,15 +5,16 @@ import { orgApi, type DepartmentLabel, type ShiftChoice } from '../api/organisat
 import { EditableList } from './EditableList';
 
 /**
- * Departments › Labels: the company's ONE list of department labels
- * (CF_HRMS_HIRING_SPEC.md §9; the groups of §15 were removed on 2026-10-16).
- * Every department has exactly one label.
+ * Org units › Kinds of org unit: the company's ONE list of kinds (the
+ * department labels of CF_HRMS_HIRING_SPEC.md §9, called "kinds" since §33;
+ * the groups of §15 were removed on 2026-10-16). Every org unit has exactly one.
  *
  *   - Add, rename, reorder and remove in the inline EditableList; removing a
- *     label in use asks where its departments move. The last label stays.
- *   - Each label shows how many departments carry it.
- *   - "New positions start on" (spec §17.2): a label may carry a default shift.
- *     A position created without a shift, in a department with that label,
+ *     kind in use asks where its org units move. The last kind stays.
+ *   - Each kind shows how many org units are of it.
+ *   - The ORDER matters: "Add under this" suggests the kind after the parent's.
+ *   - "New positions start on" (spec §17.2): a kind may carry a default shift.
+ *     A position created without a shift, in an org unit of that kind,
  *     starts on it; else the General shift. Existing positions never change.
  *
  * Every control follows the rights: org edit adds / renames / reorders and
@@ -39,7 +40,7 @@ function StartsOn({ labels, shifts, canEdit, onChanged, onProblem }: {
     <Box data-starts-on="" sx={{ mt: 2 }}>
       <Typography component="h3" sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)', mb: 0.25 }}>New positions start on</Typography>
       <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.75 }}>
-        A new position with no shift chosen starts on its department’s label’s shift. Positions that exist do not change.
+        A new position with no shift chosen starts on the shift of its org unit’s kind. Positions that exist do not change.
       </Typography>
       {labels.map((l) => (
         <Box key={l.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
@@ -91,18 +92,19 @@ export function LabelsSheet({ open, onClose, labels, shifts, canEdit, canRemove,
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   return (
-    <SideSheet open={open} onClose={onClose} title="Labels" subtitle="What kinds of department this company has" width={440}>
+    <SideSheet open={open} onClose={onClose} title="Kinds of org unit" subtitle="What the org units of this company can be" width={440}>
       <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5, lineHeight: 1.55 }}>
-        Everything on this screen is a department. Its label says what it is: Department, Section,
-        Machine, or any name you use. Every department has one label. A label is its own: it does not
-        pass to the departments under it. Renaming a label renames it on every department that has it.
+        Everything on the Org units screen is an org unit. Its kind says what it is: Department, Section,
+        Machine, or any name you use. Every org unit has one kind, and it is its own: it does not pass to
+        the units under it. Renaming a kind renames it on every unit of that kind. Put the kinds in order,
+        biggest first: “Add under this” suggests the next one down.
       </Typography>
       <EditableList
         items={labels.map((l) => ({ id: l.id, name: l.name, count: l.departmentCount }))}
         canEdit={canEdit}
         canRemove={canRemove}
-        noun="label"
-        usage={(n) => `${n} department${n === 1 ? '' : 's'}`}
+        noun="kind"
+        usage={(n) => `${n} org unit${n === 1 ? '' : 's'}`}
         minItems={1}
         onAdd={async (name) => { await orgApi.departmentLabels.create(name); onChanged(); }}
         onRename={async (id, name) => { await orgApi.departmentLabels.rename(id, name); onChanged(); }}

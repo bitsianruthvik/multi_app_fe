@@ -392,7 +392,7 @@ export default function CodeFormats() {
 
   return (
     <Box sx={{ maxWidth: 1200 }}>
-      <PageHeader title="Code formats" subtitle="How the codes of departments, roles, positions, locations, employees and letters are made. A rule applies when its conditions hold and builds text from its pattern; running numbers never repeat."
+      <PageHeader title="Code formats" subtitle="How the codes of org units, roles, positions, locations, employees and letters are made. A rule applies when its conditions hold and builds text from its pattern; running numbers never repeat."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} disabled={!entities?.length} onClick={() => setEditor({ open: true, scheme: null })}>New rule</Button>} />
       <ErrorNotice error={error} onRetry={load} />
       {loading && !entities ? <SkeletonRows rows={5} height={64} /> : (

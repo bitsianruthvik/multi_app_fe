@@ -244,7 +244,7 @@ function SeatStrip({ seat, many }: { seat: SelfSeat; many: boolean }) {
       )}
 
       <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
-        {seat.departmentName && <Fact label="Department" value={seat.departmentName} />}
+        {seat.departmentName && <Fact label="Org unit" value={seat.departmentName} />}
         {seat.locationName && <Fact label="Where" value={seat.locationName} />}
         {seat.shift && (
           <Fact
@@ -407,7 +407,7 @@ export default function MyPlace() {
         ) : (
           <Callout tone="warning" title="No job is recorded for you yet">
             Your employee record exists but no work has been assigned to it, so there is nothing to
-            show here yet. Your HR department can set that up.
+            show here yet. HR can set that up.
           </Callout>
         )}
       </Box>
@@ -435,7 +435,7 @@ export default function MyPlace() {
             {reportsTo.length === 0 ? (
               <Callout tone="warning" title="No manager is recorded">
                 Nobody has been recorded as your manager yet. If that looks wrong, your supervisor
-                or HR department can correct it.
+                or HR can correct it.
               </Callout>
             ) : (
               <Stack spacing={1.25}>
@@ -602,7 +602,7 @@ export default function MyPlace() {
               {me.contractorName && <Fact label="Employer" value={me.contractorName} />}
             </Box>
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 1.5 }}>
-              Something wrong here? Only your HR department can change it — tell them and they will.
+              Something wrong here? Only HR can change it — tell them and they will.
             </Typography>
           </SectionCard>
         )}
@@ -621,7 +621,7 @@ export default function MyPlace() {
           <HelpOutlineRounded sx={{ fontSize: 15, color: 'var(--c-text-3)', mt: '2px' }} aria-hidden />
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', lineHeight: 1.6 }}>
             If anything on this page does not match what you actually do, tell your supervisor or
-            your HR department. Nothing here can be changed from this screen.
+            HR. Nothing here can be changed from this screen.
           </Typography>
         </Stack>
       </Stack>

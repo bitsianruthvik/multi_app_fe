@@ -652,7 +652,7 @@ export default function MyOrgChart() {
               }}
             >
               Your position is outlined · scroll to zoom · drag to pan · click a card for details
-              {boxed && ' · click a department name to open or close it'}
+              {boxed && ' · click an org unit name to open or close it'}
               {secondaryCount > 0 && ' · dashed lines are non-primary reporting'}
             </Typography>
           </Box>

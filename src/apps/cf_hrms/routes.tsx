@@ -1,5 +1,5 @@
 import React, { lazy } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { CfHrmsShell } from './components/shell/CfHrmsShell';
@@ -179,7 +179,10 @@ export function getCfHrmsRoutes(
    */
   function ToScreen({ path }: { path: string }) {
     const { company } = useParams<{ company: string }>();
-    return <Navigate to={`/${company}/cf_hrms/${path}`} replace />;
+    // The old address's filters come along (`/departments?label=3` → `/org-units?label=3`),
+    // unless the new address names its own (`libraries?tab=kras`).
+    const { search } = useLocation();
+    return <Navigate to={`/${company}/cf_hrms/${path}${path.includes('?') ? '' : search}`} replace />;
   }
 
   const old = (from: string, to: string): RouteObject => ({
@@ -222,7 +225,8 @@ export function getCfHrmsRoutes(
 
     // Organisation
     { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
-    { path: '/:company/cf_hrms/departments', element: guarded(TAG.org.view, <Departments />) },
+    // Org units (spec §33): departments, sections, machines … The old /departments redirects below.
+    { path: '/:company/cf_hrms/org-units', element: guarded(TAG.org.view, <Departments />) },
     { path: '/:company/cf_hrms/roles', element: guarded(TAG.roles.view, <Roles />) },
     { path: '/:company/cf_hrms/roles/:id', element: guarded(TAG.roles.view, <RoleDetail />) },
     { path: '/:company/cf_hrms/positions', element: guarded(TAG.positions.view, <Positions />) },
@@ -308,8 +312,10 @@ export function getCfHrmsRoutes(
     old('assignments', 'employees'),
     old('assignments/:id', 'employees'),
     old('contractors', 'employees'),
-    // A machine, a line and an area are departments.
-    old('work-contexts', 'departments'),
+    // A machine, a line and an area are org units.
+    old('work-contexts', 'org-units'),
+    // "Departments" became "Org units" (spec §33, 2026-10-24).
+    old('departments', 'org-units'),
     old('manpower', 'positions'),
     old('open-points', 'home'),
     old('import', 'home'),

@@ -955,7 +955,7 @@ export default function OrgChart() {
                     : []),
                   // The label filter: how many of these are inside it (the rest are drawn faint).
                   ...(inLabels
-                    ? [{ label: `of which in ${labelFilterName || 'the chosen label'}`, value: `${inLabels.positions} (${inLabels.filled} filled, ${inLabels.vacant} vacant)` }]
+                    ? [{ label: `of which in ${labelFilterName || 'the chosen kind'}`, value: `${inLabels.positions} (${inLabels.filled} filled, ${inLabels.vacant} vacant)` }]
                     : []),
                 ]}
                 legend={scene.legend}
@@ -1005,7 +1005,7 @@ export default function OrgChart() {
                 }}
               >
                 Scroll to zoom · drag to pan · click a card for its role, a row for that position
-                {boxed ? ' · click a department name to open or close it' : ' · Space folds a branch'} · arrows walk
+                {boxed ? ' · click an org unit name to open or close it' : ' · Space folds a branch'} · arrows walk
                 the chart, Enter opens the panel
                 {secondaryCount > 0 && ` · ${secondaryCount} dashed lines are non-primary reporting`}
             </Typography>

@@ -168,7 +168,7 @@ export function MyOrgChartCard({
         }}
       >
         <FactItem label="Role" value={first.roleTitle ?? '—'} />
-        <FactItem label="Department" value={first.departmentName ?? '—'} />
+        <FactItem label="Org unit" value={first.departmentName ?? '—'} />
         <FactItem label="Location" value={first.locationName ?? '—'} />
       </Box>
 

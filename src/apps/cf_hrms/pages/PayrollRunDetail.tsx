@@ -47,6 +47,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { Amount, Fact, NeedPayView, RunStatusBadge, WarningChips } from '../components/payroll/PayParts';
 import { RunPersonSheet } from '../components/payroll/RunPersonSheet';
 import { RUN_STATUS, monthWord, rupees, stampDay, warningWord } from '../components/payroll/payWords';
+import { useUnitKinds } from '../components/orgUnits';
 
 export default function PayrollRunDetail() {
   const can = useCan();
@@ -135,6 +136,7 @@ function RunPage() {
     && (!q || p.employee.name.toLowerCase().includes(q) || p.employee.code.toLowerCase().includes(q) || (p.employee.departmentName ?? '').toLowerCase().includes(q))), [people, q, onlyWarnings]);
   const defs: FilterDef[] = useMemo(() => [{ key: 'warnings', label: 'With warnings only', kind: 'toggle' }], []);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<RunPerson>[] = useMemo(() => [
     {
       key: 'person', header: 'Person', alwaysVisible: true,
@@ -150,7 +152,7 @@ function RunPage() {
       sortValue: (p) => p.employee.name,
       exportValue: (p) => `${p.employee.name} (${p.employee.code})`,
     },
-    { key: 'department', header: 'Department', render: (p) => p.employee.departmentName ?? '—', sortValue: (p) => p.employee.departmentName ?? '' },
+    { key: 'department', header: 'Org unit', render: (p) => withKind(p.employee.departmentName) || '—', sortValue: (p) => p.employee.departmentName ?? '' },
     {
       key: 'days', header: 'Days paid', numeric: true,
       render: (p) => (
@@ -171,7 +173,7 @@ function RunPage() {
       render: (p) => <WarningChips warnings={p.warnings} />,
       sortValue: (p) => p.warnings.length, exportValue: (p) => p.warnings.map((w) => w.text).join(' | '),
     },
-  ], []);
+  ], [withKind]);
 
   if (!data) return error ? <ErrorNotice error={error} fallback="That payroll run could not be loaded." onRetry={load} /> : <DetailSkeleton />;
 
@@ -381,7 +383,7 @@ function RunPage() {
         {people.length > 0 && (
           <Box>
             <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 1 }}>People</Typography>
-            <ListToolbar filters={filters} defs={defs} shown={shown.length} total={people.length} noun={['person', 'people']} searchPlaceholder="Search by name, code or department" />
+            <ListToolbar filters={filters} defs={defs} shown={shown.length} total={people.length} noun={['person', 'people']} searchPlaceholder="Search by name, code or org unit" />
             <DataTable
               rows={shown}
               columns={columns}

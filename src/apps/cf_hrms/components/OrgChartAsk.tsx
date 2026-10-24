@@ -25,6 +25,7 @@ import type { AskKind, AskMatch, AskPerson, AskPositionHit, AskResult, OrgChartD
 import { orgChartApi } from '../api/orgchart';
 import type { DepartmentLabel, OrgLocation } from '../api/organisation';
 import { orgApi } from '../api/organisation';
+import { unitLabel } from './orgUnits';
 
 /**
  * Ask — "Who owns X?" (spec §21). Replaces "Search job content".
@@ -49,7 +50,7 @@ const KIND_LABEL: Record<AskMatch['kind'], string> = {
   KPI: 'KPI',
   ROLE: 'Role',
   POSITION: 'Position',
-  DEPARTMENT: 'Department',
+  DEPARTMENT: 'Org unit',
   LOCATION: 'Location',
 };
 
@@ -58,7 +59,7 @@ const KIND_CHOICES: { kind: AskKind; label: string }[] = [
   { kind: 'RESPONSIBILITY', label: 'Responsibilities' },
   { kind: 'KPI', label: 'KPIs' },
   { kind: 'ROLE', label: 'Roles' },
-  { kind: 'DEPARTMENT', label: 'Departments' },
+  { kind: 'DEPARTMENT', label: 'Org units' },
 ];
 const ALL_KINDS: AskKind[] = KIND_CHOICES.map((c) => c.kind);
 
@@ -358,25 +359,25 @@ export function OrgChartAsk({
                 <TextField
                   select
                   size="small"
-                  label="Department (and below)"
+                  label="Org unit (and below)"
                   value={prefs.department ?? ''}
                   onChange={(e) => updatePrefs({ department: e.target.value === '' ? null : Number(e.target.value) })}
                   sx={{ minWidth: 200, flex: 1 }}
                 >
-                  <MenuItem value="">Any department</MenuItem>
+                  <MenuItem value="">Any org unit</MenuItem>
                   {sortedDepartments.map((d) => (
-                    <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
+                    <MenuItem key={d.id} value={d.id}>{unitLabel(d.name, d.type)}</MenuItem>
                   ))}
                 </TextField>
                 <TextField
                   select
                   size="small"
-                  label="Label"
+                  label="Kind"
                   value={prefs.label ?? ''}
                   onChange={(e) => updatePrefs({ label: e.target.value === '' ? null : Number(e.target.value) })}
                   sx={{ minWidth: 160, flex: 1 }}
                 >
-                  <MenuItem value="">Any label</MenuItem>
+                  <MenuItem value="">Any kind</MenuItem>
                   {labels.map((l) => (
                     <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
                   ))}
@@ -409,7 +410,7 @@ export function OrgChartAsk({
               {byWords ? ' — every word must appear' : ''}
             </Typography>
             {result.scoped && (
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>· people from your department and below only</Typography>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>· people from your org unit and everything under it only</Typography>
             )}
           </Stack>
         )}
@@ -447,7 +448,7 @@ export function OrgChartAsk({
               <Stack spacing={1}>
                 {result.people.length === 0 && (
                   <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
-                    {result.scoped ? 'No one in your department and below.' : 'No one holds a matching position.'}
+                    {result.scoped ? 'No one in your org unit or under it.' : 'No one holds a matching position.'}
                   </Typography>
                 )}
                 {result.people.map((p) => (

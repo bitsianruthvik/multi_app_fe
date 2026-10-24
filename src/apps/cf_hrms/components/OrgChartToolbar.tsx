@@ -39,7 +39,7 @@ export interface RootOption {
 }
 
 const SHOW_KEYS: { key: keyof ChartShow; label: string; hint: string }[] = [
-  { key: 'departments', label: 'Departments', hint: 'Departments as boxes around their people. Off: the plain reporting tree.' },
+  { key: 'departments', label: 'Org units', hint: 'Org units (departments, sections, machines …) as boxes around their people, each with its kind. Off: the plain reporting tree.' },
   { key: 'roles', label: 'Roles', hint: 'The role on each card.' },
   { key: 'people', label: 'People', hint: 'The position rows of each card: a name, or Vacant, with the shift.' },
 ];

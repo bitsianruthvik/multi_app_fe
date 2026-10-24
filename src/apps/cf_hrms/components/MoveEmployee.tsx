@@ -363,7 +363,7 @@ export function MoveToPositionDialog({
                         {p.displayTitle} {p.positionCode && <Mono sx={{ fontSize: 11.5 }}>{p.positionCode}</Mono>}
                       </Box>
                       <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                        {[p.departmentName, p.shiftName && `${p.shiftName} shift`, p.locationName].filter(Boolean).join(' · ') || 'No department recorded'}
+                        {[p.departmentName, p.shiftName && `${p.shiftName} shift`, p.locationName].filter(Boolean).join(' · ') || 'No org unit recorded'}
                       </Box>
                     </Box>
                   </li>

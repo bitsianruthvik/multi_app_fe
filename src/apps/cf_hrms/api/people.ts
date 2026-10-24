@@ -509,7 +509,7 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   JOIN: 'Joined',
   TRANSFER: 'Transfer',
   ASSIGNMENT_CHANGE: 'Position change',
-  DEPARTMENT_CHANGE: 'Department change',
+  DEPARTMENT_CHANGE: 'Org unit change',
   CONTRACTOR_CHANGE: 'Contractor change',
   EXIT: 'Exit',
   OTHER: 'Other',

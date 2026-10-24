@@ -293,7 +293,7 @@ export function DocumentGeneratePanel({
                         <Box sx={{ fontSize: 14 }}>{o.positionCode ?? o.displayTitle}</Box>
                         <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
                           {[o.departmentName, o.locationName].filter(Boolean).join(' · ') ||
-                            'No department recorded'}
+                            'No org unit recorded'}
                         </Box>
                       </Box>
                     </Box>

@@ -24,6 +24,7 @@ import { RowActions } from '../components/list/RowActions';
 import { useListFilters, YES_NO_OPTIONS } from '../components/list/useListFilters';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { useCan } from '../access/can';
+import { unitLabel, useUnitKinds } from '../components/orgUnits';
 
 /**
  * Employees — the people (DESIGN_SYSTEM.md §4.2 Collection).
@@ -178,9 +179,9 @@ export default function Employees() {
       },
       {
         key: 'department',
-        label: 'Department (and below)',
+        label: 'Org unit (and below)',
         searchable: true,
-        options: departments.map((d) => ({ value: String(d.id), label: d.path || d.name })),
+        options: departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) })),
       },
       ...labelFilterDefs(labelList),
       { key: 'role', label: 'Role', searchable: true, options: idOptions(roleOpts) },
@@ -224,6 +225,7 @@ export default function Employees() {
     ];
   }, [filtered]);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<EmployeeRow>[] = useMemo(() => [
     {
       key: 'employeeCode',
@@ -291,12 +293,12 @@ export default function Employees() {
     },
     {
       key: 'department',
-      header: 'Department',
-      width: 170,
+      header: 'Org unit',
+      width: 190,
       sortValue: (r) => r.departmentName ?? '',
-      exportValue: (r) => r.departmentName ?? '',
+      exportValue: (r) => withKind(r.departmentName, r.departmentId),
       render: (r) => (r.departmentName
-        ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{r.departmentName}</Typography>
+        ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{withKind(r.departmentName, r.departmentId)}</Typography>
         : <ToneBadge tone="warning" label="No position" noIcon title="This person holds no active position" />),
     },
     {
@@ -362,7 +364,7 @@ export default function Employees() {
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [can.employees.edit, can.named.employeeClose]);
+  ], [can.employees.edit, can.named.employeeClose, withKind]);
 
   const header = (
     <PageHeader

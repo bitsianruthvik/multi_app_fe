@@ -21,6 +21,7 @@ import { labelFilterDefs, useLabels } from '../components/labels';
 import { ActionDialog, DueChip } from '../components/performance/ReviewParts';
 import { ACTION_STATUS_OPTIONS } from '../components/performance/reviewWords';
 import { longDay } from '../components/jobDates';
+import { unitLabel, useUnitKinds } from '../components/orgUnits';
 
 export default function PerformanceActions() {
   const { company = '' } = useParams<{ company: string }>();
@@ -53,14 +54,14 @@ export default function PerformanceActions() {
 
   const defs: FilterDef[] = useMemo(() => {
     const deps = departments
-      ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
+      ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [...new Map(items.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()].map(([id, name]) => ({ value: String(id), label: name }));
     return [
       { key: 'status', label: 'Status', options: ACTION_STATUS_OPTIONS, defaultValue: 'OPEN' },
       { key: 'overdue', label: 'Overdue only', kind: 'toggle' },
       { key: 'owner', label: 'Owner', searchable: true, options: (data?.owners ?? []).map((o) => ({ value: String(o.id), label: o.name })) },
       { key: 'period', label: 'Period', options: periods },
-      { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
       ...labelFilterDefs(labelList),
     ] as FilterDef[];
   }, [departments, items, labelList, data, periods]);
@@ -74,6 +75,7 @@ export default function PerformanceActions() {
     }
   };
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<Action>[] = useMemo(() => [
     {
       key: 'text', header: 'Action', alwaysVisible: true,
@@ -109,7 +111,7 @@ export default function PerformanceActions() {
       sortValue: (a) => a.employeeName,
       exportValue: (a) => `${a.employeeName} · ${a.periodName}`,
     },
-    { key: 'department', header: 'Department', render: (a) => a.departmentName ?? '—', sortValue: (a) => a.departmentName ?? '' },
+    { key: 'department', header: 'Org unit', render: (a) => withKind(a.departmentName) || '—', sortValue: (a) => a.departmentName ?? '' },
     {
       key: 'due', header: 'Due', width: 170,
       render: (a) => (a.status === 'OPEN'
@@ -129,7 +131,7 @@ export default function PerformanceActions() {
       ),
       exportValue: () => '',
     },
-  ], []);
+  ], [withKind]);
 
   return (
     <>

@@ -301,7 +301,7 @@ export interface NewShiftSuggestion {
   shift: { id: number; code: string | null; name: string } | null;
   from: 'LABEL' | 'LIKE' | 'GENERAL' | null;
   label: { id: number; name: string } | null;
-  /** "Starts on Day shift (from the label Machine)" */
+  /** "Starts on Day shift (from the kind Machine)" */
   line: string;
 }
 

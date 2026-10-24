@@ -249,8 +249,8 @@ export default function AccessRoles() {
               onChange={(e) => setCreating({ ...creating, scope: e.target.value as AccessScope })}
               helperText={
                 creating.scope === 'DEPARTMENT'
-                  ? 'They see the whole structure, but can only change — and only see people in — their own department and the ones under it.'
-                  : 'They can work on every department.'
+                  ? 'They see the whole structure, but can only change — and only see people in — their org unit and everything under it.'
+                  : 'They can work on every org unit.'
               }
             >
               <MenuItem value="COMPANY">{SCOPE_LABEL.COMPANY}</MenuItem>

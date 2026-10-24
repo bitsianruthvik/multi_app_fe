@@ -128,7 +128,7 @@ function sentence(it: HistoryItem): string {
     case 'REMOVED': return `${KIND_WORD[it.kind]} removed: ${q(it.line ?? it.from)}`;
     case 'CREATED': return `Position created${it.line ? ` (${it.line})` : ''}`;
     case 'ROLE_CHANGED': return `Role changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
-    case 'DEPARTMENT_CHANGED': return `Department changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
+    case 'DEPARTMENT_CHANGED': return `Org unit changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'SHIFT_CHANGED': return `Shift changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'PLACE_CHANGED': return `Place changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'TITLE_CHANGED': return `Title changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;

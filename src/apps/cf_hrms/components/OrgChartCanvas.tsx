@@ -412,7 +412,7 @@ export function OrgChartCanvas({
         <g aria-hidden="true">{scene.header.map((p, i) => renderPrim(p, `h${i}`))}</g>
         <g aria-hidden="true">{scene.under.map((p, i) => renderPrim(p, `u${i}`))}</g>
         {scene.depts.length > 0 && (
-          <g role="group" aria-label="Departments">
+          <g role="group" aria-label="Org units">
             {scene.depts.map((d) => (
               <g key={d.id} data-orgdeptbox={d.id}>
                 <g aria-hidden="true">{d.prims.map((p, i) => renderPrim(p, `d${d.id}-${i}`))}</g>

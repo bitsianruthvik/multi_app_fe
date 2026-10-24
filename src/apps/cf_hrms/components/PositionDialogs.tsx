@@ -6,6 +6,7 @@ import type { LookupRow, NewShiftSuggestion, PositionOptions, PositionRow } from
 import { positionsApi } from '../api/positions';
 import { useCan } from '../access/can';
 import { usePositionRemoval } from './usePositionRemoval';
+import { useUnitKinds } from './orgUnits';
 
 /**
  * Position forms, plus the content-override form both detail screens share.
@@ -32,6 +33,7 @@ export function PositionFormDialog({
   /** null = create. */
   position: PositionRow | null;
 }) {
+  const withKind = useUnitKinds();
   const can = useCan();
   const [roleId, setRoleId] = useState<number | ''>('');
 
@@ -136,9 +138,9 @@ export function PositionFormDialog({
           </Stack>
 
           <Stack direction="row" spacing={2}>
-            <TextField select size="small" label="Department" fullWidth value={departmentId} onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}>
+            <TextField select size="small" label="Org unit" fullWidth value={departmentId} onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}>
               <MenuItem value="">Not set</MenuItem>
-              {(options?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
+              {(options?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{withKind(d.name, d.id)}</MenuItem>)}
             </TextField>
             <TextField select size="small" label="Location" fullWidth value={locationId} onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}>
               <MenuItem value="">Not set</MenuItem>
@@ -364,7 +366,7 @@ export function PositionSiblingDialog({
     <FormDialog
       open={open}
       title="Add a position like this"
-      subtitle="One more vacant position with the same role, department and manager."
+      subtitle="One more vacant position with the same role, org unit and manager."
       onClose={onClose}
       submitLabel="Add position"
       submitDisabled={shiftId === ''}

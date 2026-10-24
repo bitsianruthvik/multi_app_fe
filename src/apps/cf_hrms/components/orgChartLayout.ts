@@ -1264,7 +1264,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
   const defs = new Map<number, OrgChartDepartment>(model.deptById);
   if (members.has(NO_DEPT))
     defs.set(NO_DEPT, {
-      id: NO_DEPT, code: null, name: 'No department', parentId: null, type: null,
+      id: NO_DEPT, code: null, name: 'No org unit', parentId: null, type: null,
       isShared: false, serves: [], rank: Number.MAX_SAFE_INTEGER,
     });
   const rankOf = (d: number) => defs.get(d)?.rank ?? Number.MAX_SAFE_INTEGER;
@@ -1426,10 +1426,10 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     if (!own.length && !kidsAll.length) {
       const by = servedBy(d);
       // The arrows say WHICH crew; the words only say why the box is empty.
-      notes.push(by === 1 ? 'Worked by a shared department' : by ? `Worked by ${by} shared departments` : 'No positions of its own');
+      notes.push(by === 1 ? 'Worked by a shared org unit' : by ? `Worked by ${by} shared org units` : 'No positions of its own');
     } else if (!open || !cards) {
       notes.push(counts.positions ? positionsLine(counts) : 'No positions of its own');
-      if (!open && below) notes.push(`${below} department${below === 1 ? '' : 's'} inside`);
+      if (!open && below) notes.push(`${below} org unit${below === 1 ? '' : 's'} inside`);
     }
     const contentW = Math.max(W, inner.w);
     const w = contentW + 2 * BP;
@@ -2028,7 +2028,7 @@ function boxLabel(p: PlacedNode, filter: ShiftFilter, shiftName: string | null):
   const bits = [`Role ${n.displayTitle || n.title}`];
   if (n.departmentName) bits.push(n.departmentName);
   bits.push(`${c.positions} position${c.positions === 1 ? '' : 's'}, ${c.filled} filled, ${c.vacant} vacant`);
-  if (n.contexts?.length) bits.push(`department ${n.contexts.map((c) => c.name).join(', ')}`);
+  if (n.contexts?.length) bits.push(`org unit ${n.contexts.map((c) => c.name).join(', ')}`);
   const kids = p.kids.length + p.hidden;
   if (kids) bits.push(p.collapsed ? `${p.hidden} reports hidden` : `${p.kids.length} direct reports`);
   if (filter !== 'all') bits.push(`${shiftName ?? filter} shift only`);
@@ -2330,7 +2330,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         label:
           `${b.name}${b.type ? `, ${b.type}` : ''}. ` +
           (c.positions ? `${positionsLine(c)}. ` : 'No positions of its own. ') +
-          (b.canToggle ? (b.open ? 'Open.' : `Closed${b.below ? `, ${b.below} departments inside` : ''}.`) : ''),
+          (b.canToggle ? (b.open ? 'Open.' : `Closed${b.below ? `, ${b.below} org units inside` : ''}.`) : ''),
         open: b.open,
         canToggle: b.canToggle,
       });
@@ -2728,7 +2728,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   for (const b of opts.labels?.performance?.legend ?? []) legend.push({ swatch: b.colour, fill: b.colour, text: b.word });
   legend.push({ line: 'solid', text: 'Reports to' });
   if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
-  if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the department' });
+  if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the org unit' });
   if (servesDrawn) legend.push({ line: 'serves', text: 'Serves' });
   if (sameDrawn) legend.push({ line: 'same', text: 'Same person' });
   for (const g of legend) {
@@ -2887,8 +2887,8 @@ export function describeChart(model: ChartModel, ids: number[], filter: ShiftFil
     (tops.length ? `It starts at ${tops.join('; ')}. ` : '') +
     'Each card is a role; each row in it is one position, with the person in it or the word Vacant, and its shift. ' +
     'Primary reporting lines are solid; every other reporting relationship is dashed and labelled with its scope. ' +
-    'With Departments on, each department is a box around its people, joined by one line to the person it rolls up to; ' +
-    'a shared department has a dashed frame and an arrow to each department it serves. ' +
+    'With Org units on, each org unit is a box around its people, with its kind as a small tag, joined by one line to the person it rolls up to; ' +
+    'a shared unit has a dashed frame and an arrow to each unit it serves. ' +
     'Each card is focusable: use the arrow keys to move between a manager, its reports and its siblings, ' +
     'Enter to open the role with its positions, and Space to fold a branch. ' +
     'The Table view carries the same positions and the same filters in a keyboard-operable list.'

@@ -224,7 +224,7 @@ export default function Home() {
   // Each row is its own area's: it appears only with that area's view right.
   const setupRows: { label: string; n: number | undefined; path: string; hint: string; area: Area }[] = [
     { label: 'Locations', n: c.locations, path: 'locations', hint: 'Plants, offices and sites', area: 'org' },
-    { label: 'Departments', n: c.departments, path: 'departments', hint: 'Functions and divisions', area: 'org' },
+    { label: 'Org units', n: c.departments, path: 'org-units', hint: 'Departments, sections, machines', area: 'org' },
     { label: 'Shifts', n: c.shifts, path: 'shifts', hint: 'General, day, night', area: 'time' },
     { label: 'Roles', n: c.rolesTotal, path: 'roles', hint: 'The kinds of work', area: 'roles' },
     { label: 'Positions', n: c.positions, path: 'positions', hint: 'One person each, on one shift', area: 'positions' },

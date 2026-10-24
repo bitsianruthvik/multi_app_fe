@@ -12,6 +12,7 @@ import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
 import { useCan } from '../access/can';
 import { createRole, updateRole, listDepartments, type Role } from '../api/roles';
+import { useUnitKinds } from './orgUnits';
 
 const STATUSES: { value: string; label: string; hint: string }[] = [
   { value: 'DRAFT', label: 'Draft', hint: 'Being written. Not yet something to staff against.' },
@@ -46,6 +47,7 @@ export function RoleFormDialog({
   onClose: () => void;
   onSaved: (role: Role) => void;
 }) {
+  const withKind = useUnitKinds();
   const can = useCan();
   // Departments belong to the org area: asked for only with its view.
   const seeDepartments = can.org.view;
@@ -149,7 +151,7 @@ export function RoleFormDialog({
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           {seeDepartments && (
             <TextField
-              label="Default department"
+              label="Default org unit"
               value={form.defaultDepartmentId}
               onChange={set('defaultDepartmentId')}
               select
@@ -160,8 +162,8 @@ export function RoleFormDialog({
               <MenuItem value="">—</MenuItem>
               {departments.map((d) => (
                 <MenuItem key={d.id} value={String(d.id)}>
-                  {d.name}
-                  {d.code ? ` (${d.code})` : ''}
+                  {withKind(d.name, d.id)}
+                  {d.code ? ` · ${d.code}` : ''}
                 </MenuItem>
               ))}
             </TextField>

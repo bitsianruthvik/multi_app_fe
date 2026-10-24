@@ -29,6 +29,7 @@ import { EmployeePerformanceTab } from '../components/EmployeePerformanceTab';
 import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
 import { AsOnBar, JobHistoryList } from '../components/JobDating';
 import { todayIso } from '../components/jobDates';
+import { useUnitKinds } from '../components/orgUnits';
 
 /**
  * One person (DESIGN_SYSTEM.md §4.3 Record).
@@ -47,6 +48,7 @@ type TabKey = 'overview' | 'work' | 'job' | 'performance' | 'identifiers' | 'doc
 const TAB_KEYS: TabKey[] = ['overview', 'work', 'job', 'performance', 'identifiers', 'documents', 'history'];
 
 export default function EmployeeDetail() {
+  const withKind = useUnitKinds();
   const { company, id } = useParams<{ company: string; id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -271,7 +273,7 @@ export default function EmployeeDetail() {
                         <Mono sx={{ fontSize: 14 }}>{employee.exitDate ?? '—'}</Mono>
                       </FactItem>
                     )}
-                    <FactItem label="Department" value={primary?.departmentName ?? '—'} />
+                    <FactItem label="Org unit" value={withKind(primary?.departmentName, primary?.departmentId) || '—'} />
                     <FactItem label="Location" value={primary?.locationName ?? '—'} />
                     {employee.employmentType === 'CONTRACT' && (
                       <FactItem label="Contractor" value={employee.contractorName ?? '—'} />
@@ -288,7 +290,7 @@ export default function EmployeeDetail() {
                 sends people back to a list to search again. */}
 
             {primary?.departmentName && can.org.view && (
-              <CrossLink icon={<ApartmentRounded />} label={primary.departmentName} to={`/${company}/cf_hrms/departments`} />
+              <CrossLink icon={<ApartmentRounded />} label={withKind(primary.departmentName, primary.departmentId)} to={`/${company}/cf_hrms/org-units`} />
             )}
             {employee.contractorName && (
               <CrossLink icon={<BusinessCenterRounded />} label={employee.contractorName} to={`/${company}/cf_hrms/contractors`} />

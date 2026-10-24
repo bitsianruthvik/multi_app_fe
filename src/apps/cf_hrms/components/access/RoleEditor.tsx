@@ -39,7 +39,7 @@ const RIGHT_WORDS: Record<AccessRight, string> = {
 };
 
 const DEPARTMENT_SCOPE_HINT =
-  'They see the whole structure, but can only change — and only see people in — the department of the position they hold and the ones under it.';
+  'They see the whole structure, but can only change — and only see people in — the org unit of the position they hold and everything under it.';
 
 function tagOf(area: CatalogArea, right: AccessRight): string | undefined {
   return area.rights.find((r) => r.right === right)?.tag;

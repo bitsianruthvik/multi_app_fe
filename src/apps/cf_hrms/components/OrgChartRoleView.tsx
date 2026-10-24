@@ -111,7 +111,7 @@ function AddPosition({ card, onAdded }: { card: ChartCard; onAdded: () => void }
       sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', p: 1.25 }}
     >
       <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 1 }}>
-        One more position for this role, in this department, reporting to the same manager. It starts vacant.
+        One more position for this role, in this org unit, reporting to the same manager. It starts vacant.
       </Typography>
       {!!error && <ErrorNotice error={error} fallback="The position could not be added." />}
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -206,9 +206,9 @@ export function OrgChartRoleView({
     <Box component="ul" data-roleplaces="" sx={{ listStyle: 'none', m: 0, mt: 0.5, p: 0, fontSize: 13 }}>
       {others.map((c) => {
         const n = cardCount(c);
-        const dept = c.departmentName ?? 'No department';
+        const dept = c.departmentName ?? 'No org unit';
         // Two cards of the role in one department are told apart by the card's own title.
-        const twin = others.some((x) => x.id !== c.id && (x.departmentName ?? 'No department') === dept);
+        const twin = others.some((x) => x.id !== c.id && (x.departmentName ?? 'No org unit') === dept);
         const place = twin ? `${dept} — ${c.displayTitle || c.title}` : dept;
         const label = `${place} — ${n.filled} of ${n.positions} filled`;
         return (
@@ -242,7 +242,7 @@ export function OrgChartRoleView({
       {card && (
         <Typography data-roledept="" sx={{ fontSize: 13, lineHeight: 1.5 }}>
           <Box component="span" sx={{ ...smallLabel, mr: 0.75 }}>
-            Department
+            Org unit
           </Box>
           {card.departmentName ?? '—'}
         </Typography>

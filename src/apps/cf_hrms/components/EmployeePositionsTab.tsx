@@ -189,7 +189,7 @@ function HeldRow({
             {!held.isCurrent && held.startsLater && <ToneBadge tone="info" label="Starts later" noIcon />}
           </Box>
           <Typography sx={{ ...cell, mt: 0.25 }}>
-            {[held.departmentName, shift].filter(Boolean).join(' · ') || 'No department recorded'}
+            {[held.departmentName, shift].filter(Boolean).join(' · ') || 'No org unit recorded'}
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.25 }}>
             From <Mono sx={{ fontSize: 12 }}>{held.effectiveFrom ?? '—'}</Mono>

@@ -17,6 +17,7 @@ import { useListFilters } from '../components/list/useListFilters';
 import { positionsApi, type PositionOptions } from '../api/positions';
 import { HiringCloseDialog } from '../components/HiringCloseDialog';
 import { labelFilterDefs, useLabels } from '../components/labels';
+import { useUnitKinds } from '../components/orgUnits';
 
 /**
  * Hiring — every hiring, open first (DESIGN_SYSTEM.md §4.2 Collection).
@@ -118,12 +119,13 @@ export default function Hiring() {
         ],
       },
       { key: 'stage', label: 'Stage', options: STAGES },
-      { key: 'department', label: 'Department (and below)', searchable: true, options: asOptions(depts) },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, options: asOptions(depts) },
       ...labelFilterDefs(labelList),
       { key: 'role', label: 'Role', searchable: true, options: asOptions(roles) },
     ];
   }, [rows, options, labelList]);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<HiringSummary>[] = useMemo(
     () => [
       {
@@ -179,10 +181,10 @@ export default function Hiring() {
       },
       {
         key: 'department',
-        header: 'Department',
-        render: (r) => r.departmentName ?? '—',
+        header: 'Org unit',
+        render: (r) => withKind(r.departmentName, r.departmentId) || '—',
         sortValue: (r) => r.departmentName ?? '',
-        exportValue: (r) => r.departmentName ?? '',
+        exportValue: (r) => withKind(r.departmentName, r.departmentId),
       },
       {
         key: 'shift',
@@ -238,7 +240,7 @@ export default function Hiring() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [can.hiring.edit, company],
+    [can.hiring.edit, company, withKind],
   );
 
   const emptyTitle =

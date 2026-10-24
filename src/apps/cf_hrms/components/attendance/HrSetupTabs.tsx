@@ -151,7 +151,7 @@ function AssignDialog({ policies, onClose, onSaved }: { policies: AttPolicy[]; o
       onSubmit={async () => { await attendanceApi.assign({ scope, targetId: scope === 'COMPANY' ? null : targetId, policyId: Number(policyId) }); onSaved(); }}>
       <Box sx={{ display: 'grid', gap: 1.5, mt: 0.5 }}>
         <TextField select size="small" label="To" value={scope} onChange={(e) => setScope(e.target.value as AssignmentRow['scope'])}>
-          <MenuItem value="COMPANY">The whole company (the default)</MenuItem><MenuItem value="LOCATION">A location</MenuItem><MenuItem value="LABEL">A department label</MenuItem><MenuItem value="ROLE">A role</MenuItem>
+          <MenuItem value="COMPANY">The whole company (the default)</MenuItem><MenuItem value="LOCATION">A location</MenuItem><MenuItem value="LABEL">A kind of org unit</MenuItem><MenuItem value="ROLE">A role</MenuItem>
         </TextField>
         {scope !== 'COMPANY' && (
           <Autocomplete size="small" options={targets} getOptionLabel={(t) => t.name} value={targets.find((t) => t.id === targetId) ?? null} onChange={(_, v) => setTargetId(v?.id ?? null)} renderInput={(p) => <TextField {...p} label="Which" />} />

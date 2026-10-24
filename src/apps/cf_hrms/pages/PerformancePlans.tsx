@@ -36,6 +36,7 @@ import { AchievementChip } from '../components/performance/ActualParts';
 import { CreatePlansDialog } from '../components/performance/CreatePlansDialog';
 import { BAND_OPTIONS, FREQUENCY_LABEL, PLAN_STATUS_LABEL, periodDates } from '../components/performance/planWords';
 import { longDay } from '../components/jobDates';
+import { unitLabel, useUnitKinds } from '../components/orgUnits';
 
 const STATUS_OPTIONS = (['DRAFT', 'ACTIVE', 'CLOSED', 'CANCELLED'] as const).map((s) => ({ value: s, label: PLAN_STATUS_LABEL[s] }));
 
@@ -161,17 +162,18 @@ export default function PerformancePlans() {
   const filterDefs: FilterDef[] = useMemo(() => {
     // The departments list needs the organisation right; without it, those of the plans shown.
     const deps = departments
-      ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
+      ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [...new Map(items.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()]
           .map(([id, name]) => ({ value: String(id), label: name }));
     return [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
-      { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
       ...labelFilterDefs(labelList),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },
     ];
   }, [departments, items, labelList]);
 
+  const withKind = useUnitKinds();
   const columns: DataColumn<PlanRow>[] = useMemo(() => [
     {
       key: 'person', header: 'Person', alwaysVisible: true,
@@ -195,7 +197,7 @@ export default function PerformancePlans() {
       sortValue: (r) => r.positionTitle ?? r.roleTitle ?? '',
       exportValue: (r) => [r.positionCode, r.positionTitle ?? r.roleTitle].filter(Boolean).join(' '),
     },
-    { key: 'department', header: 'Department', render: (r) => r.departmentName ?? '—', sortValue: (r) => r.departmentName ?? '' },
+    { key: 'department', header: 'Org unit', render: (r) => withKind(r.departmentName, r.departmentId) || '—', sortValue: (r) => r.departmentName ?? '' },
     {
       key: 'status', header: 'Status', width: 120,
       render: (r) => <PlanStatusBadge status={r.status} />,
@@ -227,7 +229,7 @@ export default function PerformancePlans() {
       sortValue: (r) => r.score ?? -1,
       exportValue: (r) => (r.score == null ? '' : `${r.score}% · ${r.bandLabel}`),
     },
-  ], []);
+  ], [withKind]);
 
   /* ── actions ─────────────────────────────────────────────────────────── */
 

@@ -54,7 +54,7 @@ function ScopeFields({
         helperText={SCOPE_HELP[scopeType] ?? ''}
       >
         {Object.keys(SCOPE_HELP).map((s) => (
-          <MenuItem key={s} value={s}>{s === 'GENERAL' ? 'All of this work (GENERAL)' : s === 'WORK_CONTEXT' ? 'DEPARTMENT' : s}</MenuItem>
+          <MenuItem key={s} value={s}>{s === 'GENERAL' ? 'All of this work (GENERAL)' : s === 'WORK_CONTEXT' ? 'ORG UNIT' : s}</MenuItem>
         ))}
       </TextField>
       {scopeType !== 'GENERAL' && (
@@ -71,12 +71,12 @@ function ScopeFields({
         <TextField
           select
           size="small"
-          label="Department"
+          label="Org unit"
           value={scopeWorkContextId}
           onChange={(e) => setScopeWorkContextId(e.target.value === '' ? '' : Number(e.target.value))}
           helperText="The machine, line, area or project this applies to."
         >
-          <MenuItem value="">Not a recorded department</MenuItem>
+          <MenuItem value="">Not a recorded org unit</MenuItem>
           {workContexts.map((c) => (
             <MenuItem key={c.id} value={c.id}>{c.name} · {c.contextType}</MenuItem>
           ))}
@@ -167,7 +167,7 @@ export function AssignmentReportingDialog({
           label="Manager"
           value={managerEmployeeId}
           onChange={(e) => { setManagerEmployeeId(Number(e.target.value)); setManagerWorkAssignmentId(''); }}
-          helperText="A person. Machines and areas are departments, never managers."
+          helperText="A person. Machines and areas are org units, never managers."
         >
           {(options?.employees ?? [])
             .filter((e) => e.id !== subjectEmployeeId)

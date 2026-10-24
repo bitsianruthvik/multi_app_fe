@@ -34,6 +34,7 @@ import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { MoveEmployeeHereButton } from '../components/MoveEmployee';
 import { usePositionRemoval } from '../components/usePositionRemoval';
+import { useUnitKinds } from '../components/orgUnits';
 
 /**
  * One position (DESIGN_SYSTEM.md §4.3 Record).
@@ -57,6 +58,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
 };
 
 export default function PositionDetail() {
+  const withKind = useUnitKinds();
   const { company = '', id = '' } = useParams<{ company: string; id: string }>();
   const positionId = Number(id);
   const can = useCan();
@@ -217,7 +219,7 @@ export default function PositionDetail() {
         crossLinks={
           <>
             {can.roles.view && <CrossLink label={position.roleTitle ?? 'Role'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />}
-            {can.org.view && position.departmentId && <CrossLink label={position.departmentName ?? 'Department'} to={`/${company}/cf_hrms/departments`} />}
+            {can.org.view && position.departmentId && <CrossLink label={withKind(position.departmentName, position.departmentId) || 'Org unit'} to={`/${company}/cf_hrms/org-units`} />}
             {can.org.view && position.locationId && <CrossLink label={position.locationName ?? 'Location'} to={`/${company}/cf_hrms/locations`} />}
             <CrossLink label="Org chart" to={`/${company}/cf_hrms/org-chart`} />
           </>
@@ -230,7 +232,7 @@ export default function PositionDetail() {
           <SectionCard title="The position">
             <Stack spacing={1.25}>
               <FactItem label="Role" value={can.roles.view ? <CrossLink label={position.roleTitle ?? '—'} to={`/${company}/cf_hrms/roles/${position.roleId}`} /> : (position.roleTitle ?? '—')} />
-              <FactItem label="Department" value={position.departmentName ?? 'Not set'} />
+              <FactItem label="Org unit" value={withKind(position.departmentName, position.departmentId) || 'Not set'} />
               <FactItem label="Location" value={position.locationName ?? 'Not set'} />
               <FactItem label="Person" value={personFact} />
               <FactItem label="Shift" value={shiftFact} />
@@ -399,7 +401,7 @@ export default function PositionDetail() {
           </>
         )}
         {tab === 'history' && (
-          <SectionCard title="History" subtitle="What changed in this position’s job, and when: the role’s changes, this position’s own, and its role, department, shift and reporting line.">
+          <SectionCard title="History" subtitle="What changed in this position’s job, and when: the role’s changes, this position’s own, and its role, org unit, shift and reporting line.">
             <JobHistoryList subject={{ type: 'position', id: position.id }} />
           </SectionCard>
         )}

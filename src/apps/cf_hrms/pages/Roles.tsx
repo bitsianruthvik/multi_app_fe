@@ -26,6 +26,7 @@ import { useListFilters, matchesQuery, matchesFlag, YES_NO_OPTIONS as YES_NO } f
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
+import { useUnitKinds } from '../components/orgUnits';
 
 export default function Roles() {
   const navigate = useNavigate();
@@ -99,6 +100,7 @@ export default function Roles() {
     [rows],
   );
 
+  const withKind = useUnitKinds();
   const columns = useMemo<DataColumn<Role>[]>(
     () => [
       {
@@ -127,24 +129,24 @@ export default function Roles() {
       },
       {
         key: 'department',
-        header: 'Department',
+        header: 'Org unit',
         render: (r) =>
           r.departmentName && !seeDepartments ? (
-            <Box sx={{ fontSize: 13 }}>{r.departmentName}</Box>
+            <Box sx={{ fontSize: 13 }}>{withKind(r.departmentName)}</Box>
           ) : r.departmentName ? (
             <Box
               component="button"
               type="button"
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
-                navigate(`/${company}/cf_hrms/departments`);
+                navigate(`/${company}/cf_hrms/org-units`);
               }}
               sx={{
                 border: 0, background: 'none', p: 0, font: 'inherit', fontSize: 13,
                 color: 'var(--c-primary-700)', cursor: 'pointer', textAlign: 'left',
               }}
             >
-              {r.departmentName}
+              {withKind(r.departmentName)}
             </Box>
           ) : (
             <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>
@@ -174,7 +176,7 @@ export default function Roles() {
         sortValue: (r) => r.status,
       },
     ],
-    [company, navigate, seeDepartments],
+    [company, navigate, seeDepartments, withKind],
   );
 
   return (

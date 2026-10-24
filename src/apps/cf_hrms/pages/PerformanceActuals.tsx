@@ -36,6 +36,7 @@ import { labelFilterDefs, useLabels } from '../components/labels';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { AchievementChip, ActualInput, HistoryButton, NoteButton } from '../components/performance/ActualParts';
 import { BAND_OPTIONS, periodDates } from '../components/performance/planWords';
+import { unitLabel } from '../components/orgUnits';
 
 export type ActualsMode = 'hr' | 'team';
 
@@ -108,10 +109,10 @@ export default function PerformanceActuals({ mode = 'hr' }: { mode?: ActualsMode
 
   const filterDefs: FilterDef[] = useMemo(() => {
     const deps = departments
-      ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
+      ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [...new Map(rows.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()].map(([id, name]) => ({ value: String(id), label: name }));
     return [
-      ...(mode === 'hr' ? [{ key: 'department', label: 'Department (and below)', searchable: true, options: deps } as FilterDef, ...labelFilterDefs(labelList)] : []),
+      ...(mode === 'hr' ? [{ key: 'department', label: 'Org unit (and below)', searchable: true, options: deps } as FilterDef, ...labelFilterDefs(labelList)] : []),
       { key: 'role', label: 'Role', searchable: true, options: (data?.roles ?? []).map((r) => ({ value: String(r.id), label: r.title })) },
       ...(mode === 'hr' ? [{ key: 'manager', label: 'Manager', searchable: true, options: (data?.managers ?? []).map((m) => ({ value: String(m.id), label: [m.code, m.title].filter(Boolean).join(' — ') })) } as FilterDef] : []),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },
