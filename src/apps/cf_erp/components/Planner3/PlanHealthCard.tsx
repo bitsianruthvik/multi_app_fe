@@ -17,7 +17,7 @@ export function PlanHealthCard() {
   const h = useLoad(() => getPlanHealth(), []);
   const d = h.data;
   return (
-    <SectionCard title="Plan health" subtitle={d?.baseline ? `The saved plan against baseline v${d.baseline.version}` : 'No baseline yet'}
+    <SectionCard title="Against the baseline" subtitle={d?.baseline ? `The saved plan against baseline v${d.baseline.version}` : 'No baseline yet'}
       actions={<Button size="small" onClick={() => navigate(appPath(company, 'planner'))}>Open the planner</Button>}>
       <Box data-testid="plan-health" sx={{ display: 'grid', gap: 1 }}>
         <ErrorNotice error={h.error} onRetry={h.reload} />
