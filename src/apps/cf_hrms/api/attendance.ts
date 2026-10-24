@@ -141,9 +141,10 @@ const qs = (o: Record<string, string | number | null | undefined>) => {
 };
 
 export const attendanceApi = {
-  today: (q: { date?: string; departmentId?: number | null } = {}) => api.get<TodayBoard>(`/attendance/today${qs(q)}`),
-  month: (q: { month?: string; q?: string; departmentId?: number | null } = {}) => api.get<MonthGrid>(`/attendance/month${qs(q)}`),
-  musterRoll: (month: string) => api.get<FileOut>(`/attendance/month/workbook${qs({ month })}`),
+  /** `departmentId`: one or more org units, comma-separated ("12,40"), each with everything under it (spec §34.2). */
+  today: (q: { date?: string; departmentId?: number | string | null } = {}) => api.get<TodayBoard>(`/attendance/today${qs(q)}`),
+  month: (q: { month?: string; q?: string; departmentId?: number | string | null } = {}) => api.get<MonthGrid>(`/attendance/month${qs(q)}`),
+  musterRoll: (month: string, departmentId?: string | null) => api.get<FileOut>(`/attendance/month/workbook${qs({ month, departmentId: departmentId || undefined })}`),
   person: (employeeId: number, month?: string) => api.get<PersonMonth>(`/attendance/people/${employeeId}${qs({ month })}`),
   setDay: (body: { employeeId: number; date: string; status: DayStatus | null; inTime?: string | null; outTime?: string | null; note?: string }) => api.put<{ ok: true }>('/attendance/days', body),
   process: (body: { from: string; to: string; employeeIds?: number[] }) => api.post<{ daysWritten: number; kept: number; penalties: { applied: number; reversed: number } }>('/attendance/process', body),

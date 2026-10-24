@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Box } from '@mui/material';
 import type { ChartScene, Prim } from './orgChartLayout';
+import { editKey, type CanvasEdit, type EditTarget } from './OrgChartEdit';
 
 /**
  * The chart itself: inline SVG, drawn from the scene's draw list.
@@ -99,6 +100,7 @@ export function OrgChartCanvas({
   onToggleDept,
   onNavigate,
   onZoom,
+  edit = null,
 }: {
   scene: ChartScene;
   zoom: number;
@@ -122,8 +124,138 @@ export function OrgChartCanvas({
    * back as `zoom`; the canvas never assumes its request was granted as asked.
    */
   onZoom?: (zoom: number) => void;
+  /**
+   * Edit mode (spec §34.5): small + / ⋯ buttons on the unit boxes, the cards
+   * and the rows, and a unit box dragged by its title onto another. Null =
+   * view mode, drawn exactly as before.
+   */
+  edit?: CanvasEdit | null;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const zoomNow = useRef(zoom);
+  useEffect(() => { zoomNow.current = zoom; }, [zoom]);
+
+  /*
+   * DRAGGING A UNIT BOX (edit mode). Mouse and pen only: a finger pans, and on
+   * a touch screen "Move…" in the box's menu does the same thing. The target
+   * is found by geometry — the smallest unit box under the pointer, in scene
+   * coordinates — because the cards are drawn above the boxes and would hide
+   * them from elementFromPoint.
+   */
+  const [drag, setDrag] = useState<{ from: number; x: number; y: number; over: number | null; reason: string | null } | null>(null);
+  const dragRef = useRef<{ from: number; sx: number; sy: number; moved: boolean } | null>(null);
+  const swallowClick = useRef(false);
+  const unitAt = useCallback((clientX: number, clientY: number): number | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const r = svg.getBoundingClientRect();
+    const x = (clientX - r.left) / zoomNow.current;
+    const y = (clientY - r.top) / zoomNow.current + scene.top;
+    let best: { id: number; area: number } | null = null;
+    for (const d of scene.depts) {
+      if (x < d.x || x > d.x + d.w || y < d.y || y > d.y + d.h) continue;
+      const area = d.w * d.h;
+      if (!best || area < best.area) best = { id: d.id, area };
+    }
+    return best?.id ?? null;
+  }, [scene]);
+
+  const startDrag = (e: ReactPointerEvent<SVGRectElement>, from: number) => {
+    if (!edit?.drag || e.pointerType === 'touch' || e.button !== 0) return;
+    e.stopPropagation();
+    dragRef.current = { from, sx: e.clientX, sy: e.clientY, moved: false };
+    const editDrag = edit.drag;
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', esc);
+    };
+    const move = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 6) return;
+      d.moved = true;
+      // Near an edge of the canvas: scroll it, so a far target can be reached.
+      const wrap = wrapRef.current;
+      if (wrap) {
+        const r = wrap.getBoundingClientRect();
+        if (ev.clientX < r.left + 36) wrap.scrollLeft -= 14;
+        else if (ev.clientX > r.right - 36) wrap.scrollLeft += 14;
+        if (ev.clientY < r.top + 36) wrap.scrollTop -= 14;
+        else if (ev.clientY > r.bottom - 36) wrap.scrollTop += 14;
+      }
+      const over = unitAt(ev.clientX, ev.clientY);
+      setDrag({ from: d.from, x: ev.clientX, y: ev.clientY, over, reason: over == null ? null : editDrag.check(d.from, over) });
+    };
+    const up = (ev: PointerEvent) => {
+      stop();
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (!d?.moved) return;
+      // The click that follows the release must not open or close the box.
+      swallowClick.current = true;
+      window.setTimeout(() => { swallowClick.current = false; }, 0);
+      const over = unitAt(ev.clientX, ev.clientY);
+      if (over != null && !editDrag.check(d.from, over)) editDrag.onDrop(d.from, over);
+    };
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      stop();
+      dragRef.current = null;
+      setDrag(null);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', esc);
+  };
+
+  /** A small round button drawn in the chart: + to add, ⋯ for a position's actions. */
+  const editButton = (target: EditTarget, cx: number, cy: number, r: number, glyph: '+' | '⋯', label: string, cls: string) => {
+    if (!edit) return null;
+    const key = editKey(target);
+    const fire = (el: Element) => edit.onMenu(target, el);
+    return (
+      <g
+        key={`edit-${key}`}
+        data-editplus={cls}
+        role="button"
+        tabIndex={0}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={edit.openKey === key}
+        style={{ cursor: 'pointer', outlineOffset: 1 }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          fire(e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            fire(e.currentTarget);
+          }
+        }}
+      >
+        <title>{label}</title>
+        {/* A larger invisible target, so a finger finds it. */}
+        <circle cx={cx} cy={cy} r={r + 6} fill="transparent" />
+        <circle cx={cx} cy={cy} r={r} fill="var(--c-primary-600)" stroke="var(--c-surface)" strokeWidth={1.5} />
+        <text
+          x={cx}
+          y={cy + (glyph === '+' ? r * 0.52 : r * 0.32)}
+          textAnchor="middle"
+          fontSize={glyph === '+' ? r * 1.55 : r * 1.3}
+          fontWeight={700}
+          fill="#fff"
+        >
+          {glyph}
+        </text>
+      </g>
+    );
+  };
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
   /*
@@ -252,6 +384,7 @@ export function OrgChartCanvas({
     return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   };
   const selectedBox = selected == null ? null : scene.boxes.find((b) => b.id === selected) ?? null;
+  const dragTarget = drag?.over != null ? (scene.depts.find((d) => d.id === drag.over) ?? null) : null;
   const selectedRowHit =
     selectedRow == null
       ? null
@@ -392,9 +525,17 @@ export function OrgChartCanvas({
         // A position row answers the pointer, so it reads as its own target.
         '& [data-orgrow]': { fill: 'transparent', cursor: 'pointer' },
         '& [data-orgrow]:hover': { fill: 'var(--c-primary-500)', fillOpacity: 0.1 },
+        // Edit mode: the buttons are quiet until their box is hovered or focused; always there on touch.
+        '& [data-editplus]': { opacity: 0.45, transition: 'opacity 120ms' },
+        '& [data-editplus="row"]': { opacity: 0 },
+        '& [data-orgdeptbox]:hover [data-editplus], & [data-orgcardwrap]:hover [data-editplus], & [data-orgcardwrap]:focus-within [data-editplus], & [data-editplus]:focus, & [data-editplus][aria-expanded="true"]':
+          { opacity: 1 },
+        '@media (hover: none)': { '& [data-editplus], & [data-editplus="row"]': { opacity: 1 } },
+        '& [data-editdrag]': { cursor: 'grab' },
       }}
     >
       <svg
+        ref={svgRef}
         role="img"
         aria-label={accessibleName}
         width={Math.round(scene.width * zoom)}
@@ -417,7 +558,7 @@ export function OrgChartCanvas({
               <g key={d.id} data-orgdeptbox={d.id}>
                 <g aria-hidden="true">{d.prims.map((p, i) => renderPrim(p, `d${d.id}-${i}`))}</g>
                 {/* The title band is the control; the rest of the box still pans. */}
-                {d.canToggle && onToggleDept && (
+                {d.canToggle && onToggleDept && !(edit?.drag && edit.unit(d.id)) && (
                   <rect
                     data-orgdept={d.id}
                     role="button"
@@ -442,6 +583,50 @@ export function OrgChartCanvas({
                     <title>{d.open ? `Close ${d.label.split(/[.,]/)[0]}` : `Open ${d.label.split(/[.,]/)[0]}`}</title>
                   </rect>
                 )}
+                {/* Edit mode: the title band is also the handle a unit is dragged by. */}
+                {edit?.drag && edit.unit(d.id) && (
+                  <rect
+                    data-orgdept={d.id}
+                    data-editdrag=""
+                    role={d.canToggle ? 'button' : undefined}
+                    tabIndex={d.canToggle ? 0 : undefined}
+                    aria-label={d.canToggle ? d.label : undefined}
+                    aria-expanded={d.canToggle ? d.open : undefined}
+                    x={d.x}
+                    y={d.y}
+                    width={d.w}
+                    height={d.titleH}
+                    rx={10}
+                    fill="transparent"
+                    style={{ outlineOffset: 1 }}
+                    onPointerDown={(e) => startDrag(e, d.id)}
+                    onClick={() => {
+                      if (swallowClick.current) return;
+                      if (d.canToggle) onToggleDept?.(d.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (d.canToggle && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        onToggleDept?.(d.id);
+                      }
+                    }}
+                  >
+                    <title>
+                      {`${d.canToggle ? (d.open ? 'Close' : 'Open') : ''} ${d.label.split(/[.,]/)[0]}`.trim() +
+                        ' — drag onto another org unit to move it'}
+                    </title>
+                  </rect>
+                )}
+                {edit?.unit(d.id) &&
+                  editButton(
+                    { kind: 'unit', deptId: d.id },
+                    d.canToggle ? d.x + d.w - 47 : d.x + d.w - 21,
+                    d.y + 17,
+                    9,
+                    '+',
+                    `Change ${d.label.split(/[.,]/)[0]}: add an org unit or a role, or move it`,
+                    'unit',
+                  )}
               </g>
             ))}
           </g>
@@ -475,10 +660,26 @@ export function OrgChartCanvas({
             strokeWidth={1.8}
           />
         )}
+        {dragTarget && drag && (
+          <rect
+            aria-hidden="true"
+            x={dragTarget.x - 3}
+            y={dragTarget.y - 3}
+            width={dragTarget.w + 6}
+            height={dragTarget.h + 6}
+            rx={12}
+            fill={drag.reason ? 'var(--c-danger-600)' : 'var(--c-primary-500)'}
+            fillOpacity={0.08}
+            stroke={drag.reason ? 'var(--c-danger-600)' : 'var(--c-primary-500)'}
+            strokeWidth={2.4}
+            strokeDasharray="7 4"
+            pointerEvents="none"
+          />
+        )}
         <g role="tree" aria-label="Roles and their positions">
           {scene.boxes.map((box) => (
             // Outside the label filter: drawn faint, still there and still clickable (spec §15.4).
-            <g key={box.id} opacity={box.dimmed ? 0.28 : undefined} data-dimmed={box.dimmed ? '' : undefined}>
+            <g key={box.id} opacity={box.dimmed ? 0.28 : undefined} data-dimmed={box.dimmed ? '' : undefined} data-orgcardwrap="">
               <g
                 id={`orgchart-node-${box.id}`}
                 data-orgnode={box.id}
@@ -544,10 +745,61 @@ export function OrgChartCanvas({
                   {box.toggle.prims.map((p, i) => renderPrim(p, `t${box.id}-${i}`))}
                 </g>
               )}
+              {edit?.card(box.id) &&
+                editButton(
+                  { kind: 'card', cardId: box.id },
+                  box.x + 3,
+                  box.y + 3,
+                  8.5,
+                  '+',
+                  `Add a position to ${box.label.split('.')[0].replace(/^Role /, '')}`,
+                  'card',
+                )}
+              {edit &&
+                box.rows.map((r) =>
+                  edit.row(r.positionId)
+                    ? editButton(
+                        { kind: 'row', positionId: r.positionId, cardId: box.id },
+                        r.x + r.w - 9,
+                        r.y + r.h / 2,
+                        7,
+                        '⋯',
+                        `Change ${r.label.replace(/\s*Open this position\.?$/, '')}`,
+                        'row',
+                      )
+                    : null,
+                )}
             </g>
           ))}
         </g>
       </svg>
+      {drag && edit?.drag && (
+        <Box
+          role="status"
+          data-dragghost=""
+          sx={{
+            position: 'fixed',
+            left: drag.x + 14,
+            top: drag.y + 14,
+            zIndex: 1500,
+            pointerEvents: 'none',
+            maxWidth: 300,
+            px: 1.25,
+            py: 0.75,
+            borderRadius: 'var(--r-sm)',
+            fontSize: 12.5,
+            lineHeight: 1.4,
+            boxShadow: 'var(--e-2)',
+            background: 'var(--c-surface)',
+            border: `1px solid ${drag.reason ? 'var(--c-danger-600)' : 'var(--c-primary-500)'}`,
+            color: drag.reason ? 'var(--c-danger-600)' : 'var(--c-text)',
+          }}
+        >
+          {drag.over == null
+            ? `Move ${edit.drag.nameOf(drag.from)} — drop it on another org unit`
+            : (drag.reason ?? `Move ${edit.drag.nameOf(drag.from)} under ${edit.drag.nameOf(drag.over)}`)}
+        </Box>
+      )}
     </Box>
   );
 }

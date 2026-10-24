@@ -466,6 +466,69 @@ export function buildModel(graph: OrgChartGraph): ChartModel {
   };
 }
 
+/*
+ * START FROM ONE OR MORE ORG UNITS (spec §34.2). The whole graph is already on
+ * the client, so the chart is cut client-side: the positions whose org unit is
+ * one of the picked units or anything under it, the lines between them, and
+ * those units. The model is then built from that smaller graph as usual, so
+ * the counts, the drawing and an export are all of what is shown.
+ */
+
+/** The picked units without those that sit under another picked one (the outer one is kept), in the picks' order. */
+export function outerUnits(departments: { id: number; parentId: number | null }[], picked: number[]): number[] {
+  const byId = new Map(departments.map((d) => [d.id, d]));
+  const set = new Set(picked.filter((id) => byId.has(id)));
+  const out: number[] = [];
+  for (const id of picked) {
+    if (!set.has(id) || out.includes(id)) continue;
+    let cur = byId.get(id)?.parentId ?? null;
+    let inside = false;
+    for (let g = 0; cur != null && g < 60; g += 1) {
+      if (set.has(cur)) { inside = true; break; }
+      cur = byId.get(cur)?.parentId ?? null;
+    }
+    if (!inside) out.push(id);
+  }
+  return out;
+}
+
+/** Each unit in `ids` and everything under it. */
+export function unitBranches(departments: { id: number; parentId: number | null }[], ids: number[]): Set<number> {
+  const kids = new Map<number, number[]>();
+  for (const d of departments) {
+    if (d.parentId == null) continue;
+    const list = kids.get(d.parentId);
+    if (list) list.push(d.id);
+    else kids.set(d.parentId, [d.id]);
+  }
+  const out = new Set<number>();
+  const stack = [...ids];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (out.has(id)) continue;
+    out.add(id);
+    stack.push(...(kids.get(id) ?? []));
+  }
+  return out;
+}
+
+/** The graph cut to the picked units' branches (`units` already outer-only). */
+export function graphForUnits(graph: OrgChartGraph, units: number[]): OrgChartGraph {
+  const branch = unitBranches(graph.departments ?? [], units);
+  const nodes = graph.nodes.filter((n) => n.departmentId != null && branch.has(n.departmentId));
+  const kept = new Set(nodes.map((n) => n.id));
+  return {
+    ...graph,
+    root: null,
+    nodes,
+    edges: graph.edges.filter((e) => kept.has(e.fromPositionId) && kept.has(e.toPositionId)),
+    departments: (graph.departments ?? [])
+      .filter((d) => branch.has(d.id))
+      // A shared unit only points at what is drawn.
+      .map((d) => (d.serves?.length ? { ...d, serves: d.serves.filter((s) => branch.has(s)) } : d)),
+  };
+}
+
 /** The card a position is drawn in; a card id is returned as it is. Null when it is not on the chart. */
 export function cardIdOf(model: ChartModel, id: number): number | null {
   return model.cardOf.get(id) ?? (model.byId.has(id) ? id : null);
@@ -1915,6 +1978,12 @@ export interface BoxRender {
 export interface ChartLabelOptions {
   /** "Colour by label": each label's colour. Null = no colour. */
   colourBy: { colours: Map<number, { fill: string; edge: string }>; names: Map<number, string> } | null;
+  /**
+   * Each kind's OWN colour (spec §34.1), when the kinds carry one: the unit
+   * box's frame and its kind tag take it, in view mode too. Absent, or a kind
+   * without a colour = the box as it always was.
+   */
+  kindColours?: Map<number, { fill: string; edge: string; text?: string }> | null;
   /** Is a department inside the label filter? Absent = no filter. */
   inFilter?: (departmentId: number | null) => boolean;
   /**
@@ -2294,9 +2363,12 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       // a box whose label is not in the list stays as it was.
       const cb = opts.labels?.colourBy ?? null;
       const colour = cb && b.labelId != null ? cb.colours.get(b.labelId) : undefined;
+      // The kind's own colour (§34.1): the frame and the tag, without the fill.
+      const kc = b.labelId != null ? opts.labels?.kindColours?.get(b.labelId) : undefined;
+      const edge = colour?.edge ?? kc?.edge;
       prims.push({
         k: 'rect', x: b.x, y: b.y, w: b.w, h: b.h, r: 10,
-        fill: colour?.fill ?? p.canvas, stroke: colour?.edge ?? p.faint, sw: colour ? 1.3 : 1, dash: b.shared ? [6, 4] : undefined,
+        fill: colour?.fill ?? p.canvas, stroke: edge ?? p.faint, sw: edge ? 1.3 : 1, dash: b.shared ? [6, 4] : undefined,
       });
       let ty = b.y + 9 + 12.5;
       for (const line of b.titleLines) {
@@ -2307,8 +2379,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         // The label as a small chip, on the one line the label always had. Same line height, so nothing moves.
         const txt = fitText(b.type, f.deptMeta, b.w - 2 * BP - 10);
         const cw = textWidth(txt, f.deptMeta) + 10;
-        prims.push({ k: 'rect', x: b.x + BP, y: ty - 13, w: cw, h: 14, r: 4, fill: p.surface, stroke: p.faint, sw: 0.7 });
-        prims.push({ k: 'text', x: b.x + BP + 5, y: ty - 2.5, size: 10.5, weight: 500, fill: p.muted, text: txt });
+        prims.push({
+          k: 'rect', x: b.x + BP, y: ty - 13, w: cw, h: 14, r: 4,
+          fill: kc?.fill ?? p.surface, stroke: kc?.edge ?? p.faint, sw: kc ? 0.9 : 0.7,
+        });
+        prims.push({ k: 'text', x: b.x + BP + 5, y: ty - 2.5, size: 10.5, weight: kc ? 600 : 500, fill: kc?.text ?? p.muted, text: txt });
         ty += 15;
       }
       for (const note of b.notes) {

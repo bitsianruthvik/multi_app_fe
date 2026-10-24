@@ -46,6 +46,7 @@ export function AppShell({
   quickCreate,
   homePath = 'home',
   notificationsPath,
+  notificationCount,
   accountItems,
   onSignOut,
   shortcutGroups,
@@ -64,6 +65,8 @@ export function AppShell({
   quickCreate?: QuickCreate[];
   homePath?: string;
   notificationsPath?: string;
+  /** Unread items behind the bell (a badge on it). */
+  notificationCount?: number;
   accountItems?: ReactNode;
   onSignOut?: () => void;
   /** App-specific keyboard bindings for the `?` sheet. */
@@ -110,6 +113,7 @@ export function AppShell({
         quickCreate={quickCreate}
         homePath={homePath}
         notificationsPath={notificationsPath}
+        notificationCount={notificationCount}
         accountItems={accountItems}
         onSignOut={onSignOut}
       />

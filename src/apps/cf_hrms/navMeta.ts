@@ -57,6 +57,8 @@ const LEAVE = TAG.leave.view;
 const ATTENDANCE = TAG.attendance.view;
 const PAYROLL = TAG.payroll.view;
 const SETUP = TAG.setup.view;
+/** Compliance (spec §36.4): law changes for this company, the deadline calendar, the CA's review. */
+const COMPLIANCE = TAG.compliance.view;
 /** Logins and access roles. The Owner (platform role `admin`) holds it by name. */
 const ACCESS = TAG.named.accessManage;
 /**
@@ -209,6 +211,11 @@ export const SECTIONS: NavSection[] = [
       { key: 'pay-structures', label: 'Structures', path: 'pay-structures', hasDetail: true, permission: PAYROLL, keywords: ['salary structure', 'formula', 'basic', 'hra', 'special allowance', 'balance', 'ctc split', 'grade'] },
       { key: 'pay-components', label: 'Components', path: 'pay-components', permission: PAYROLL, keywords: ['earning', 'deduction', 'allowance', 'reimbursement', 'employer contribution', 'basic', 'hra', 'pf wage', 'esi wage', 'taxable'] },
       { key: 'statutory-settings', label: 'Statutory settings', path: 'statutory-settings', permission: PAYROLL, keywords: ['pf', 'esi', 'professional tax', 'pt', 'lwf', 'labour welfare fund', 'ceiling', 'rates', 'slabs', 'bank', 'debit account', 'ifsc'] },
+      // The law layer (spec §36.1): every rule that applies — labour law and income tax — read-only, with sources and versions.
+      { key: 'rules-in-force', label: 'Rules in force', path: 'rules-in-force', permission: PAYROLL, keywords: ['law', 'labour law', 'minimum wage', 'bonus', 'gratuity', 'overtime', 'leave minimum', 'labour code', '50% wage', 'tax rules', 'slabs', 'source', 'version', 'verified', 'compliance'] },
+      // Compliance checks (spec §36.3): what no longer complies, with a fix to choose and approve; the yearly statutory bonus.
+      { key: 'payroll-compliance', label: 'Compliance to-dos', path: 'payroll-compliance', hasDetail: true, permission: PAY_SCREEN, keywords: ['compliance', 'to-do', 'minimum wage', '50% rule', 'labour code', 'breach', 'fix', 're-split', 'raise ctc', 'statutory top-up', 'approve fix'] },
+      { key: 'payroll-bonus', label: 'Bonus', path: 'payroll-bonus', hasDetail: true, permission: PAY_SCREEN, keywords: ['bonus', 'statutory bonus', 'bonus act', 'code on wages', '8.33%', 'set-on', 'set-off', 'allocable surplus', 'bonus register'] },
       // Payroll extras P3a (spec §25.5): the month's PF ECR, ESI contribution sheet and PT return figures, from the locked run.
       { key: 'statutory-returns', label: 'Statutory returns', path: 'statutory-returns', permission: PAYROLL, keywords: ['ecr', 'pf return', 'epfo', 'uan', 'ncp days', 'esi return', 'esic', 'ip number', 'monthly contribution', 'professional tax return', 'form v', 'pt return'] },
       // Payroll P3b: claims against bills (reimbursements, flexible benefits, LTA), and the claim types with the payroll policy.
@@ -232,6 +239,17 @@ export const SECTIONS: NavSection[] = [
       { key: 'tax-perquisites', label: 'Perquisites', path: 'tax-perquisites', permission: PAY_SCREEN, keywords: ['perquisite', 'company car', 'car perquisite', 'accommodation', 'rent free', 'interest free loan', 'concessional loan', 'sbi rate', 'gift', 'voucher', 'credit card', 'club', '12ba', 'form 123'] },
       { key: 'tax-form10e', label: 'Form 10E', path: 'tax-form10e', permission: PAY_SCREEN, keywords: ['form 10e', 'form 39', 'relief', 'section 89', 'section 157', 'arrears', 'arrears relief', 'back-dated'] },
       { key: 'tax-settings', label: 'Tax settings', path: 'tax-settings', permission: PAYROLL, keywords: ['tax settings', 'windows', 'declaration window', 'proof window', 'cut-off', 'ca reviewed', 'tan', 'deductor'] },
+    ],
+  },
+
+  // ── Compliance (spec §36.4, §36.5) ─────────────────────────────────────────
+  // Law changes the product team published and what they touch here, acknowledged; the deadline calendar;
+  // the CA's review (rule sets, what changed, the calculation trace, sign-off, the review pack). One screen, three tabs.
+  {
+    key: 'compliance',
+    label: 'Compliance',
+    screens: [
+      { key: 'compliance', label: 'Compliance', path: 'compliance', permission: COMPLIANCE, keywords: ['compliance', 'law change', 'notice', 'acknowledge', 'notification', 'deadline', 'calendar', 'due date', 'tds deposit', 'pf due', 'esi due', 'pt due', 'form 16', 'form 130', 'quarterly return', 'minimum wage revision', 'ca', 'reviewer', 'sign off', 'review pack', 'calculation trace'] },
     ],
   },
 

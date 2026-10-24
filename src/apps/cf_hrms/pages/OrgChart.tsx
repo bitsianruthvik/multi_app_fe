@@ -6,6 +6,8 @@ import ImageRounded from '@mui/icons-material/ImageRounded';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import QuestionAnswerRounded from '@mui/icons-material/QuestionAnswerRounded';
 import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
+import EditRounded from '@mui/icons-material/EditRounded';
+import CheckRounded from '@mui/icons-material/CheckRounded';
 import {
   ChartSkeleton,
   EmptyState,
@@ -25,6 +27,8 @@ import {
   departmentOfCard,
   departmentTree,
   describeChart,
+  graphForUnits,
+  outerUnits,
   makeFonts,
   normaliseShow,
   openAbove,
@@ -37,7 +41,8 @@ import {
   type ShiftFilter,
 } from '../components/orgChartLayout';
 import { OrgChartCanvas, type NavDirection } from '../components/OrgChartCanvas';
-import { OrgChartToolbar, type RootOption } from '../components/OrgChartToolbar';
+import { OrgChartToolbar, type RootOption, type UnitOption } from '../components/OrgChartToolbar';
+import { unitLabel } from '../components/orgUnits';
 import { OrgChartPanelViews } from '../components/OrgChartPanelViews';
 import { OrgChartViewOptions } from '../components/OrgChartViewOptions';
 import { OrgChartTitleStrip } from '../components/OrgChartTitleStrip';
@@ -59,6 +64,9 @@ import { useCan } from '../access/can';
 import { useLabels, labelColour, labelFilterText, matchesLabel } from '../components/labels';
 import { LabelViewOptions } from '../components/OrgChartViewOptions';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
+import { useOrgChartEdit } from '../components/OrgChartEdit';
+import { EditBanner } from '../components/OrgChartEditBanner';
+import { kindColours } from '../components/orgChartKindColours';
 import { performanceApi, type ChartBands } from '../api/performance';
 
 /**
@@ -105,6 +113,9 @@ export default function OrgChart() {
   const mayDoInWords = can.org.edit || can.roles.edit || can.positions.edit;
   // "Do it in words" (spec §14): open from the button, or from ⌘K (…/org-chart?words=1).
   const [wordsOpen, setWordsOpen] = useState(() => params.get('words') === '1');
+  // Edit mode (spec §34.5): the same rights as "Do it in words". Off on every visit.
+  const mayEdit = mayDoInWords;
+  const [editing, setEditing] = useState(false);
   const [openAfterLoad, setOpenAfterLoad] = useState<number | null>(null);
 
   const key = (suffix: string) => prefKey(company, suffix);
@@ -117,6 +128,15 @@ export default function OrgChart() {
   const [root, setRoot] = useState<number | ''>(() => {
     const fromUrl = Number(params.get('root'));
     return fromUrl > 0 ? fromUrl : readPref<number | ''>(key('root'), '');
+  });
+  // Start from ONE OR MORE org units (spec §34.2): ?start=12,40, else the viewer's last pick.
+  // A unit pick and a card root (?root=) never hold at once.
+  const [units, setUnits] = useState<number[]>(() => {
+    const fromUrl = (params.get('start') ?? '').split(',').map(Number).filter((n) => n > 0);
+    if (fromUrl.length) return fromUrl;
+    if (Number(params.get('root')) > 0) return [];
+    const stored = readPref<number[]>(key('startUnits'), []);
+    return Array.isArray(stored) ? stored.filter((n) => Number(n) > 0) : [];
   });
   const [shift, setShift] = useState<ShiftFilter>(() => readPref<ShiftFilter>(key('shift'), 'all'));
   const [colours, setColours] = useState<boolean>(() => readPref<boolean>(key('colours'), true));
@@ -216,13 +236,16 @@ export default function OrgChart() {
         const next = new URLSearchParams(prev);
         if (root) next.set('root', String(root));
         else next.delete('root');
+        if (units.length) next.set('start', units.join(','));
+        else next.delete('start');
         // An old link's ?view= names a screen that no longer exists.
         next.delete('view');
         return next;
       },
       { replace: true },
     );
-  }, [root, company, setParams]);
+  }, [root, units, company, setParams]);
+  useEffect(() => writePref(prefKey(company, 'startUnits'), units), [units, company]);
 
   useEffect(() => writePref(prefKey(company, 'shift'), shift), [shift, company]);
   useEffect(() => writePref(prefKey(company, 'colours'), colours), [colours, company]);
@@ -293,7 +316,22 @@ export default function OrgChart() {
   }, [regionEl, scrollEl, pageEl, isFull]);
 
   // ── Model and scene ─────────────────────────────────────────────────────
-  const model = useMemo(() => (graph ? buildModel(graph) : null), [graph]);
+  // The whole organisation, and what is drawn: the picked org units' branches only (§34.2),
+  // cut from the graph already here, so the counts and an export are of what is shown.
+  const fullModel = useMemo(() => (graph ? buildModel(graph) : null), [graph]);
+  const startUnits = useMemo(
+    () => (fullModel ? outerUnits(fullModel.departments, units) : []),
+    [fullModel, units],
+  );
+  const model = useMemo(
+    () => (graph && fullModel ? (startUnits.length ? buildModel(graphForUnits(graph, startUnits)) : fullModel) : null),
+    [graph, fullModel, startUnits],
+  );
+  const startWords = startUnits
+    .map((id) => fullModel?.deptById.get(id))
+    .filter((d): d is NonNullable<typeof d> => !!d)
+    .map((d) => unitLabel(d.name, d.type))
+    .join(', ');
 
   // Dark mode re-tones every tint, and the SVG holds resolved colours rather
   // than var(--…) so the export can carry them into a file with no stylesheet.
@@ -318,7 +356,7 @@ export default function OrgChart() {
   // "Start from" is a CARD. A stored or linked id may be a position's (links
   // made before 2026-10-10, or "start the chart here" on a position): it is
   // read as the card that position is drawn in.
-  const rootCard: number | '' = root === '' || !model ? root : (cardIdOf(model, root) ?? '');
+  const rootCard: number | '' = startUnits.length ? '' : root === '' || !model ? root : (cardIdOf(model, root) ?? '');
 
   const visibleIds = useMemo(
     () => (model ? subtreeIds(model, rootCard) : []),
@@ -385,18 +423,20 @@ export default function OrgChart() {
     // palette: re-read the colours when the theme changes
   }, [perfOn, bands, palette]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Each kind's own colour, when the kinds carry one (§34.1): the box frame and tag, always.
+  const ownColours = useMemo(() => kindColours(labelList, theme.palette.mode), [labelList, theme.palette.mode]);
   const labelOptions = useMemo(() => {
     const colourOf = colourBy && labelList.length
       ? {
-          colours: new Map(labelList.map((l, i) => [l.id, labelColour(i)])),
+          colours: new Map(labelList.map((l, i) => [l.id, ownColours?.get(l.id) ?? labelColour(i)])),
           names: new Map(labelList.map((l) => [l.id, l.name])),
         }
       : null;
     const inFilter = labelFilter
       ? (departmentId: number | null) => departmentId != null && matchesLabel(labelFilter, deptLabel.get(departmentId), labelList)
       : undefined;
-    return { colourBy: colourOf, inFilter, performance };
-  }, [colourBy, labelFilter, labelList, deptLabel, performance]);
+    return { colourBy: colourOf, inFilter, performance, kindColours: ownColours };
+  }, [colourBy, labelFilter, labelList, deptLabel, performance, ownColours]);
   // "Of which in Plant: …" — the same counting rule, over the cards inside the filter.
   const inLabels = useMemo(() => {
     if (!model || !labelOptions.inFilter) return null;
@@ -436,7 +476,7 @@ export default function OrgChart() {
       secondaryEdges: model.secondary,
       labels: labelOptions,
       header: {
-        title: rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart',
+        title: startWords ? `${startWords} — and below` : rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart',
         meta: `As at ${asOf}     |     ${shiftLabel}`,
         counts:
           `Positions ${counts.positions}     Filled ${counts.filled}     Vacant ${counts.vacant}` +
@@ -448,7 +488,7 @@ export default function OrgChart() {
             : ''),
       },
     };
-  }, [model, counts, rootCard, shift, shiftLabel, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf, labelOptions]);
+  }, [model, counts, rootCard, shift, shiftLabel, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf, labelOptions, startWords]);
 
   const scene = useMemo(
     () => (model && sceneOptions ? buildScene(model, { ...sceneOptions, titleBlock: false }) : null),
@@ -549,6 +589,28 @@ export default function OrgChart() {
     });
   }, []);
 
+  // ── Edit mode (spec §34.5) ──────────────────────────────────────────────
+  // A unit the edit just touched is opened on the chart (the parent of a new
+  // unit, the target of a move), with every box above it.
+  const openUnit = useCallback(
+    (id: number) => {
+      setDeptFoldTouched(true);
+      setDeptClosed((prev) => {
+        const next = deptTree ? openAbove(deptTree, prev, id) : new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [deptTree],
+  );
+  const editor = useOrgChartEdit({
+    active: editing && mayEdit,
+    model,
+    can,
+    onChanged: refresh,
+    onOpenUnit: openUnit,
+  });
+
   /** Opens every department above a card, so a card picked from a list is on the canvas. */
   const reveal = useCallback(
     (id: number) => {
@@ -599,6 +661,7 @@ export default function OrgChart() {
   );
 
   const rootOptions: RootOption[] = useMemo(() => {
+    const model = fullModel;
     if (!model) return [];
     return subtreeIds(model, '').map((id) => {
       const n = model.byId.get(id)!;
@@ -610,13 +673,39 @@ export default function OrgChart() {
         depth: model.depth.get(id) ?? 0,
       };
     });
-  }, [model]);
+  }, [fullModel]);
+  // The org units in tree order, "Name (Kind)", each in its kind's colour.
+  const unitOptions: UnitOption[] = useMemo(() => {
+    const deps = fullModel?.departments ?? [];
+    const ids = new Set(deps.map((d) => d.id));
+    const kids = new Map<number | null, typeof deps>();
+    for (const d of deps) {
+      const p = d.parentId != null && ids.has(d.parentId) ? d.parentId : null;
+      const list = kids.get(p);
+      if (list) list.push(d);
+      else kids.set(p, [d]);
+    }
+    const out: UnitOption[] = [];
+    const seen = new Set<number>();
+    const walk = (p: number | null, depth: number) => {
+      for (const d of kids.get(p) ?? []) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        out.push({ id: d.id, label: unitLabel(d.name, d.type), depth, colour: d.labelId != null ? ownColours?.get(d.labelId) ?? null : null });
+        walk(d.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }, [fullModel, ownColours]);
 
   const doExport = async (kind: 'png' | 'pdf') => {
     if (!model || !sceneOptions) return;
     setExporting(true);
     try {
-      const name = rootNode ? `Org_chart_${rootNode.positionCode ?? rootNode.id}` : 'Org_chart';
+      const name = startUnits.length
+        ? `Org_chart_${startUnits.map((id) => fullModel?.deptById.get(id)?.code ?? id).join('_')}`
+        : rootNode ? `Org_chart_${rootNode.positionCode ?? rootNode.id}` : 'Org_chart';
       // The same drawing, WITH its title block and legend: the print carries them.
       const printed = buildScene(model, { ...sceneOptions, titleBlock: true });
       if (kind === 'png') await exportPng(printed, palette.fontUi, name);
@@ -803,6 +892,18 @@ export default function OrgChart() {
             <Button size="small" startIcon={<QuestionAnswerRounded />} onClick={() => { setAskText(''); setAskOpen(true); }}>
               Ask
             </Button>
+            {mayEdit && (
+              <Button
+                size="small"
+                data-edittoggle=""
+                startIcon={editing ? <CheckRounded /> : <EditRounded />}
+                variant={editing ? 'contained' : 'outlined'}
+                onClick={() => setEditing((v) => !v)}
+                aria-pressed={editing}
+              >
+                {editing ? 'Done' : 'Edit'}
+              </Button>
+            )}
             {mayDoInWords && (
               <Button
                 size="small"
@@ -850,6 +951,27 @@ export default function OrgChart() {
 
       {!!error && <ErrorNotice error={error} onRetry={() => load()} />}
 
+      {editing && mayEdit && !isFull && (
+        <EditBanner
+          action={
+            <Stack direction="row" spacing={1}>
+              {!boxed && model && model.departments.length > 0 && (
+                <Button size="small" variant="outlined" onClick={() => setShow({ ...show, departments: true })}>
+                  Show org units
+                </Button>
+              )}
+              <Button size="small" variant="contained" startIcon={<CheckRounded />} onClick={() => setEditing(false)} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+                Done
+              </Button>
+            </Stack>
+          }
+        >
+          <strong>Editing</strong> — changes save as you make them. Use the <strong>+</strong> on an org unit or a role,
+          or the <strong>⋯</strong> on a position{can.org.edit ? '; drag an org unit by its name onto another to move it' : ''}.
+          {!boxed && ' Org units are hidden: show them to add or move units.'}
+        </EditBanner>
+      )}
+
       {/*
         THE REGION: toolbar + chart. It is a fixed-height panel filling the
         rest of the window (measured above), so the page does not scroll and
@@ -889,6 +1011,9 @@ export default function OrgChart() {
               rootOptions={rootOptions}
               root={rootCard}
               onRoot={setRoot}
+              unitOptions={unitOptions}
+              units={startUnits}
+              onUnits={setUnits}
               shift={shift}
               onShift={setShift}
               shifts={shiftOptions}
@@ -936,7 +1061,7 @@ export default function OrgChart() {
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {counts && (
               <OrgChartTitleStrip
-                title={rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart'}
+                title={startWords ? `${startWords} — and below` : rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart'}
                 meta={`As at ${asOf} · ${shiftLabel}`}
                 facts={[
                   { label: 'Positions', value: counts.positions },
@@ -980,6 +1105,7 @@ export default function OrgChart() {
                   onToggleDept={toggleDept}
                   onNavigate={navigate}
                   onZoom={setZoomClamped}
+                  edit={editor.canvasEdit}
                 />
             </Box>
             {/* One line, truncated: every pixel of this region's height is chart.
@@ -1069,7 +1195,8 @@ export default function OrgChart() {
               onChanged={refresh}
               onOpenCard={openCard}
               onStartFrom={(positionId) => {
-                setRoot(model ? (cardIdOf(model, positionId) ?? '') : '');
+                setUnits([]);
+                setRoot(fullModel ? (cardIdOf(fullModel, positionId) ?? '') : '');
               }}
               // The viewer's own drawing options, for the card the panel was
               // opened on.
@@ -1098,6 +1225,8 @@ export default function OrgChart() {
           )}
         </OrgChartFloatingPanel>
       </Box>
+
+      {editor.ui}
 
       <OrgChartAsk
         open={askOpen}

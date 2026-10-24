@@ -30,7 +30,7 @@ import { api } from '../api/client';
 
 /* ── the tags ─────────────────────────────────────────────────────────── */
 
-const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'performance', 'time', 'leave', 'attendance', 'payroll', 'setup'] as const;
+const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'performance', 'time', 'leave', 'attendance', 'payroll', 'compliance', 'setup'] as const;
 export type Area = (typeof AREAS)[number];
 export type Right = 'view' | 'edit' | 'remove' | 'upload';
 
@@ -57,6 +57,8 @@ const AREA_RIGHTS: Record<Area, readonly Right[]> = {
    * the bank file) ALSO needs the named right payView — the server asks both.
    */
   payroll: ['view', 'edit', 'remove', 'upload'],
+  /** Compliance (spec §36.4): law changes for this company, acknowledging them, the deadline calendar (edit: acknowledge, mark done). */
+  compliance: ['view', 'edit'],
   setup: ['view', 'edit', 'remove'],
 };
 
@@ -75,6 +77,8 @@ const NAMED = {
   accessManage: 'cf_hrms_access_manage',
   /** A person's own place: their org chart slice and "My place". */
   selfView: 'cf_hrms_self_view',
+  /** The company's CA (spec §36.5): comment on, approve or question the rules in force, sign off a year. */
+  complianceReview: 'cf_hrms_compliance_review',
 } as const;
 export type NamedRight = keyof typeof NAMED;
 
@@ -101,7 +105,8 @@ export const SCREEN_TAGS: string[] = [...AREAS.map((a) => TAG[a].view), NAMED.ac
 export interface AccessMe {
   role: { id: number; label: string; scope: 'COMPANY' | 'DEPARTMENT' };
   tags: string[];
-  scope: { all: boolean; departmentNames: string[] };
+  /** rootDepartmentIds / departmentIds (spec §34.5): the units held, and those with everything under them — by id, names can repeat. */
+  scope: { all: boolean; departmentNames: string[]; rootDepartmentIds?: number[]; departmentIds?: number[] };
 }
 
 interface Snapshot {

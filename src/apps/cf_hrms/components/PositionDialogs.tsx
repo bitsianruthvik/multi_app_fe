@@ -24,7 +24,7 @@ const generalShiftId = (shifts: LookupRow[] | undefined): number | '' => {
 };
 
 export function PositionFormDialog({
-  open, onClose, onDone, options, position,
+  open, onClose, onDone, options, position, initial,
 }: {
   open: boolean;
   onClose: () => void;
@@ -32,6 +32,8 @@ export function PositionFormDialog({
   options: PositionOptions | null;
   /** null = create. */
   position: PositionRow | null;
+  /** A new position's role and org unit, when it is made from somewhere (the org chart's "+ Role here"). */
+  initial?: { roleId?: number | null; departmentId?: number | null };
 }) {
   const withKind = useUnitKinds();
   const can = useCan();
@@ -53,10 +55,10 @@ export function PositionFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    setRoleId(position?.roleId ?? '');
+    setRoleId(position?.roleId ?? initial?.roleId ?? '');
 
     setPositionTitle(position?.positionTitle ?? '');
-    setDepartmentId(position?.departmentId ?? '');
+    setDepartmentId(position?.departmentId ?? initial?.departmentId ?? '');
     setLocationId(position?.locationId ?? '');
     setDefaultShiftId(position?.defaultShiftId ?? position?.shift?.id ?? generalShiftId(options?.shifts));
     setStatus(position?.status ?? 'DRAFT');
@@ -64,6 +66,8 @@ export function PositionFormDialog({
     setEffectiveTo(position?.effectiveTo ?? '');
     setShiftPicked(false);
     setSuggestion(null);
+    // initial is read when the dialog opens, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, position, options]);
 
   // New position: ask the server what it would start on for the chosen department (its label's default, else General).

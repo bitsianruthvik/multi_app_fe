@@ -18,7 +18,9 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useCompanySlug } from '@shared/ui';
-import { orgApi, type Department } from '../api/organisation';
+import { orgApi, type Department, type DepartmentLabel } from '../api/organisation';
+import { kindColour } from './labels';
+import type { FilterOption } from './list/ListToolbar';
 
 /** "Printing 2 (Machine)". */
 export function unitLabel(name: string | null | undefined, kind: string | null | undefined): string {
@@ -113,3 +115,31 @@ export function useUnitKinds(enabled = true): (name: string | null | undefined, 
     [index],
   );
 }
+
+/* ── "Org unit (and below)" filters: one or more units (spec §34.2) ── */
+
+/** The units as filter options: tree order, "Name (Kind)", indented, each in its kind's colour. */
+export function orgUnitOptions(rows: Department[], labels: DepartmentLabel[] = []): FilterOption[] {
+  const byLabel = new Map(labels.map((l) => [l.id, l]));
+  return rows.map((r) => ({
+    value: String(r.id),
+    label: unitLabel(r.name, r.type),
+    depth: r.depth,
+    colour: r.labelId != null ? kindColour(byLabel.get(r.labelId) ?? null) : null,
+  }));
+}
+
+/** The company's org units as options (and [] for a login that may not read them). */
+export function useOrgUnitOptions(enabled = true): FilterOption[] {
+  const [state, setState] = useState<{ rows: Department[]; labels: DepartmentLabel[] }>({ rows: [], labels: [] });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let live = true;
+    Promise.all([orgApi.departments.list(), orgApi.departmentLabels.list().catch(() => [] as DepartmentLabel[])])
+      .then(([rows, labels]) => { if (live) setState({ rows, labels }); })
+      .catch(() => { if (live) setState({ rows: [], labels: [] }); });
+    return () => { live = false; };
+  }, [enabled]);
+  return useMemo(() => orgUnitOptions(state.rows, state.labels), [state]);
+}
+

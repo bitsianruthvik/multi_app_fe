@@ -40,10 +40,13 @@ export function RoleFormDialog({
   role,
   onClose,
   onSaved,
+  initialDepartmentId = null,
 }: {
   open: boolean;
   /** Null to create. */
   role: Role | null;
+  /** A new role's default org unit, when it is made from one (the org chart's "+ Role here"). */
+  initialDepartmentId?: number | null;
   onClose: () => void;
   onSaved: (role: Role) => void;
 }) {
@@ -70,7 +73,7 @@ export function RoleFormDialog({
             effectiveFrom: role.effectiveFrom ?? '',
             effectiveTo: role.effectiveTo ?? '',
           }
-        : EMPTY,
+        : { ...EMPTY, defaultDepartmentId: initialDepartmentId ? String(initialDepartmentId) : '' },
     );
     if (!seeDepartments) {
       setDepartments([]);
@@ -79,7 +82,7 @@ export function RoleFormDialog({
     listDepartments()
       .then((r) => setDepartments(r.items))
       .catch(() => setDepartments([]));
-  }, [open, role, seeDepartments]);
+  }, [open, role, seeDepartments, initialDepartmentId]);
 
   const set = (k: keyof FormState) => (e: { target: { value: string } }) =>
     setForm((s) => ({ ...s, [k]: e.target.value }));

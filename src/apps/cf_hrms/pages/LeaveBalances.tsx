@@ -104,7 +104,7 @@ export default function LeaveBalances() {
         key: 'year', label: 'Leave year', defaultValue: String(baseStart),
         options: years.map((y) => ({ value: String(y), label: yearOptionLabel(y, sample) })),
       }] : []),
-      ...(departments?.length ? [{ key: 'departmentId', label: 'Org unit (and below)', searchable: true, options: departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) })) }] : []),
+      ...(departments?.length ? [{ key: 'departmentId', label: 'Org unit (and below)', searchable: true, multiple: true, options: departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) })) }] : []),
     ];
   }, [grid, departments, baseStart]);
 

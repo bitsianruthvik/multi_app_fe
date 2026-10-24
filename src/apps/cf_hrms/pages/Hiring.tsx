@@ -119,7 +119,7 @@ export default function Hiring() {
         ],
       },
       { key: 'stage', label: 'Stage', options: STAGES },
-      { key: 'department', label: 'Org unit (and below)', searchable: true, options: asOptions(depts) },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: asOptions(depts) },
       ...labelFilterDefs(labelList),
       { key: 'role', label: 'Role', searchable: true, options: asOptions(roles) },
     ];

@@ -1,12 +1,9 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import PersonAddAltRounded from '@mui/icons-material/PersonAddAltRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
-import { errorMessage, useCompanySlug, useToast } from '@shared/ui';
 import { useCan } from '../access/can';
-import { hiringApi, openHiringIdOf, type HiringRef } from '../api/hiring';
-import { useHiringDialog } from './hiringDialogContext';
+import type { HiringRef } from '../api/hiring';
+import { useStartHiring } from './useStartHiring';
 
 /**
  * "Hire a new person" for a VACANT position — the one door into hiring.
@@ -51,47 +48,11 @@ export function HiringEntry({
   /** "Hire a replacement", on a position whose person is on notice. */
   label?: string;
 }) {
-  const company = useCompanySlug();
-  const navigate = useNavigate();
-  const toast = useToast();
   const can = useCan();
   const canStart = can.hiring.edit;
   const canRead = can.hiring.view;
-  const [busy, setBusy] = useState(false);
-
-  const dialog = useHiringDialog();
-  const open = (id: number) => {
-    if (dialog) dialog.open(id, onChanged);
-    else {
-      onChanged();
-      navigate(`/${company}/cf_hrms/hiring/${id}`);
-    }
-  };
+  const { start, open, busy } = useStartHiring(positionId, onChanged);
   const what = [roleTitle, positionCode].filter(Boolean).join(' · ');
-
-  const start = async () => {
-    setBusy(true);
-    try {
-      const { hiring: started } = await hiringApi.start(positionId);
-      open(started.id);
-    } catch (e) {
-      // Someone started one meanwhile: go to it rather than report a refusal.
-      let existing = openHiringIdOf(e);
-      if (existing == null && (e as { code?: string })?.code === 'HIRING_OPEN') {
-        existing = await hiringApi
-          .list({ status: 'open', positionId })
-          .then((r) => r.hirings[0]?.id ?? null)
-          .catch(() => null);
-      }
-      if (existing != null) {
-        open(existing);
-        return;
-      }
-      toast.error(errorMessage(e, 'Hiring could not be started for this position.'));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   if (hiring) {
     // Seeing a hiring needs its view right; without it there is nothing to show or open.

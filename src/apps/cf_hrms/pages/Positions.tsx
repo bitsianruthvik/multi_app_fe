@@ -88,7 +88,7 @@ export default function Positions() {
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const filterDefs: FilterDef[] = useMemo(() => [
-    { key: 'department', label: 'Org unit (and below)', searchable: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
+    { key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
     ...labelFilterDefs(labelList),
     { key: 'role', label: 'Role', searchable: true, options: (options?.roles ?? []).map((r) => ({ value: String(r.id), label: r.name })) },
     { key: 'shift', label: 'Shift', options: (options?.shifts ?? []).map((s) => ({ value: String(s.id), label: s.name })) },

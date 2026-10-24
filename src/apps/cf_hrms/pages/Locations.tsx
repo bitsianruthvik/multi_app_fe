@@ -42,6 +42,8 @@ import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { matchesQuery, useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
+import { LocationLawFields } from '../components/law/LocationLawFields';
+import { useLocationLaw, type LocationLawDraft } from '../components/law/useLocationLaw';
 
 /**
  * Locations — where work physically happens, as a tree (§4.7).
@@ -139,6 +141,9 @@ export default function Locations() {
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [doomed, setDoomed] = useState<OrgLocation | null>(null);
+  // The law layer (spec §36.1): the location's state and minimum-wage zone, saved after the location.
+  const law = useLocationLaw(can.org.view);
+  const [lawDraft, setLawDraft] = useState<LocationLawDraft>({ stateCode: '', zone: '' });
 
   const stats: Stat[] = useMemo(() => {
     const noAddress = rows.filter((r) => !hasAddress(r.address)).length;
@@ -152,8 +157,9 @@ export default function Locations() {
     ];
   }, [rows]);
 
-  const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId));
-  const openEdit = (row: OrgLocation) =>
+  const openNew = (parentId: number | null) => { setLawDraft(law.draftOf(null)); setDraft(emptyDraft(parentId)); };
+  const openEdit = (row: OrgLocation) => {
+    setLawDraft(law.draftOf(row.id));
     setDraft({
       id: row.id,
       name: row.name,
@@ -163,6 +169,7 @@ export default function Locations() {
       status: row.status,
       address: { ...(row.address ?? {}) },
     });
+  };
 
   const save = async () => {
     if (!draft) return;
@@ -174,8 +181,8 @@ export default function Locations() {
       status: draft.status,
       address: draft.address,
     };
-    if (draft.id) await orgApi.locations.update(draft.id, body);
-    else await orgApi.locations.create(body);
+    const saved = draft.id ? await orgApi.locations.update(draft.id, body) : await orgApi.locations.create(body);
+    if (can.org.edit) await law.save(draft.id ?? saved.id, lawDraft);
     success(draft.id ? 'Location saved.' : 'Location added.');
     reload();
   };
@@ -411,6 +418,7 @@ export default function Locations() {
                 />
               ))}
             </Box>
+            <LocationLawFields value={lawDraft} onChange={setLawDraft} states={law.states} zones={law.zones} />
           </>
         )}
       </FormDialog>

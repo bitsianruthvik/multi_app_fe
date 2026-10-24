@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { RunAttendance } from './payrollExit';
+import type { CompliancePreview } from './complianceChecks';
 
 /**
  * Payroll — the client side of CF_HRMS_HIRING_SPEC.md §25.2 (backend
@@ -140,6 +141,8 @@ export interface Breakdown {
   /** The ceilings the formulas used (from the statutory settings in force). */
   vars?: { PF_CEILING: number | null; ESI_CEILING: number | null };
   structure?: { id: number; name: string; code: string };
+  /** The preview's compliance check (spec §36.2): for the sample CTC and the place / role's skill. */
+  compliance?: CompliancePreview | null;
 }
 
 export interface PreviewInput {
@@ -150,6 +153,8 @@ export interface PreviewInput {
   pfMode?: PfMode;
   /** The day whose ceilings to use (YYYY-MM-DD); today when left out. */
   on?: string;
+  /** Where the compliance check looks: a role (its skill), a state and zone. */
+  place?: { roleId?: number | null; state?: string | null; zone?: string | null; skill?: string | null; employment?: string | null };
 }
 
 /* ── statutory settings ───────────────────────────────────────────────── */
@@ -164,7 +169,15 @@ export interface StatutoryRow {
   sourceUrl: string | null;
   verification: 'VERIFIED' | 'UNVERIFIED';
   note: string | null;
-  updatedAt: string | null;
+  updatedAt?: string | null;
+  /** The law layer (spec §36.1): a published version of a product-level rule. */
+  effectiveTo?: string | null;
+  version?: number;
+  status?: 'PUBLISHED' | 'SUPERSEDED';
+  publishedAt?: string | null;
+  title?: string | null;
+  /** The company's own note and "checked" mark against this version. */
+  companyNote?: { verification: 'VERIFIED' | 'UNVERIFIED' | null; note: string | null } | null;
 }
 
 export interface PaySettings {
@@ -182,17 +195,10 @@ export interface StatutoryList {
   inForce: Partial<Record<StatutoryKind, number | null>>;
   states: { code: string; name: string }[];
   unverified: number;
-}
-
-export interface StatutoryInput {
-  kind: StatutoryKind;
-  stateCode: string;
-  effectiveFrom: string;
-  settings: Record<string, unknown>;
-  source: string | null;
-  sourceUrl?: string | null;
-  verification?: 'VERIFIED' | 'UNVERIFIED';
-  note?: string | null;
+  /** Since the law layer: the rows are read-only; the company's choices live in /law/choices. */
+  readOnly?: boolean;
+  readOnlyWhy?: string;
+  superseded?: StatutoryRow[];
 }
 
 /* ── salaries ─────────────────────────────────────────────────────────── */
@@ -267,6 +273,8 @@ export interface SalaryInput {
   pfMode?: PfMode;
   stateCode?: string | null;
   reason?: string | null;
+  /** Accepts the salary's compliance WARNs (409 COMPLIANCE_WARN without it); kept with the approver. */
+  complianceReason?: string | null;
 }
 
 export interface SalaryCreated {
@@ -545,7 +553,7 @@ export const payrollApi = {
   structure: (id: number) => api.get<{ structure: PayStructure; variables: string[] }>(`/payroll/structures/${id}`),
   createStructure: (body: { code: string; name: string; description?: string | null; lines?: { componentId: number; formula: string }[]; copyOf?: number | null }) =>
     api.post<{ structure: PayStructure; variables: string[] }>('/payroll/structures', body),
-  updateStructure: (id: number, body: { name?: string; description?: string | null; status?: 'ACTIVE' | 'INACTIVE'; lines?: { componentId: number; formula: string }[] }) =>
+  updateStructure: (id: number, body: { name?: string; description?: string | null; status?: 'ACTIVE' | 'INACTIVE'; lines?: { componentId: number; formula: string }[]; complianceReason?: string | null; sampleCtc?: number; place?: PreviewInput['place'] }) =>
     api.put<{ structure: PayStructure; variables: string[] }>(`/payroll/structures/${id}`, body),
   removeStructure: (id: number) => api.del<{ ok: true }>(`/payroll/structures/${id}`),
   /** The live preview. Writes nothing; problems come back in the answer, not as an error. */
@@ -553,9 +561,8 @@ export const payrollApi = {
 
   // Statutory settings and the company's payroll settings
   statutory: () => api.get<StatutoryList>('/payroll/statutory'),
-  createStatutory: (body: StatutoryInput) => api.post<{ setting: StatutoryRow }>('/payroll/statutory', body),
-  updateStatutory: (id: number, body: Partial<StatutoryInput>) => api.put<{ setting: StatutoryRow }>(`/payroll/statutory/${id}`, body),
-  removeStatutory: (id: number) => api.del<{ ok: true }>(`/payroll/statutory/${id}`),
+  /** The law is read-only (spec §36.1): only the company's own note and "checked" mark against a version. */
+  noteStatutory: (id: number, body: { verification?: 'VERIFIED' | 'UNVERIFIED'; note?: string | null }) => api.put<{ setting: StatutoryRow }>(`/payroll/statutory/${id}`, body),
   putSettings: (body: Partial<Pick<PaySettings, 'stateCode' | 'debitAccountNo' | 'debitIfsc' | 'narration'>>) =>
     api.put<{ company: PaySettings }>('/payroll/settings', body),
 
@@ -577,7 +584,7 @@ export const payrollApi = {
   runPerson: (id: number, personId: number) => api.get<RunPersonDetail>(`/payroll/runs/${id}/people/${personId}`),
   calculate: (id: number) => api.post<RunDetail>(`/payroll/runs/${id}/calculate`),
   /** 409 STALE when something changed since the calculation. */
-  lock: (id: number) => api.post<RunDetail>(`/payroll/runs/${id}/lock`),
+  lock: (id: number, complianceReason?: string | null) => api.post<RunDetail>(`/payroll/runs/${id}/lock`, complianceReason ? { complianceReason } : undefined),
   release: (id: number) => api.post<RunDetail>(`/payroll/runs/${id}/release`),
   markPaid: (id: number, note?: string | null) => api.post<RunDetail>(`/payroll/runs/${id}/paid`, { note: note || null }),
   /** The Owner only, with a reason. */

@@ -58,7 +58,7 @@ export default function PerformanceReviews() {
       { key: 'period', label: 'Period', options: (data?.periods ?? []).map((p) => ({ value: String(p.id), label: p.name })) },
       { key: 'kind', label: 'Kind', options: REVIEW_KIND_OPTIONS },
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
-      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: deps },
       ...labelFilterDefs(labelList),
       {
         key: 'manager', label: 'Manager', searchable: true,

@@ -3,6 +3,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   Drawer,
   FormControlLabel,
   IconButton,
@@ -19,12 +20,16 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 import { Surface } from '@shared/ui';
-import type { ListFilters } from './useListFilters';
+import { multiValues, type ListFilters } from './useListFilters';
 
 export interface FilterOption {
   value: string;
   label: string;
   count?: number;
+  /** Indent in the list (an org unit's depth in the tree). The label stays whole on the chip. */
+  depth?: number;
+  /** Chip colours (a kind's colour, spec §34.1): CSS colours for the fill, the text and the edge. */
+  colour?: { fill: string; text: string; edge: string } | null;
 }
 
 export interface FilterDef {
@@ -38,6 +43,12 @@ export interface FilterDef {
   options?: FilterOption[];
   /** For a long list (departments, roles): a searchable box instead of a plain select. */
   searchable?: boolean;
+  /**
+   * Choose ONE OR MORE (spec §34.2): a box with chips; the address holds the values
+   * comma-separated (`department=12,40`), and an old single value still reads.
+   * Each chosen value is its own removable chip under the bar.
+   */
+  multiple?: boolean;
   /**
    * The value the list uses while the address has none (Employees: "working and
    * on notice"). It must be one of the options. It is shown as the select's
@@ -66,7 +77,7 @@ function activeText(def: FilterDef, value: string): string {
   return `${def.label}: ${opt?.label ?? value}`;
 }
 
-function ActiveChip({ text, onRemove }: { text: string; onRemove: () => void }) {
+function ActiveChip({ text, onRemove, colour }: { text: string; onRemove: () => void; colour?: FilterOption['colour'] }) {
   return (
     <Box
       component="span"
@@ -85,6 +96,7 @@ function ActiveChip({ text, onRemove }: { text: string; onRemove: () => void }) 
         color: 'var(--c-primary-700)',
         fontSize: 12,
         fontWeight: 500,
+        ...(colour ? { borderColor: colour.edge, background: colour.fill, color: colour.text } : {}),
       }}
     >
       <Box
@@ -138,6 +150,54 @@ function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters 
         value={value}
         onChange={(e) => setValue(e.target.value || null)}
         slotProps={{ inputLabel: { shrink: true } }}
+      />
+    );
+  }
+
+  if (def.multiple) {
+    const chosen = multiValues(value);
+    // A chosen value the list does not hold (a stale bookmark) still shows, by its id.
+    const picked = chosen.map((v) => options.find((o) => o.value === v) ?? { value: v, label: v });
+    return (
+      <Autocomplete
+        multiple
+        size="small"
+        fullWidth
+        disableCloseOnSelect
+        options={options}
+        value={picked}
+        onChange={(_, opts) => setValue(opts.length ? opts.map((o) => o.value).join(',') : null)}
+        getOptionLabel={(o) => o.label}
+        getOptionKey={(o) => o.value}
+        isOptionEqualToValue={(a, b) => a.value === b.value}
+        noOptionsText="Nothing matches"
+        renderOption={(props, o, { selected }) => {
+          const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key: string };
+          return (
+            <li key={key} {...rest} aria-selected={selected} style={{ paddingLeft: 12 + (o.depth ?? 0) * 14 }}>
+              {o.colour && <Box component="span" aria-hidden sx={{ width: 10, height: 10, borderRadius: '50%', mr: 1, flexShrink: 0, background: o.colour.fill, border: `2px solid ${o.colour.edge}` }} />}
+              <Box component="span" sx={{ fontWeight: selected ? 600 : 400 }}>{o.label}</Box>
+              {o.count !== undefined && (
+                <Box component="span" sx={{ ml: 1, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-3)' }}>{fmtCount(o.count)}</Box>
+              )}
+            </li>
+          );
+        }}
+        renderValue={(vals, getItemProps) =>
+          vals.map((o, index) => {
+            const { key, ...itemProps } = getItemProps({ index });
+            return (
+              <Chip
+                key={key}
+                size="small"
+                label={o.label}
+                {...itemProps}
+                sx={o.colour ? { background: o.colour.fill, color: o.colour.text, border: `1px solid ${o.colour.edge}`, '& .MuiChip-deleteIcon': { color: o.colour.text } } : undefined}
+              />
+            );
+          })
+        }
+        renderInput={(params) => <TextField {...params} label={def.label} placeholder={chosen.length ? '' : 'Any — choose one or more'} />}
       />
     );
   }
@@ -238,6 +298,20 @@ export function ListToolbar({
   const active = list.filter((d) => {
     const v = filters.values[d.key] ?? '';
     return v !== '' && v !== d.defaultValue;
+  });
+  // A multiple filter shows one chip per chosen value, each removable on its own.
+  const chips = active.flatMap((d) => {
+    if (!d.multiple) return [{ key: d.key, text: activeText(d, filters.values[d.key] ?? ''), colour: d.options?.find((o) => o.value === filters.values[d.key])?.colour ?? null, onRemove: () => filters.setMany({ [d.key]: null }) }];
+    const vals = multiValues(filters.values[d.key]);
+    return vals.map((v) => {
+      const opt = d.options?.find((o) => o.value === v);
+      return {
+        key: `${d.key}:${v}`,
+        text: `${d.label}: ${opt?.label ?? v}`,
+        colour: opt?.colour ?? null,
+        onRemove: () => filters.setMany({ [d.key]: vals.filter((x) => x !== v).join(',') || null }),
+      };
+    });
   });
   // A shared param counts once in `activeCount`; on the button each filter that is set counts.
   const setCount = active.length;
@@ -429,12 +503,8 @@ export function ListToolbar({
         {search !== '' && (
           <ActiveChip text={`Search: ${search}`} onRemove={() => filters.setQ('')} />
         )}
-        {active.map((d) => (
-          <ActiveChip
-            key={d.key}
-            text={activeText(d, filters.values[d.key] ?? '')}
-            onRemove={() => filters.setMany({ [d.key]: null })}
-          />
+        {chips.map((c) => (
+          <ActiveChip key={c.key} text={c.text} colour={c.colour} onRemove={c.onRemove} />
         ))}
         {filters.isFiltered && (
           <Button

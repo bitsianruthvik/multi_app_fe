@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, ListItemText, Menu, MenuItem } from '@mui/material';
 import CheckRounded from '@mui/icons-material/CheckRounded';
 import { useToast } from '@shared/ui';
@@ -45,42 +45,55 @@ function loadShifts(fromTimeArea: boolean): Promise<ShiftChoice[]> {
   return shiftsOnce;
 }
 
-export function PositionShiftControl({
+type ShiftNow = { id?: number | null; code?: string | null; name?: string | null; summary?: string | null } | null;
+
+/**
+ * The shift menu on its own, anchored wherever the caller says — the control
+ * below, or the org chart's edit menu ("Change shift", spec §34.5). The same
+ * list, the same update, the same words.
+ */
+export function PositionShiftMenu({
+  anchorEl,
   positionId,
   shift,
   occupantName,
+  onClose,
   onChanged,
-  showName = true,
+  onBusy,
 }: {
+  /** Open while set. */
+  anchorEl: Element | null;
   positionId: number;
-  /** The position's shift now. `id` may be missing on an older payload; the name is still shown. */
-  shift: { id?: number | null; code?: string | null; name?: string | null; summary?: string | null } | null;
-  /** The person in the position, if any — their shift moves with it, and the menu says so. */
+  shift: ShiftNow;
   occupantName?: string | null;
+  onClose: () => void;
   onChanged: (shift: PositionShift) => void;
-  /** False where the caller already prints the shift and wants only the button. */
-  showName?: boolean;
+  onBusy?: (busy: boolean) => void;
 }) {
   const can = useCan();
   const toast = useToast();
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [shifts, setShifts] = useState<ShiftChoice[] | null>(null);
-  const [busy, setBusy] = useState(false);
+  const timeView = can.time.view;
 
-  const open = (el: HTMLElement) => {
-    setAnchor(el);
-    loadShifts(can.time.view)
-      .then(setShifts)
+  useEffect(() => {
+    if (!anchorEl) return undefined;
+    let live = true;
+    loadShifts(timeView)
+      .then((list) => { if (live) setShifts(list); })
       .catch((e) => {
-        setAnchor(null);
+        if (!live) return;
+        onClose();
         toast.error(e instanceof Error ? e.message : 'The shifts could not be loaded.');
       });
-  };
+    return () => { live = false; };
+    // onClose / toast are read, not watched: a new function must not reload the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorEl, timeView]);
 
   const pick = async (s: ShiftChoice) => {
-    setAnchor(null);
+    onClose();
     if (s.id === shift?.id) return;
-    setBusy(true);
+    onBusy?.(true);
     try {
       await positionsApi.update(positionId, { defaultShiftId: s.id });
       toast.success(
@@ -92,9 +105,50 @@ export function PositionShiftControl({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'The shift could not be changed.');
     } finally {
-      setBusy(false);
+      onBusy?.(false);
     }
   };
+
+  return (
+    <Menu anchorEl={anchorEl} open={!!anchorEl && !!shifts} onClose={onClose}>
+      {occupantName && (
+        <Box sx={{ px: 2, pb: 0.75, maxWidth: 260, fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.45 }}>
+          {occupantName} is in this position and moves to the shift you pick.
+        </Box>
+      )}
+      {(shifts ?? []).map((s) => (
+        <MenuItem key={s.id} selected={s.id === shift?.id} onClick={() => void pick(s)} dense>
+          <ListItemText
+            primary={shiftWord(s.name)}
+            secondary={s.summary || undefined}
+            slotProps={{ secondary: { sx: { fontSize: 12, color: 'var(--c-text-2)' } } }}
+          />
+          {s.id === shift?.id && <CheckRounded fontSize="small" sx={{ ml: 1.5, color: 'var(--c-text-2)' }} />}
+        </MenuItem>
+      ))}
+    </Menu>
+  );
+}
+
+export function PositionShiftControl({
+  positionId,
+  shift,
+  occupantName,
+  onChanged,
+  showName = true,
+}: {
+  positionId: number;
+  /** The position's shift now. `id` may be missing on an older payload; the name is still shown. */
+  shift: ShiftNow;
+  /** The person in the position, if any — their shift moves with it, and the menu says so. */
+  occupantName?: string | null;
+  onChanged: (shift: PositionShift) => void;
+  /** False where the caller already prints the shift and wants only the button. */
+  showName?: boolean;
+}) {
+  const can = useCan();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const name = shiftWord(shift?.name) || '—';
   return (
@@ -112,28 +166,20 @@ export function PositionShiftControl({
             disabled={busy}
             aria-haspopup="menu"
             aria-label={`Change shift. Now ${name}.`}
-            onClick={(e) => open(e.currentTarget)}
+            onClick={(e) => setAnchor(e.currentTarget)}
             sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 12.5, lineHeight: 1.5, textTransform: 'none' }}
           >
             {busy ? 'Changing…' : 'Change shift'}
           </Button>
-          <Menu anchorEl={anchor} open={!!anchor && !!shifts} onClose={() => setAnchor(null)}>
-            {occupantName && (
-              <Box sx={{ px: 2, pb: 0.75, maxWidth: 260, fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.45 }}>
-                {occupantName} is in this position and moves to the shift you pick.
-              </Box>
-            )}
-            {(shifts ?? []).map((s) => (
-              <MenuItem key={s.id} selected={s.id === shift?.id} onClick={() => void pick(s)} dense>
-                <ListItemText
-                  primary={shiftWord(s.name)}
-                  secondary={s.summary || undefined}
-                  slotProps={{ secondary: { sx: { fontSize: 12, color: 'var(--c-text-2)' } } }}
-                />
-                {s.id === shift?.id && <CheckRounded fontSize="small" sx={{ ml: 1.5, color: 'var(--c-text-2)' }} />}
-              </MenuItem>
-            ))}
-          </Menu>
+          <PositionShiftMenu
+            anchorEl={anchor}
+            positionId={positionId}
+            shift={shift}
+            occupantName={occupantName}
+            onClose={() => setAnchor(null)}
+            onChanged={onChanged}
+            onBusy={setBusy}
+          />
         </>
       )}
       {/* Which days, from when to when — under the name, wherever a position's shift is shown. */}

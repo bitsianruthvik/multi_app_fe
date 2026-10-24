@@ -46,6 +46,8 @@ const Actions = lazy(() => import("@apps/audio_intelligence/pages/admin/Actions"
 const AdminLayout = lazy(() => import("@core/layouts/AdminLayout"));
 const Dashboard = lazy(() => import("@apps/audio_intelligence/pages/admin/Dashboard"));
 const UserDashboard = lazy(() => import("./pages/user/Dashboard"));
+// The product team's compliance console (CF_HRMS_HIRING_SPEC.md §36.4): outside any company.
+const PlatformCompliance = lazy(() => import("./pages/platform/PlatformCompliance"));
 
 function getSlugsFromPathname(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -87,6 +89,18 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <CompanyMismatch requested={company} signedIn={signedInCompany} />;
   }
 
+  return <>{children}</>;
+}
+
+/**
+ * The platform console belongs to no company: it needs a signed-in login only (the backend checks
+ * platform_admins on every call and says no to everybody else), so no company-mismatch screen here.
+ */
+function PlatformRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isInitialized } = useAuth();
+  const location = useLocation();
+  if (!isInitialized) return <Box sx={{ display: "flex", justifyContent: "center", mt: 8 }}><CircularProgress /></Box>;
+  if (!isAuthenticated) return <Navigate to="/" state={{ from: location }} replace />;
   return <>{children}</>;
 }
 
@@ -152,6 +166,7 @@ function App() {
               >
               <Routes>
                 {/* New company-level entry points */}
+                <Route path="/platform/compliance" element={<PlatformRoute><PlatformCompliance /></PlatformRoute>} />
                 <Route path="/:company" element={<CompanyLanding />} />
                 <Route
                   path="/:company/apps"

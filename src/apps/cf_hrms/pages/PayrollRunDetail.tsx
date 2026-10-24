@@ -46,6 +46,7 @@ import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
 import { Amount, Fact, NeedPayView, RunStatusBadge, WarningChips } from '../components/payroll/PayParts';
 import { RunPersonSheet } from '../components/payroll/RunPersonSheet';
+import { RunCompliancePanel } from '../components/payroll/RunCompliancePanel';
 import { RUN_STATUS, monthWord, rupees, stampDay, warningWord } from '../components/payroll/payWords';
 import { useUnitKinds } from '../components/orgUnits';
 
@@ -245,6 +246,8 @@ function RunPage() {
 
       <Stack spacing={2}>
         <ErrorNotice error={actionError} />
+        {/* Spec §36.2: every breach per person before the lock; HARD blocks it, a WARN is acknowledged with a reason. */}
+        {run.status !== 'DRAFT' && <RunCompliancePanel runId={runId} company={company} version={`${run.status}|${run.calculatedAt ?? ''}`} canEdit={edit} onChanged={load} />}
 
         {stale && (
           <Callout tone="warning" title="Calculate again">

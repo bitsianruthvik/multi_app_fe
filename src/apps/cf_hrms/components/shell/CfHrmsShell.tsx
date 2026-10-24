@@ -15,6 +15,7 @@ import { fetchNavCounts } from '../../api/client';
 import { usePendingApprovals } from '../../api/approvals';
 import { peopleApi } from '../../api/people';
 import { orgChartApi } from '../../api/orgchart';
+import { complianceApi } from '../../api/compliance';
 // Side effect: registers every cf_hrms status with its tone and label, so a
 // StatusBadge reads the same on every screen. Every route renders inside this
 // shell, so importing it here covers the whole app.
@@ -124,6 +125,23 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  /**
+   * The bell (spec §36.4): law changes waiting to be acknowledged and deadlines in the next three days,
+   * for a login with Compliance view. Read on load and every five minutes; advisory — a failure shows no badge.
+   */
+  const mayCompliance = access.compliance.view;
+  const [bellCount, setBellCount] = useState(0);
+  useEffect(() => {
+    if (!mayCompliance) { setBellCount(0); return undefined; }
+    let live = true;
+    const read = () => { complianceApi.bell().then((b) => { if (live) setBellCount(b.count); }).catch(() => { /* no badge */ }); };
+    read();
+    const t = window.setInterval(read, 5 * 60 * 1000);
+    // Acknowledging or marking a deadline done re-reads it at once (the Compliance panels say so).
+    window.addEventListener('cf-hrms-compliance-changed', read);
+    return () => { live = false; window.clearInterval(t); window.removeEventListener('cf-hrms-compliance-changed', read); };
+  }, [mayCompliance]);
+
   const navCounts = useMemo(
     () => (pendingApprovals ? { ...counts, approvals: pendingApprovals } : counts),
     [counts, pendingApprovals],
@@ -213,6 +231,8 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             quickCreate={QUICK_CREATE}
             can={can}
             accountItems={<MyAccessLine />}
+            notificationsPath={mayCompliance ? 'compliance' : undefined}
+            notificationCount={bellCount}
           >
             <HiringDialogProvider>{children}</HiringDialogProvider>
           </AppShell>

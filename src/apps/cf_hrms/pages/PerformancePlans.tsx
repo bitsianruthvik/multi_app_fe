@@ -167,7 +167,7 @@ export default function PerformancePlans() {
           .map(([id, name]) => ({ value: String(id), label: name }));
     return [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
-      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: deps },
       ...labelFilterDefs(labelList),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },
     ];

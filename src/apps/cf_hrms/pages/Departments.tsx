@@ -1,17 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
-import {
-  Autocomplete,
-  Box,
-  Button,
-  Chip,
-  FormControlLabel,
-  MenuItem,
-  Switch,
-  TextField,
-  Typography,
-} from '@mui/material';
+import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import SubdirectoryArrowRightRounded from '@mui/icons-material/SubdirectoryArrowRightRounded';
+import DriveFileMoveRounded from '@mui/icons-material/DriveFileMoveRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
@@ -20,7 +11,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorNotice,
-  FormDialog,
   ListSkeleton,
   PageHeader,
   StatStrip,
@@ -34,9 +24,8 @@ import { useCompanySlug } from '@shared/ui';
 import { useCan } from '../access/can';
 import { orgApi, type Department, type DepartmentLabel } from '../api/organisation';
 import { LabelsSheet } from '../components/LabelsSheet';
-import { labelFilterDefs, matchesLabel } from '../components/labels';
-import { forgetUnitKinds, kindWord, nextKindDown, unitLabel } from '../components/orgUnits';
-import { CodeNote } from '../components/CodeNote';
+import { kindChipSx, kindColourOf, labelFilterDefs, matchesLabel } from '../components/labels';
+import { forgetUnitKinds, kindWord, orgUnitOptions, unitLabel } from '../components/orgUnits';
 import { getDepartmentStaffing } from '../api/jobContent';
 import { DepartmentStaffingPanel, JobPeekSheet, type JobPeek } from '../components/DepartmentStaffing';
 import {
@@ -44,14 +33,16 @@ import {
   ORG_STATUS_TONES,
   descendantIds,
   filterTreeBy,
-  indentedLabel,
   parentPath,
   useOrgLoad,
   useTreeCollapse,
 } from '../components/OrgData';
-import { OrgCode, OrgTreeView } from '../components/OrgTree';
+import { OrgCode } from '../components/OrgTree';
+import { OrgUnitTree, type UnitDrop } from '../components/OrgUnitTree';
+import { OrgUnitDialog } from '../components/OrgUnitDialog';
+import { MoveConfirm, MoveToDialog, UndoBar, type PendingMove } from '../components/OrgUnitMove';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
-import { matchesQuery, useListFilters } from '../components/list/useListFilters';
+import { matchesQuery, multiValues, useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 
@@ -63,72 +54,48 @@ import { ExcelButtons } from '../components/excel/ExcelButtons';
  *
  * Hierarchical because the parent carries the meaning: "Printing" on its own
  * says almost nothing, "Production › Printing" says which JD, which manpower
- * plan and which holiday calendar it belongs to. A flat table with a Parent
- * column makes the reader rebuild that in their head on every visit.
+ * plan and which holiday calendar it belongs to.
  *
  * WHO WORKS THERE (2026-10-10). An org unit's name is a button: it opens the
- * unit's roles and positions under its row — positions grouped by role,
- * with positions, filled, vacant and who is in each. Clicking a role or a position
- * opens its KRAs, responsibilities and KPIs in a side sheet, with Edit going to
- * the role's Content tab or the position's job-content editor.
+ * unit's roles and positions under its row. Clicking a role or a position
+ * opens its KRAs, responsibilities and KPIs in a side sheet.
  *
- * KINDS (2026-10-12, spec §9 "labels"; groups of §15 removed 2026-10-16; §33).
- * Everything is an org unit; what it is comes from its ONE label, shown as its
- * KIND (Department, Section, Machine, or the company's own words), edited in
- * the "Kinds of org unit" side sheet (LabelsSheet). Each row leads with its
- * kind ("Machine · Nord / Uflex"); the toolbar's Kind filter is `label=…`
- * (the server's rule). Whether a unit is SHARED is a separate fact with its
- * own switch, not a kind. The kinds' words are never branched on.
+ * KINDS (spec §9, §15, §33, §34.1). Every unit has ONE kind (Department,
+ * Section, Machine, or the company's own words), edited in the "Kinds of org
+ * unit" side sheet, each with a COLOUR: the kind chip leading each row, the
+ * Kind filter's chips and the org chart use it. The words are never branched on.
  *
- * THE DIALOG (§33): "What is it?" first (the kinds as chips, + add a kind),
- * then Name, Sits under and the code; its title follows the choice ("New
- * machine under Printing"). "Add under this" fills Sits under and suggests the
- * kind after the parent's, by the kinds' order.
+ * ORDER, MOVES AND ADDING (spec §34). Siblings show in their stored order
+ * (then code), never by name. Drag a row's handle onto another unit to put it
+ * under that unit, or onto the top / bottom edge of a row to put it before /
+ * after it among its siblings; a move to another parent asks first ("Move
+ * Lamination (Section) from Production to Operations — 6 positions and 2
+ * units under it move with it"), a reorder does not; both offer Undo. "Move
+ * to…" in the row menu is the keyboard and touch way. A "+" on each row adds a
+ * unit under it (the next kind down suggested); a "+" in the gap above a row
+ * adds a sibling at that place; "+ New org unit" defaults to the first top
+ * unit, and the top level is an explicit choice with its own confirm line
+ * (OrgUnitDialog). Dragging is off while the list is filtered.
  *
  * THE CODE IS NOT TYPED (spec §11). It is issued by Setup › Code formats when
  * the unit is created and never changes.
  */
 
-interface DraftState {
-  id: number | null;
-  name: string;
-  /** Shown as text on edit; never sent. */
-  code: string | null;
-  parentId: number | '';
-  status: 'ACTIVE' | 'INACTIVE';
-  /** Its ONE label ('' only while the list is still loading). */
-  labelId: number | '';
-  /** Its people serve other org units — one box on the org chart, pointing at what it serves. */
-  isShared: boolean;
-  serves: number[];
-}
-
-/**
- * A new org unit. On top: the first kind of the list ("Department" unless
- * reordered). Under a parent: the kind after the parent's (§33).
- */
-const emptyDraft = (parent: Department | null, labels: DepartmentLabel[]): DraftState => ({
-  id: null,
-  name: '',
-  code: null,
-  parentId: parent?.id ?? '',
-  status: 'ACTIVE',
-  labelId: (parent ? nextKindDown(labels, parent.labelId)?.id : labels[0]?.id) ?? '',
-  isShared: false,
-  serves: [],
-});
-
 /** "3 roles · 12 positions" — what an org unit holds, on its row. */
 const staffLabel = (c: { roles: number; positions: number }) =>
   `${c.roles} role${c.roles === 1 ? '' : 's'} · ${c.positions} position${c.positions === 1 ? '' : 's'}`;
 
+/** The dialog: a unit to edit, or where a new one goes. */
+interface DialogState {
+  unit: Department | null;
+  parentId: number | null;
+  sortOrder: number | null;
+  atTop: boolean;
+}
+
 export default function Departments() {
   const can = useCan();
-  const { success } = useToast();
-  // "+ Add a kind" inside the dialog: the text being typed (null = closed), and a refusal.
-  const [newKind, setNewKind] = useState<string | null>(null);
-  const [kindProblem, setKindProblem] = useState<string | null>(null);
-  const [addingKind, setAddingKind] = useState(false);
+  const { success, error: toastError } = useToast();
 
   const company = useCompanySlug();
   const load = useCallback(
@@ -153,6 +120,7 @@ export default function Departments() {
   const [peek, setPeek] = useState<JobPeek | null>(null);
   const unplaced = staffingOf.get(0) ?? null;
   const rows = useMemo(() => data?.rows ?? [], [data]);
+  const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
   const labels: DepartmentLabel[] = useMemo(() => data?.labelList.labels ?? [], [data]);
   const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
 
@@ -161,24 +129,23 @@ export default function Departments() {
   const labelFilter = filters.values.label;
   const sharedOnly = filters.values.shared === '1';
   const statusFilter = filters.values.status;
-  const underId = Number(filters.values.parent) || 0;
+  const underIds = useMemo(() => multiValues(filters.values.parent).map(Number).filter((n) => n > 0), [filters.values.parent]);
   const search = filters.params.q ?? '';
   // The server's rules for GET /organisation/departments: "Under" is everything
-  // below the chosen unit at any depth, NOT the unit itself; the
-  // search is in the name or the code.
+  // below ANY of the chosen units at any depth, NOT the unit itself (spec §34.2:
+  // one or more); the search is in the name or the code.
   const matched = useMemo(() => {
-    const below = underId ? descendantIds(rows, underId) : null;
+    const below = underIds.map((id) => ({ id, set: descendantIds(rows, id) }));
     return rows.filter(
       (r) =>
         matchesLabel(labelFilter, r.labelId, labels) &&
         (!sharedOnly || !!r.isShared) &&
         (!statusFilter || r.status.toLowerCase() === statusFilter.toLowerCase()) &&
-        (!below || (r.id !== underId && below.has(r.id))) &&
+        (!below.length || below.some((b) => b.id !== r.id && b.set.has(r.id))) &&
         matchesQuery([r.name, r.code], search),
     );
-  }, [rows, labelFilter, sharedOnly, statusFilter, underId, search, labels]);
-  // Every match keeps its ancestors in the tree (so the chosen unit still
-  // shows as the visible ancestor of what is under it); the count is of the matches.
+  }, [rows, labelFilter, sharedOnly, statusFilter, underIds, search, labels]);
+  // Every match keeps its ancestors in the tree; the count is of the matches.
   const filtered = useMemo(() => {
     const ids = new Set(matched.map((r) => r.id));
     return filterTreeBy(rows, (r) => ids.has(r.id));
@@ -195,22 +162,18 @@ export default function Departments() {
           { value: 'INACTIVE', label: 'Inactive' },
         ],
       },
-      {
-        key: 'parent',
-        label: 'Under',
-        searchable: true,
-        options: rows.map((r) => ({ value: String(r.id), label: unitLabel(r.path, r.type) })),
-      },
+      { key: 'parent', label: 'Under', searchable: true, multiple: true, options: orgUnitOptions(rows, labels) },
     ],
     [labels, rows],
   );
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
 
-  const [draft, setDraft] = useState<DraftState | null>(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
   const [doomed, setDoomed] = useState<Department | null>(null);
+  const [moveTo, setMoveTo] = useState<Department | null>(null);
+  const [pending, setPending] = useState<PendingMove | null>(null);
+  const [undo, setUndo] = useState<{ text: string; run: () => Promise<void> } | null>(null);
 
-  // Derived from the rows already loaded — no second request. The count line
-  // under the toolbar says how many org units; these say what it does not.
   const stats: Stat[] = useMemo(() => {
     const roots = rows.filter((r) => r.depth === 0).length;
     const totals = data?.staffing.counts;
@@ -232,66 +195,11 @@ export default function Departments() {
     ];
   }, [rows, data]);
 
-  // On top, a new unit takes the first kind — "Department" unless the company reordered the list;
-  // under a parent, the kind after the parent's.
-  const openNew = (parent: Department | null) => {
-    setNewKind(null);
-    setKindProblem(null);
-    setDraft(emptyDraft(parent, labels));
-  };
-  const openEdit = (row: Department) => {
-    setNewKind(null);
-    setKindProblem(null);
-    setDraft({
-      id: row.id,
-      name: row.name,
-      code: row.code ?? null,
-      parentId: row.parentId ?? '',
-      status: row.status,
-      labelId: row.labelId ?? labels.find((l) => l.name.toLowerCase() === String(row.type ?? '').toLowerCase())?.id ?? '',
-      isShared: Boolean(row.isShared),
-      serves: row.serves ?? [],
-    });
-  };
-
-  // "+ Add a kind" (the labels API): added to the company's list and chosen at once.
-  const addKind = async () => {
-    const name = (newKind ?? '').trim();
-    if (!name || !draft) return;
-    setAddingKind(true);
-    setKindProblem(null);
-    try {
-      const made = await orgApi.departmentLabels.create(name);
-      setDraft((d) => (d ? { ...d, labelId: made.id } : d));
-      setNewKind(null);
-      void reload();
-    } catch (e) {
-      const err = e as { message?: string; problems?: string[] } | null;
-      setKindProblem(err?.problems?.[0] || err?.message || 'That kind could not be added.');
-    } finally {
-      setAddingKind(false);
-    }
-  };
-
-  const save = async () => {
-    if (!draft) return;
-    // No code: the server issues it on create and never changes it.
-    const body = {
-      name: draft.name,
-      parentId: draft.parentId === '' ? null : draft.parentId,
-      status: draft.status,
-      ...(draft.labelId === '' ? {} : { labelId: draft.labelId }),
-      isShared: draft.isShared,
-      // Only a shared unit serves others; un-sharing one clears its list.
-      serves: draft.isShared ? draft.serves : [],
-    };
-    if (draft.id) await orgApi.departments.update(draft.id, body);
-    else await orgApi.departments.create(body);
-    const saidKind = labels.find((l) => l.id === draft.labelId)?.name;
-    const what = saidKind ? `${saidKind} “${draft.name.trim()}”` : `“${draft.name.trim()}”`;
-    success(draft.id ? `${what} saved.` : `${what} added.`);
-    reload();
-  };
+  const openNew = (parent: Department | null) => setDialog({ unit: null, parentId: parent?.id ?? null, sortOrder: null, atTop: false });
+  // "+" in the gap above a row: a sibling at that row's place.
+  const openBefore = (row: Department) =>
+    setDialog({ unit: null, parentId: row.parentId ?? null, sortOrder: row.sortOrder || null, atTop: row.parentId == null });
+  const openEdit = (row: Department) => setDialog({ unit: row, parentId: null, sortOrder: null, atTop: false });
 
   const remove = async () => {
     if (!doomed) return;
@@ -300,16 +208,69 @@ export default function Departments() {
     reload();
   };
 
-  // A branch cannot be moved inside itself; the backend refuses it, and the
-  // picker should not offer it in the first place.
-  const forbidden = draft?.id ? descendantIds(rows, draft.id) : new Set<number>();
+  /** The siblings of a parent (null = the top level), in the order the list shows them. */
+  const siblingsOf = useCallback((parentId: number | null) => rows.filter((r) => (r.parentId ?? null) === parentId), [rows]);
 
-  // The dialog's title follows the choice: "New machine under Printing".
-  const draftKind = labels.find((l) => l.id === draft?.labelId)?.name ?? null;
-  const draftParent = draft && draft.parentId !== '' ? rows.find((r) => r.id === draft.parentId) ?? null : null;
-  const dialogTitle = draft?.id
-    ? `Edit ${kindWord(draftKind)}`
-    : `New ${kindWord(draftKind)}${draftParent ? ` under ${draftParent.name}` : ''}`;
+  // A move to another parent, confirmed (MoveConfirm). Undo puts it back at its old place.
+  const doMove = async (m: PendingMove) => {
+    const unit = byId.get(m.unitId);
+    if (!unit) return;
+    const old = { parentId: unit.parentId ?? null, sortOrder: unit.sortOrder || undefined };
+    await orgApi.departments.move(m.unitId, m.parentId, m.sortOrder);
+    const to = m.parentId != null ? nameOf.get(m.parentId) : null;
+    await reload();
+    setUndo({
+      text: `${unit.name} moved ${to ? `under ${to}` : 'to the top level'}.`,
+      run: async () => {
+        try {
+          await orgApi.departments.move(unit.id, old.parentId, old.sortOrder);
+          success(`${unit.name} is back where it was.`);
+        } catch (e) {
+          toastError((e as Error)?.message || 'It could not be moved back.');
+        }
+        await reload();
+      },
+    });
+  };
+
+  // A drop from the tree: onto a unit = under it (asks first); between siblings = a reorder (no question, Undo).
+  const onDrop = async ({ unitId, targetId, zone }: UnitDrop) => {
+    const unit = byId.get(unitId);
+    const target = byId.get(targetId);
+    if (!unit || !target) return;
+    if (zone === 'inside') {
+      if (target.id === unit.parentId) return;
+      setPending({ unitId, parentId: target.id });
+      return;
+    }
+    const parentId = target.parentId ?? null;
+    if (parentId === (unit.parentId ?? null)) {
+      const before = siblingsOf(parentId).map((r) => r.id);
+      const ids = before.filter((id) => id !== unitId);
+      ids.splice(ids.indexOf(targetId) + (zone === 'after' ? 1 : 0), 0, unitId);
+      if (ids.join() === before.join()) return;
+      try {
+        await orgApi.departments.reorder(parentId, ids);
+      } catch (e) {
+        toastError((e as Error)?.message || 'The order could not be saved.');
+        return;
+      }
+      await reload();
+      setUndo({
+        text: `${unit.name} moved ${zone} ${target.name}.`,
+        run: async () => {
+          try { await orgApi.departments.reorder(parentId, before); } catch (e) { toastError((e as Error)?.message || 'The old order could not be put back.'); }
+          await reload();
+        },
+      });
+      return;
+    }
+    // Between two units of ANOTHER parent: a move to that parent, at that place.
+    const place = (target.sortOrder || 0) + (zone === 'after' ? 1 : 0);
+    setPending({ unitId, parentId, sortOrder: place > 0 ? place : undefined });
+  };
+
+  const draggable = can.org.edit && !filters.isFiltered;
 
   return (
     <>
@@ -320,7 +281,7 @@ export default function Departments() {
 
       <ErrorNotice error={error} fallback="Could not load the org units." onRetry={reload} />
 
-      {loading ? (
+      {loading && !data ? (
         <>
           <StatSkeleton count={4} />
           <Box sx={{ mt: 2 }}>
@@ -377,6 +338,14 @@ export default function Departments() {
             />
           </Box>
 
+          {can.org.edit && rows.length > 1 && (
+            <Typography data-drag-hint="" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: -1, mb: 1, px: 0.5 }}>
+              {draggable
+                ? 'Drag a unit by its handle onto another to put it under it, or between two units to change the order. On a phone: press and hold, or use “Move to…”.'
+                : 'Clear the filters to drag units around; “Move to…” in a row’s menu works now.'}
+            </Typography>
+          )}
+
           {rows.length === 0 ? (
             <EmptyState
               icon={<AccountTreeRounded />}
@@ -397,39 +366,62 @@ export default function Departments() {
               action={<Button onClick={filters.clear}>Clear the filters</Button>}
             />
           ) : (
-            <OrgTreeView
+            <OrgUnitTree
               rows={filtered}
+              allRows={rows}
               collapsed={collapsed}
               onToggle={toggle}
-              ariaLabel="Org units"
+              draggable={draggable}
+              onDrop={(d) => void onDrop(d)}
+              onAddBefore={can.org.edit ? openBefore : undefined}
               renderCode={(row) => <OrgCode code={row.code} />}
-              renderPrimary={(row) => (
-                <Box
-                  component="button"
-                  type="button"
-                  aria-expanded={openId === row.id}
-                  title={`Show the roles and positions in this ${kindWord(row.type)}`}
-                  onClick={() => setOpenId((id) => (id === row.id ? null : row.id))}
-                  sx={{
-                    border: 0,
-                    background: 'none',
-                    p: 0,
-                    font: 'inherit',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' },
-                    '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 2, borderRadius: '4px' },
-                  }}
-                >
-                  {row.type && (
-                    <Box component="span" data-kind="" sx={{ color: 'var(--c-text-3)', fontWeight: 500 }}>
-                      {row.type} ·{' '}
-                    </Box>
-                  )}
-                  {row.name}
-                </Box>
-              )}
+              renderPrimary={(row) => {
+                const colour = kindColourOf(labels, row.labelId);
+                return (
+                  <Box
+                    component="button"
+                    type="button"
+                    aria-expanded={openId === row.id}
+                    title={`Show the roles and positions in this ${kindWord(row.type)}`}
+                    onClick={() => setOpenId((id) => (id === row.id ? null : row.id))}
+                    sx={{
+                      border: 0,
+                      background: 'none',
+                      p: 0,
+                      font: 'inherit',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      maxWidth: '100%',
+                      '&:hover .ou-name': { color: 'var(--c-primary-700)', textDecoration: 'underline' },
+                      '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 2, borderRadius: '4px' },
+                    }}
+                  >
+                    {row.type && (
+                      <Box
+                        component="span"
+                        data-kind=""
+                        sx={{
+                          display: 'inline-block',
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          lineHeight: '18px',
+                          px: 0.75,
+                          mr: 0.75,
+                          borderRadius: '6px',
+                          border: '1px solid var(--c-border)',
+                          color: 'var(--c-text-2)',
+                          verticalAlign: 'middle',
+                          ...kindChipSx(colour),
+                        }}
+                      >
+                        {row.type}
+                      </Box>
+                    )}
+                    <Box component="span" className="ou-name" sx={{ verticalAlign: 'middle' }}>{row.name}</Box>
+                  </Box>
+                );
+              }}
               renderBelow={(row) =>
                 openId === row.id ? (
                   <DepartmentStaffingPanel
@@ -451,40 +443,51 @@ export default function Departments() {
                 <>
                   {staffingOf.get(row.id) && <ToneBadge tone="neutral" noIcon label={staffLabel(staffingOf.get(row.id)!.counts)} />}
                   {row.isShared && <ToneBadge tone="info" noIcon label="Shared" />}
-                  {row.childCount > 0 && (
-                    <ToneBadge
-                      tone="neutral"
-                      noIcon
-                      label={`${row.childCount} under it`}
-                    />
-                  )}
-                  <StatusBadge
-                    status={row.status}
-                    map={ORG_STATUS_TONES}
-                    labelMap={ORG_STATUS_LABELS}
-                  />
+                  {row.childCount > 0 && <ToneBadge tone="neutral" noIcon label={`${row.childCount} under it`} />}
+                  <StatusBadge status={row.status} map={ORG_STATUS_TONES} labelMap={ORG_STATUS_LABELS} />
                 </>
               )}
               renderActions={
                 can.org.edit || can.org.remove
                   ? (row) => (
-                      <RowActions
-                        name={row.name}
-                        more={
-                          can.org.edit
-                            ? [
-                                {
-                                  key: 'add-under',
-                                  label: 'Add under this',
-                                  icon: <SubdirectoryArrowRightRounded fontSize="small" />,
-                                  onClick: () => openNew(row),
-                                },
-                              ]
-                            : undefined
-                        }
-                        onEdit={can.org.edit ? () => openEdit(row) : undefined}
-                        onRemove={can.org.remove ? () => setDoomed(row) : undefined}
-                      />
+                      <>
+                        {can.org.edit && (
+                          <Tooltip title={`Add under ${row.name}`}>
+                            <IconButton
+                              size="small"
+                              aria-label={`Add an org unit under ${row.name}`}
+                              data-add-under={row.id}
+                              onClick={() => openNew(row)}
+                              sx={{ color: 'var(--c-primary-700)' }}
+                            >
+                              <AddRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <RowActions
+                          name={row.name}
+                          more={
+                            can.org.edit
+                              ? [
+                                  {
+                                    key: 'add-under',
+                                    label: 'Add under this',
+                                    icon: <SubdirectoryArrowRightRounded fontSize="small" />,
+                                    onClick: () => openNew(row),
+                                  },
+                                  {
+                                    key: 'move-to',
+                                    label: 'Move to…',
+                                    icon: <DriveFileMoveRounded fontSize="small" />,
+                                    onClick: () => setMoveTo(row),
+                                  },
+                                ]
+                              : undefined
+                          }
+                          onEdit={can.org.edit ? () => openEdit(row) : undefined}
+                          onRemove={can.org.remove ? () => setDoomed(row) : undefined}
+                        />
+                      </>
                     )
                   : undefined
               }
@@ -493,7 +496,7 @@ export default function Departments() {
         </>
       )}
 
-      {!loading && unplaced && unplaced.counts.positions > 0 && (
+      {data && unplaced && unplaced.counts.positions > 0 && (
         <Box sx={{ mt: 2 }}>
           <Button
             size="small"
@@ -519,178 +522,26 @@ export default function Departments() {
         }}
       />
 
-      <FormDialog
-        open={!!draft}
-        title={dialogTitle}
-        subtitle={
-          draft?.id
-            ? 'Change what it is, its name or what it sits under.'
-            : 'Choose what it is, name it, and say what it sits under.'
-        }
-        onClose={() => setDraft(null)}
-        onSubmit={save}
-        submitLabel={draft?.id ? 'Save' : 'Create'}
-        submitDisabled={!draft?.name.trim() || (labels.length > 0 && draft?.labelId === '') || newKind !== null}
-      >
-        {draft && (
-          <>
-            {/* §33: what it is comes first — the kinds as chips, + add a kind. */}
-            <Box role="group" aria-labelledby="ou-kind-label" data-kind-chips="">
-              <Typography id="ou-kind-label" sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)', mb: 0.75 }}>
-                What is it?
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                {labels.map((l) => {
-                  const on = draft.labelId === l.id;
-                  return (
-                    <Chip
-                      key={l.id}
-                      label={l.name}
-                      size="small"
-                      clickable
-                      color={on ? 'primary' : 'default'}
-                      variant={on ? 'filled' : 'outlined'}
-                      aria-pressed={on}
-                      onClick={() => setDraft({ ...draft, labelId: l.id })}
-                    />
-                  );
-                })}
-                {can.org.edit && newKind === null && (
-                  <Chip
-                    label="Add a kind"
-                    size="small"
-                    variant="outlined"
-                    icon={<AddRounded fontSize="small" />}
-                    onClick={() => { setKindProblem(null); setNewKind(''); }}
-                    sx={{ borderStyle: 'dashed' }}
-                  />
-                )}
-              </Box>
-              {newKind !== null && (
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mt: 1, flexWrap: 'wrap' }}>
-                  <TextField
-                    size="small"
-                    label="New kind"
-                    placeholder="e.g. Line, Cell, Area"
-                    value={newKind}
-                    autoFocus
-                    onChange={(e) => setNewKind(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void addKind(); }
-                      if (e.key === 'Escape') { e.stopPropagation(); setNewKind(null); }
-                    }}
-                    slotProps={{ htmlInput: { maxLength: 60 } }}
-                    sx={{ flex: '1 1 160px' }}
-                  />
-                  <Button size="small" variant="contained" onClick={() => void addKind()} disabled={!newKind.trim() || addingKind} sx={{ height: 40 }}>
-                    Add
-                  </Button>
-                  <Button size="small" onClick={() => setNewKind(null)} sx={{ height: 40 }}>
-                    Cancel
-                  </Button>
-                </Box>
-              )}
-              {kindProblem && (
-                <Typography role="alert" sx={{ fontSize: 12.5, color: 'var(--c-danger-600)', mt: 0.75 }}>{kindProblem}</Typography>
-              )}
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
-                Shown with its name everywhere, e.g. “Printing 2 (Machine)”. The list is yours: the Kinds button changes it.
-              </Typography>
-            </Box>
-            <TextField
-              label="Name"
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              required
-              autoFocus={!!draft.id || draft.labelId !== ''}
-              fullWidth
-              size="small"
-            />
-            <TextField
-              select
-              label="Sits under"
-              value={draft.parentId}
-              onChange={(e) =>
-                setDraft({ ...draft, parentId: e.target.value === '' ? '' : Number(e.target.value) })
-              }
-              fullWidth
-              size="small"
-              slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-              helperText={draft.id ? 'Moving it moves everything under it.' : undefined}
-            >
-              <MenuItem value="">
-                <em>Nothing — the top level</em>
-              </MenuItem>
-              {rows
-                .filter((r) => !forbidden.has(r.id))
-                .map((r) => (
-                  <MenuItem key={r.id} value={r.id}>
-                    {indentedLabel(r.depth, unitLabel(r.name, r.type))}
-                  </MenuItem>
-                ))}
-            </TextField>
-            {/* The code is never typed (spec §11): issued on create, fixed afterwards. */}
-            <CodeNote code={draft.code} isNew={!draft.id} />
-            <Box>
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={draft.isShared}
-                    onChange={(e) => setDraft({ ...draft, isShared: e.target.checked })}
-                  />
-                }
-                label={<Typography sx={{ fontSize: 14 }}>Shared — serves other org units</Typography>}
-              />
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.25 }}>
-                Its people work for several org units. The org chart draws it as one box with an
-                arrow to each unit it serves. This is separate from its kind.
-              </Typography>
-            </Box>
-            {draft.isShared && (
-              <Autocomplete
-                multiple
-                size="small"
-                options={rows.filter((r) => r.id !== draft.id)}
-                value={rows.filter((r) => draft.serves.includes(r.id))}
-                onChange={(_, v) => setDraft({ ...draft, serves: v.map((r) => r.id) })}
-                getOptionLabel={(r) => unitLabel(r.name, r.type)}
-                isOptionEqualToValue={(a, b) => a.id === b.id}
-                renderOption={(props, r) => {
-                  const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key: string };
-                  return (
-                    <li key={key} {...rest}>
-                      {indentedLabel(r.depth, unitLabel(r.name, r.type))}
-                    </li>
-                  );
-                }}
-                renderInput={(p) => (
-                  <TextField
-                    {...p}
-                    label="Serves"
-                    placeholder={draft.serves.length ? '' : 'Pick the org units its people work for'}
-                    helperText="Two or more draws it as one shared box with an arrow to each; none draws it as an ordinary box with a dashed frame."
-                  />
-                )}
-              />
-            )}
-            <TextField
-              select
-              label="Status"
-              value={draft.status}
-              onChange={(e) =>
-                setDraft({ ...draft, status: e.target.value as DraftState['status'] })
-              }
-              fullWidth
-              size="small"
-              helperText="Inactive keeps the history and stops it appearing in new pickers."
-            >
-              <MenuItem value="ACTIVE">Active</MenuItem>
-              <MenuItem value="INACTIVE">Inactive</MenuItem>
-            </TextField>
-          </>
-        )}
-      </FormDialog>
+      <OrgUnitDialog
+        open={!!dialog}
+        unit={dialog?.unit ?? null}
+        parentId={dialog?.parentId ?? null}
+        sortOrder={dialog?.sortOrder ?? null}
+        atTop={dialog?.atTop ?? false}
+        rows={rows}
+        labels={labels}
+        onClose={() => setDialog(null)}
+        onSaved={() => void reload()}
+      />
+
+      <MoveToDialog
+        unit={moveTo}
+        rows={rows}
+        onClose={() => setMoveTo(null)}
+        onPick={(parentId) => { if (moveTo) setPending({ unitId: moveTo.id, parentId }); }}
+      />
+      <MoveConfirm move={pending} onClose={() => setPending(null)} onConfirm={doMove} />
+      <UndoBar text={undo?.text ?? null} onUndo={() => undo?.run()} onClose={() => setUndo(null)} />
 
       <LabelsSheet
         open={labelsOpen}

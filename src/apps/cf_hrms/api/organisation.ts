@@ -45,6 +45,25 @@ export interface Department extends TreeMeta {
   /** A shared crew: its people work for the departments in `serves`. */
   isShared?: boolean;
   serves?: number[];
+  /** Its place among its siblings (spec §34): lists order by it, then code. Drag and drop sets it. */
+  sortOrder?: number;
+}
+
+/**
+ * GET /organisation/departments/:id/move-check — what moving a unit would do,
+ * in the confirm's words (spec §34.3). Writes nothing.
+ */
+export interface MoveCheck {
+  unit: { id: number; name: string; type: string | null };
+  from: { id: number; name: string; type: string | null } | null;
+  to: { id: number; name: string; type: string | null } | null;
+  unitsUnder: number;
+  positionsUnder: number;
+  /** False when the move is refused (inside itself, where it already is); `problem` says why. */
+  allowed: boolean;
+  problem: string | null;
+  /** "Move Lamination (Section) from Production to Operations — 6 positions and 2 units under it move with it". */
+  sentence: string;
 }
 
 export interface Address {
@@ -74,6 +93,12 @@ export interface DepartmentLabel {
   departmentCount: number;
   /** "New positions start on" (spec §17.2): the shift a new position in a department carrying it starts on. */
   defaultShiftId?: number | null;
+  /**
+   * Spec §34.1: the palette key this kind SHOWS (chosen, or its default) — see
+   * `kindColour()` in components/labels.ts. `colourChosen` is the stored key, null = the default.
+   */
+  colour?: string | null;
+  colourChosen?: string | null;
 }
 
 /** A shift as the Labels sheet offers it for "New positions start on". */
@@ -149,6 +174,18 @@ export const orgApi = {
     create: (body: unknown) => api.post<Department>('/organisation/departments', body),
     update: (id: number, body: unknown) => api.put<Department>(`/organisation/departments/${id}`, body),
     remove: (id: number) => api.del<{ ok: true }>(`/organisation/departments/${id}`),
+    /**
+     * Re-parent (spec §34.3): under `parentId` (null = the top level), after its new siblings
+     * or at `sortOrder`. The server refuses a cycle. Undo = the same call with the old parent and sortOrder.
+     */
+    move: (id: number, parentId: number | null, sortOrder?: number) =>
+      api.put<Department>(`/organisation/departments/${id}`, { parentId, ...(sortOrder ? { sortOrder } : {}) }),
+    /** The siblings under one parent (null = the top level), every one once, in the order wanted. */
+    reorder: (parentId: number | null, ids: number[]) =>
+      api.put<{ parentId: number | null; rows: { id: number; sortOrder: number }[] }>('/organisation/departments/order', { parentId, ids }),
+    /** The confirm's words for a move (`parentId` null = the top level). */
+    moveCheck: (id: number, parentId: number | null) =>
+      api.get<MoveCheck>(`/organisation/departments/${id}/move-check?parentId=${parentId ?? ''}`),
   },
 
   locations: {
@@ -171,7 +208,9 @@ export const orgApi = {
         .then((r) => ({ labels: r.labels ?? [], shifts: r.shifts ?? [] })),
     list: () =>
       api.get<{ labels: DepartmentLabel[] }>('/organisation/department-labels').then((r) => r.labels ?? []),
-    create: (name: string) => api.post<DepartmentLabel>('/organisation/department-labels', { name }),
+    create: (name: string, colour?: string | null) => api.post<DepartmentLabel>('/organisation/department-labels', { name, ...(colour ? { colour } : {}) }),
+    /** Spec §34.1: a palette key, or null for the kind's default colour. */
+    setColour: (id: number, colour: string | null) => api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { colour }),
     rename: (id: number, name: string) => api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { name }),
     /** "New positions start on": a shift id, or null for no default. Existing positions never change. */
     setDefaultShift: (id: number, defaultShiftId: number | null) =>

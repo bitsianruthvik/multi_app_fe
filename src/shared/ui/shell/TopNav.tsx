@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Avatar, Box, Divider, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
+import { Avatar, Badge, Box, Divider, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import { NavLink, useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
@@ -65,6 +65,7 @@ export function TopNav({
   quickCreate = [],
   homePath = 'home',
   notificationsPath,
+  notificationCount = 0,
   accountItems,
   onSignOut,
 }: {
@@ -83,6 +84,8 @@ export function TopNav({
    * lights up is furniture.
    */
   notificationsPath?: string;
+  /** Unread items behind the bell; a dot with the number when above zero. */
+  notificationCount?: number;
   /** Extra account-menu entries, above Sign out. */
   accountItems?: ReactNode;
   /** Defaults to AuthContext's logout, then the app's login route. */
@@ -337,14 +340,16 @@ export function TopNav({
       </Tooltip>
 
       {notificationsPath && (
-        <Tooltip title="Notifications">
+        <Tooltip title={notificationCount > 0 ? `Notifications (${notificationCount})` : 'Notifications'}>
           <IconButton
             size="small"
             onClick={() => go(notificationsPath)}
-            aria-label="Notifications"
+            aria-label={notificationCount > 0 ? `Notifications, ${notificationCount} waiting` : 'Notifications'}
             sx={{ color: 'var(--c-text-2)', flexShrink: 0 }}
           >
-            <NotificationsNoneRounded fontSize="small" />
+            <Badge badgeContent={notificationCount} color="error" max={99} invisible={notificationCount <= 0}>
+              <NotificationsNoneRounded fontSize="small" />
+            </Badge>
           </IconButton>
         </Tooltip>
       )}

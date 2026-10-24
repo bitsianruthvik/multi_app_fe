@@ -181,6 +181,7 @@ export default function Employees() {
         key: 'department',
         label: 'Org unit (and below)',
         searchable: true,
+        multiple: true,
         options: departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) })),
       },
       ...labelFilterDefs(labelList),

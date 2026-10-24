@@ -70,6 +70,10 @@ const PayStructures = lazy(() => import('./pages/PayStructures'));
 const PayStructureDetail = lazy(() => import('./pages/PayStructureDetail'));
 const PayComponents = lazy(() => import('./pages/PayComponents'));
 const StatutorySettings = lazy(() => import('./pages/StatutorySettings'));
+// The law layer (spec §36.1): rules in force, read-only.
+const RulesInForce = lazy(() => import('./pages/RulesInForce'));
+const PayrollComplianceTodos = lazy(() => import('./pages/PayrollComplianceTodos'));
+const PayrollBonus = lazy(() => import('./pages/PayrollBonus'));
 
 // Income tax in payroll (spec §25.4)
 const TaxProfiles = lazy(() => import('./pages/TaxProfiles'));
@@ -82,6 +86,8 @@ const TaxForms = lazy(() => import('./pages/TaxForms'));
 const TaxSettings = lazy(() => import('./pages/TaxSettings'));
 // Payroll extras P3a (spec §25.5): statutory return files, perquisites, Form 10E / 39
 const StatutoryReturns = lazy(() => import('./pages/StatutoryReturns'));
+// Compliance (spec §36.4, §36.5): notices, the deadline calendar, the CA's review.
+const Compliance = lazy(() => import('./pages/Compliance'));
 const TaxPerquisites = lazy(() => import('./pages/TaxPerquisites'));
 const TaxForm10E = lazy(() => import('./pages/TaxForm10E'));
 // Payroll P3b: claims, claim types and the payroll policy, exits and full and final
@@ -278,6 +284,12 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/pay-structures/:id', element: guarded(TAG.payroll.view, <PayStructureDetail />) },
     { path: '/:company/cf_hrms/pay-components', element: guarded(TAG.payroll.view, <PayComponents />) },
     { path: '/:company/cf_hrms/statutory-settings', element: guarded(TAG.payroll.view, <StatutorySettings />) },
+    { path: '/:company/cf_hrms/rules-in-force', element: guarded(TAG.payroll.view, <RulesInForce />) },
+    // Compliance checks (spec §36.3): to-dos with a fix, and the statutory bonus. Payroll view; amounts need pay view (the page says so).
+    { path: '/:company/cf_hrms/payroll-compliance', element: guarded(TAG.payroll.view, <PayrollComplianceTodos />) },
+    { path: '/:company/cf_hrms/payroll-compliance/:id', element: guarded(TAG.payroll.view, <PayrollComplianceTodos />) },
+    { path: '/:company/cf_hrms/payroll-bonus', element: guarded(TAG.payroll.view, <PayrollBonus />) },
+    { path: '/:company/cf_hrms/payroll-bonus/:id', element: guarded(TAG.payroll.view, <PayrollBonus />) },
     // Tax (spec §25.4): payroll view; the screens with people's amounts say so when the named pay view is missing.
     { path: '/:company/cf_hrms/tax-profiles', element: guarded(TAG.payroll.view, <TaxProfiles />) },
     { path: '/:company/cf_hrms/tax-declarations', element: guarded(TAG.payroll.view, <TaxDeclarations />) },
@@ -290,6 +302,7 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/tax-settings', element: guarded(TAG.payroll.view, <TaxSettings />) },
     // Payroll extras P3a (spec §25.5): payroll view; amounts and files need the named pay view (the page says so).
     { path: '/:company/cf_hrms/statutory-returns', element: guarded(TAG.payroll.view, <StatutoryReturns />) },
+    { path: '/:company/cf_hrms/compliance', element: guarded(TAG.compliance.view, <Compliance />) },
     { path: '/:company/cf_hrms/tax-perquisites', element: guarded(TAG.payroll.view, <TaxPerquisites />) },
     { path: '/:company/cf_hrms/tax-form10e', element: guarded(TAG.payroll.view, <TaxForm10E />) },
     // Payroll P3b: claims (amounts need the named pay view), claim types and the payroll policy.

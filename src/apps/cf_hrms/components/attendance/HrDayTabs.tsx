@@ -18,6 +18,8 @@ import { ScreenHeader } from '../TabbedScreen';
 import { Legend, MonthPicker, MusterGrid, PenaltyRow } from './AttendanceParts';
 import { PersonMonthView } from './PersonMonthView';
 import { AttendanceRequestSheet, type AttSheetActions } from './AttendanceRequestSheet';
+import { OrgUnitMultiSelect } from '../list/OrgUnitFilter';
+import { useOrgUnitOptions } from '../orgUnits';
 
 const STATE: Record<BoardState, { tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; label: string }> = {
   PRESENT: { tone: 'success', label: 'Present' }, LATE: { tone: 'warning', label: 'Late' }, HALF: { tone: 'warning', label: 'Half day' }, ABSENT: { tone: 'danger', label: 'Absent' },
@@ -32,7 +34,10 @@ export function AttToday() {
   const [data, setData] = useState<TodayBoard | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [only, setOnly] = useState<BoardState | ''>('');
-  const load = useCallback(() => { attendanceApi.today({ date }).then((d) => { setData(d); setError(null); }).catch(setError); }, [date]);
+  // One or more org units, each with everything under it (spec §34.2).
+  const [units, setUnits] = useState('');
+  const unitOptions = useOrgUnitOptions(can.org.view || can.positions.view);
+  const load = useCallback(() => { attendanceApi.today({ date, departmentId: units || null }).then((d) => { setData(d); setError(null); }).catch(setError); }, [date, units]);
   useEffect(load, [load]);
   const process = async () => {
     try { const r = await attendanceApi.process({ from: date, to: date }); toast.success(`${r.daysWritten} days processed.`); load(); } catch (e) { toast.error(errorMessage(e)); }
@@ -46,6 +51,7 @@ export function AttToday() {
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <TextField size="small" type="date" value={date} onChange={(e) => setDate(e.target.value)} inputProps={{ 'aria-label': 'Date' }} />
+            {unitOptions.length > 0 && <OrgUnitMultiSelect value={units} onChange={setUnits} options={unitOptions} />}
             {can.attendance.edit && <Button startIcon={<RefreshRounded />} onClick={process} data-action="process-day">Process now</Button>}
           </Box>
         )}
@@ -104,7 +110,9 @@ export function AttMonth() {
   const [data, setData] = useState<MonthGrid | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [person, setPerson] = useState<number | null>(null);
-  const load = useCallback(() => { setData(null); attendanceApi.month({ month, q }).then((d) => { setData(d); setError(null); }).catch(setError); }, [month, q]);
+  const [units, setUnits] = useState('');
+  const unitOptions = useOrgUnitOptions(can.org.view || can.positions.view);
+  const load = useCallback(() => { setData(null); attendanceApi.month({ month, q, departmentId: units || null }).then((d) => { setData(d); setError(null); }).catch(setError); }, [month, q, units]);
   useEffect(() => { const t = setTimeout(load, q ? 300 : 0); return () => clearTimeout(t); }, [load, q]);
   return (
     <>
@@ -115,7 +123,8 @@ export function AttMonth() {
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <MonthPicker month={month} onChange={setMonth} />
             <TextField size="small" placeholder="Name or code" value={q} onChange={(e) => setQ(e.target.value)} sx={{ width: 170 }} />
-            <Button startIcon={<DownloadRounded />} onClick={async () => { try { saveBase64File(await attendanceApi.musterRoll(month)); } catch (e) { toast.error(errorMessage(e)); } }} data-action="muster-roll">Muster roll</Button>
+            {unitOptions.length > 0 && <OrgUnitMultiSelect value={units} onChange={setUnits} options={unitOptions} />}
+            <Button startIcon={<DownloadRounded />} onClick={async () => { try { saveBase64File(await attendanceApi.musterRoll(month, units || null)); } catch (e) { toast.error(errorMessage(e)); } }} data-action="muster-roll">Muster roll</Button>
           </Box>
         )}
       />

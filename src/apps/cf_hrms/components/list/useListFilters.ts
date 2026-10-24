@@ -202,3 +202,7 @@ export const YES_NO_OPTIONS = [
   { value: '1', label: 'Yes' },
   { value: '0', label: 'No' },
 ];
+
+/** The values of a multiple filter (spec §34.2): "12,40" -> ['12', '40']; an old single value -> ['12']. */
+export const multiValues = (v: string | null | undefined): string[] =>
+  String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean);

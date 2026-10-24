@@ -49,6 +49,8 @@ import { useAuth } from '@core/contexts/AuthContext';
 import { getHomeOverview, type HomeOverview, type OverviewCounts } from '../api/overview';
 import { refreshPendingApprovals, usePendingApprovals } from '../api/approvals';
 import { HomeQueueCard, type QueueTone } from '../components/HomeQueueCard';
+import { ComplianceHomeCard } from '../components/compliance/ComplianceHomeCard';
+import { ComplianceTodosHomeCard } from '../components/payroll/ComplianceTodosHomeCard';
 import { TAG, useCan, type Area } from '../access/can';
 
 interface Queue {
@@ -311,6 +313,11 @@ export default function Home() {
               mt: 3,
             }}
           >
+            {/* Compliance (spec §36.4): law changes to acknowledge, deadlines due soon. */}
+            {can.compliance.view && <ComplianceHomeCard to={to} />}
+            {/* Compliance to-dos (spec §36.3): what no longer complies, and the fixes waiting for a choice or the Owner. */}
+            {can.payroll.view && <ComplianceTodosHomeCard to={to} />}
+
             {data.recentPeople && can.employees.view && (
               <SectionCard
                 title="Recently joined"

@@ -48,6 +48,7 @@ import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCo
 import { AsOnBar, JobHistoryList } from '../components/JobDating';
 import { todayIso } from '../components/jobDates';
 import { useUnitKinds } from '../components/orgUnits';
+import { RoleLawCard } from '../components/law/RoleLawCard';
 
 export default function RoleDetail() {
   const withKind = useUnitKinds();
@@ -253,6 +254,8 @@ export default function RoleDetail() {
                 Position, and the person doing the work holds that position.
               </Box>
             </SectionCard>
+
+            {(can.roles.view || can.payroll.view) && <RoleLawCard roleId={role.id} canEdit={canEdit} canSeePay={can.named.payView} />}
 
             {(!role.hasPurpose || role.kraCount === 0) && (
               <SectionCard title="Before this role can produce a job description">

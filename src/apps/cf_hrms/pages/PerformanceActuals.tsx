@@ -112,7 +112,7 @@ export default function PerformanceActuals({ mode = 'hr' }: { mode?: ActualsMode
       ? departments.map((d) => ({ value: String(d.id), label: unitLabel(d.path || d.name, d.type) }))
       : [...new Map(rows.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()].map(([id, name]) => ({ value: String(id), label: name }));
     return [
-      ...(mode === 'hr' ? [{ key: 'department', label: 'Org unit (and below)', searchable: true, options: deps } as FilterDef, ...labelFilterDefs(labelList)] : []),
+      ...(mode === 'hr' ? [{ key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: deps } as FilterDef, ...labelFilterDefs(labelList)] : []),
       { key: 'role', label: 'Role', searchable: true, options: (data?.roles ?? []).map((r) => ({ value: String(r.id), label: r.title })) },
       ...(mode === 'hr' ? [{ key: 'manager', label: 'Manager', searchable: true, options: (data?.managers ?? []).map((m) => ({ value: String(m.id), label: [m.code, m.title].filter(Boolean).join(' — ') })) } as FilterDef] : []),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },

@@ -5,7 +5,7 @@
  * LIVE PREVIEW of the breakdown, worked out by the server with the ceilings in
  * force on that day.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Collapse, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { FormDialog } from '@shared/ui';
 import { payrollApi, type PayStructure, type PfMode, type SalaryRow } from '../../api/payroll';
@@ -13,6 +13,10 @@ import { BreakdownTable, ProblemList } from './PayParts';
 import { usePreview } from './usePreview';
 import { PF_MODE_WORD, parseAmount, rupees } from './payWords';
 import { todayIso } from '../jobDates';
+import { lawApi, SKILL_WORD, type SalaryDefault } from '../../api/law';
+import type { CheckResult } from '../../api/complianceChecks';
+import type { ApiProblem } from '../../api/client';
+import { ComplianceChecks } from './ComplianceChecks';
 
 export function SalaryDialog({
   open, mode, employee, row, structures, onClose, onSaved,
@@ -32,6 +36,22 @@ export function SalaryDialog({
   return <Body mode={mode} employee={employee} row={row} structures={structures} onClose={onClose} onSaved={onSaved} />;
 }
 
+/** The salary's compliance checks (live, or as the server refused them) and the reason box for its WARNs. */
+function SalaryCompliance({ results, reason, onReason }: { results: CheckResult[]; reason: string; onReason: (v: string) => void }) {
+  if (!results.length) return null;
+  const warns = results.filter((r) => r.severity === 'WARN').length;
+  return (
+    <Box data-testid="salary-compliance" sx={{ border: '1px solid var(--c-divider)', borderRadius: 1.5, p: 1.5 }}>
+      <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.75 }}>Compliance</Typography>
+      <ComplianceChecks results={results} dense />
+      {warns > 0 && (
+        <TextField size="small" fullWidth label="Why these warnings are accepted" value={reason} onChange={(e) => onReason(e.target.value)} sx={{ mt: 1.25 }}
+          helperText="Kept with the salary, with your name. Needed to save while a warning stands." inputProps={{ maxLength: 500, 'data-field': 'compliance-reason' }} />
+      )}
+    </Box>
+  );
+}
+
 function Body({ mode, employee, row, structures, onClose, onSaved }: {
   mode: 'revise' | 'correct'; employee: { id: number; name: string }; row: SalaryRow | null; structures: PayStructure[];
   onClose: () => void; onSaved: (note: string | null) => void;
@@ -43,6 +63,25 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
   const [reason, setReason] = useState(mode === 'correct' ? row?.reason ?? '' : '');
   const [overrides, setOverrides] = useState<Record<number, string>>(() => Object.fromEntries((row?.overrides ?? []).map((o) => [o.componentId, String(o.amount)])));
   const [showOverrides, setShowOverrides] = useState((row?.overrides ?? []).length > 0);
+  // Spec §36.1: a first salary starts from the role's default structure and the company's PF choice; HR may change both.
+  const [law, setLaw] = useState<SalaryDefault | null>(null);
+  const [touched, setTouched] = useState(false);
+  // Spec §36.2: a WARN is saved with a reason (kept with who accepted it); a HARD breach is refused by the server.
+  const [ackReason, setAckReason] = useState('');
+  const [refused, setRefused] = useState<CheckResult[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    lawApi.salaryDefault(employee.id).then((d) => {
+      if (!live) return;
+      setLaw(d);
+      if (mode === 'revise' && !row && !touched) {
+        if (d.structure && structures.some((s) => s.id === d.structure?.structureId && s.status === 'ACTIVE')) setStructureId(String(d.structure.structureId));
+        setPfMode(d.pfWageBasis);
+      }
+    }).catch(() => { /* no default: the form works as before */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the dialog opens
+  }, [employee.id]);
 
   const structure = structures.find((s) => String(s.id) === structureId) ?? null;
   const ctcNum = parseAmount(ctc);
@@ -58,6 +97,7 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
     overrides: Object.fromEntries(overrideList.map((o) => [String(o.componentId), parseAmount(o.raw) as number])),
     pfMode,
     ...(/^\d{4}-\d{2}-\d{2}$/.test(from) ? { on: from } : {}),
+    ...(law ? { place: { state: law.place.state, zone: law.place.zone, skill: law.place.skill, employment: law.place.employment } } : {}),
   } : null;
   const { result: preview, busy } = usePreview(input);
 
@@ -66,13 +106,24 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
     const body = {
       annualCtc: ctcNum as number, structureId: Number(structureId), effectiveFrom: from, pfMode, reason: reason.trim() || null,
       overrides: overrideList.map((o) => ({ componentId: o.componentId, amount: parseAmount(o.raw) as number })),
+      ...(ackReason.trim() ? { complianceReason: ackReason.trim() } : {}),
     };
-    if (mode === 'correct' && row) {
-      await payrollApi.updateSalary(row.id, body);
-      onSaved(null);
-    } else {
-      const r = await payrollApi.createSalary({ ...body, employeeId: employee.id });
-      onSaved(r.note);
+    try {
+      if (mode === 'correct' && row) {
+        await payrollApi.updateSalary(row.id, body);
+        onSaved(null);
+      } else {
+        const r = await payrollApi.createSalary({ ...body, employeeId: employee.id });
+        onSaved(r.note);
+      }
+    } catch (e) {
+      const p = e as ApiProblem;
+      const checks = (p.body?.detail as { checks?: CheckResult[] } | undefined)?.checks ?? null;
+      if (p.code === 'COMPLIANCE_WARN' || p.code === 'COMPLIANCE_HARD') setRefused(checks);
+      if (p.code === 'COMPLIANCE_WARN') {
+        throw Object.assign(new Error('This salary has compliance warnings: give the reason they are accepted (below), then save again.'), { problems: p.problems });
+      }
+      throw e;
     }
   };
 
@@ -95,7 +146,8 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
           error={ctc.trim() !== '' && !ctcOk}
           helperText={ctcOk ? `${rupees(ctcNum)} a year · ${rupees(Math.round((ctcNum as number) / 12 * 100) / 100)} a month` : 'The yearly cost to company, in rupees.'}
           inputProps={{ inputMode: 'decimal', 'data-field': 'annual-ctc' }} />
-        <TextField select size="small" label="Structure" required value={structureId} onChange={(e) => setStructureId(e.target.value)}>
+        <TextField select size="small" label="Structure" required value={structureId} onChange={(e) => { setTouched(true); setStructureId(e.target.value); }}
+          helperText={law?.structure ? `${law.structure.roleTitle ?? 'The role'}’s default: ${law.structure.name}${law.structure.ctcMin != null || law.structure.ctcMax != null ? ` · band ${law.structure.ctcMin != null ? rupees(law.structure.ctcMin) : '…'}–${law.structure.ctcMax != null ? rupees(law.structure.ctcMax) : '…'}` : ''}` : undefined}>
           {structures.filter((s) => s.status === 'ACTIVE' || String(s.id) === structureId).map((s) => (
             <MenuItem key={s.id} value={String(s.id)}>{s.name}{s.status !== 'ACTIVE' ? ' (inactive)' : ''}</MenuItem>
           ))}
@@ -107,6 +159,11 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
           {(['CEILING', 'FULL', 'NONE'] as PfMode[]).map((m) => <MenuItem key={m} value={m}>{PF_MODE_WORD[m]}</MenuItem>)}
         </TextField>
       </Box>
+      {law?.minimumWage?.found && law.minimumWage.wage && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }} data-testid="salary-min-wage">
+          Minimum wage for {law.place.state}, zone {law.minimumWage.wage.zone}, {SKILL_WORD[law.minimumWage.wage.skill].toLowerCase()}: {rupees(law.minimumWage.wage.total)} a month{law.minimumWage.wage.vdaPending ? ' (VDA not notified yet)' : ''}{law.minimumWage.rule?.verified === false ? ' — not verified' : ''}.
+        </Typography>
+      )}
       <TextField size="small" label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Annual revision, promotion, joining …" inputProps={{ maxLength: 500 }} />
 
       {structure && (
@@ -133,6 +190,8 @@ function Body({ mode, employee, row, structures, onClose, onSaved }: {
           </Collapse>
         </Box>
       )}
+
+      <SalaryCompliance results={refused ?? preview?.compliance?.results ?? []} reason={ackReason} onReason={setAckReason} />
 
       <Box>
         <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.75 }}>

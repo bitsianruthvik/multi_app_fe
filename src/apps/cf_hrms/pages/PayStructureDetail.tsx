@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import {
-  Autocomplete, Box, Button, IconButton, Stack, TextField, Tooltip, Typography,
+  Autocomplete, Box, Button, IconButton, MenuItem, Stack, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
@@ -26,6 +26,8 @@ import { payrollApi, type PayComponent, type PayStructure } from '../api/payroll
 import { BreakdownTable, Fact, ProblemList } from '../components/payroll/PayParts';
 import { usePreview } from '../components/payroll/usePreview';
 import { kindWord, parseAmount, rupees } from '../components/payroll/payWords';
+import { ComplianceChecks } from '../components/payroll/ComplianceChecks';
+import { SKILL_WORD, type SkillCategory } from '../api/law';
 
 interface EditLine { k: number; componentId: number | null; formula: string }
 interface Draft { name: string; description: string; lines: EditLine[] }
@@ -85,6 +87,10 @@ export default function PayStructureDetail() {
   const [saving, setSaving] = useState(false);
   const [sample, setSample] = useState('600000');
   const [removing, setRemoving] = useState(false);
+  // Spec §36.2: the live compliance check — for the sample CTC, a skill and a minimum-wage zone.
+  const [skill, setSkill] = useState<SkillCategory>('UNSKILLED');
+  const [zone, setZone] = useState('');
+  const [ackReason, setAckReason] = useState('');
 
   const adopt = useCallback((s: PayStructure) => { setStructure(s); setDraft(draftOf(s)); }, []);
   const load = useCallback(() => {
@@ -104,7 +110,8 @@ export default function PayStructureDetail() {
   }, [dirty]);
 
   const ctc = parseAmount(sample);
-  const previewInput = draft && ctc != null && Number.isFinite(ctc) ? { lines: linesOf(draft), annualCtc: ctc } : null;
+  const place = { skill, zone: zone.trim() || null };
+  const previewInput = draft && ctc != null && Number.isFinite(ctc) ? { lines: linesOf(draft), annualCtc: ctc, place } : null;
   const { result: preview, busy: previewBusy, error: previewError } = usePreview(previewInput);
 
   if (!structure || !draft) {
@@ -126,8 +133,10 @@ export default function PayStructureDetail() {
     setSaving(true);
     setSaveError(null);
     try {
-      adopt((await payrollApi.updateStructure(structure.id, payloadOf(draft))).structure);
-      toast.success('Structure saved.');
+      const reason = ackReason.trim();
+      adopt((await payrollApi.updateStructure(structure.id, { ...payloadOf(draft), ...(reason ? { complianceReason: reason, sampleCtc: ctc ?? undefined, place } : {}) })).structure);
+      setAckReason('');
+      toast.success(reason ? 'Structure saved; its warnings accepted for every salary on it.' : 'Structure saved.');
     } catch (e) {
       setSaveError(e);
     } finally {
@@ -235,6 +244,12 @@ export default function PayStructureDetail() {
             <TextField size="small" label="Sample CTC a year (₹)" value={sample} onChange={(e) => setSample(e.target.value)}
               error={ctc != null && !Number.isFinite(ctc)} helperText={ctc != null && Number.isFinite(ctc) ? `${rupees(ctc)} a year · ${rupees(Math.round(ctc / 12 * 100) / 100)} a month` : 'A number of rupees.'}
               inputProps={{ inputMode: 'decimal', 'data-field': 'sample-ctc' }} sx={{ maxWidth: 280 }} />
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '200px 140px' }, gap: 1.25 }}>
+              <TextField select size="small" label="Skill (minimum wage)" value={skill} onChange={(e) => setSkill(e.target.value as SkillCategory)} inputProps={{ 'data-field': 'check-skill' }}>
+                {(Object.keys(SKILL_WORD) as SkillCategory[]).map((k) => <MenuItem key={k} value={k}>{SKILL_WORD[k]}</MenuItem>)}
+              </TextField>
+              <TextField size="small" label="Zone" value={zone} onChange={(e) => setZone(e.target.value)} placeholder="I, II, III" helperText="Empty: the company’s zone" inputProps={{ maxLength: 10, 'data-field': 'check-zone' }} />
+            </Box>
             <ErrorNotice error={previewError} />
             {preview && (
               <>
@@ -251,6 +266,17 @@ export default function PayStructureDetail() {
                       </Box>
                     )}
                   </>
+                )}
+                {preview.compliance && (
+                  <Box data-testid="structure-compliance" sx={{ borderTop: '1px solid var(--c-divider)', pt: 1.5 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.75 }}>
+                      Compliance{preview.compliance.summary.hard ? ` — ${preview.compliance.summary.hard} breach${preview.compliance.summary.hard === 1 ? '' : 'es'} of the law` : preview.compliance.summary.warn ? ` — ${preview.compliance.summary.warn} warning${preview.compliance.summary.warn === 1 ? '' : 's'}` : ' — nothing found'}
+                    </Typography>
+                    <ComplianceChecks results={preview.compliance.results} empty="Nothing found against the law in force for this CTC." />
+                    {canEdit && preview.compliance.summary.warn > 0 && dirty && (
+                      <TextField size="small" fullWidth label="Accept the warnings for every salary on this structure (reason, optional)" value={ackReason} onChange={(e) => setAckReason(e.target.value)} sx={{ mt: 1.25 }} inputProps={{ maxLength: 500 }} />
+                    )}
+                  </Box>
                 )}
                 {preview.vars && (
                   <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>

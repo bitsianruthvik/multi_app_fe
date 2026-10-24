@@ -61,7 +61,7 @@ export default function PerformanceActions() {
       { key: 'overdue', label: 'Overdue only', kind: 'toggle' },
       { key: 'owner', label: 'Owner', searchable: true, options: (data?.owners ?? []).map((o) => ({ value: String(o.id), label: o.name })) },
       { key: 'period', label: 'Period', options: periods },
-      { key: 'department', label: 'Org unit (and below)', searchable: true, options: deps },
+      { key: 'department', label: 'Org unit (and below)', searchable: true, multiple: true, options: deps },
       ...labelFilterDefs(labelList),
     ] as FilterDef[];
   }, [departments, items, labelList, data, periods]);

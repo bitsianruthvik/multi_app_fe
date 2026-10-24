@@ -138,9 +138,12 @@ export function renderSceneToCanvas(
   scene.links.forEach((p) => drawPrim(ctx, p, family));
   scene.secondary.forEach((p) => drawPrim(ctx, p, family));
   for (const box of scene.boxes) {
+    // Outside "Show only <kind>": faint in the file as on the screen (spec §15.4, §34.2).
+    ctx.globalAlpha = box.dimmed ? 0.28 : 1;
     box.prims.forEach((p) => drawPrim(ctx, p, family));
     box.toggle?.prims.forEach((p) => drawPrim(ctx, p, family));
   }
+  ctx.globalAlpha = 1;
   return canvas;
 }
 

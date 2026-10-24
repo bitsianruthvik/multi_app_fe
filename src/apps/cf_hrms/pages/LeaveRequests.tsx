@@ -84,7 +84,7 @@ export default function LeaveRequests() {
     return [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
       { key: 'leaveTypeId', label: 'Leave type', options: types.map((t) => ({ value: String(t.id), label: t.name })) },
-      ...(deps.length ? [{ key: 'departmentId', label: 'Org unit (and below)', searchable: true, options: deps }] : []),
+      ...(deps.length ? [{ key: 'departmentId', label: 'Org unit (and below)', searchable: true, multiple: true, options: deps }] : []),
       { key: 'from', label: 'Off on or after', kind: 'date' as const },
       { key: 'to', label: 'Off on or before', kind: 'date' as const },
     ];
