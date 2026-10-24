@@ -44,7 +44,7 @@ export function SectionNav({ section }: { section: NavSection | null }) {
         const meta = screen.countKey ? COUNT_TONE[screen.countKey] : undefined;
         const tone = TONE_STYLE[meta?.tone ?? 'neutral'];
         return (
-          <Box key={screen.key} component={NavLink} to={to} aria-current={active ? 'page' : undefined} sx={{
+          <Box key={screen.key} component={NavLink} to={to} state={{ navSection: section.key }} aria-current={active ? 'page' : undefined} sx={{
             display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0, height: 28, px: 1.25,
             borderRadius: 'var(--r-sm)', textDecoration: 'none', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap',
             color: active ? 'var(--c-primary-700)' : 'var(--c-text-2)', background: active ? 'var(--c-primary-50)' : 'transparent',

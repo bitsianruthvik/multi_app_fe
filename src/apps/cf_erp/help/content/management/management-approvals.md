@@ -36,6 +36,6 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
 - A request already decided cannot be decided again.
 
 ## Related
-- [Management overview](help:management-overview)
+- [Plan health](help:management-overview)
 - [Billing](help:accounts-billing)
 - [Contractor work orders](help:accounts-contractor-work-orders)

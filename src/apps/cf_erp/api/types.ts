@@ -1135,6 +1135,8 @@ export interface ReleaseCheck {
   finishedAreaProblem: string | null;
   /** Cut plates with no flow, and the house cut-plate flow that would be given to them (null: none set). */
   cutPlatesNoFlow?: { missing: number; flow: { id: number; code: string; name: string } | null };
+  /** The made rows release refuses for having no flow (cut pieces aside) — the freeze checklist's 'flows' rows (2026-10-24). */
+  noFlowRows?: import('./lock').LockFlowRow[];
   /** No active area of the fitting purpose exists at all — the dialog offers to create a dispatch yard. */
   noFittingArea?: boolean;
   finishedAreaPurpose?: AreaPurpose;
@@ -2018,6 +2020,8 @@ export interface WorkOrderRow {
 }
 
 export interface WorkOrderDetail extends WorkOrderRow {
+  /** 'cells' (operations on locked pieces — this older page) or 'po' (a contractor work order, run on Accounts › Work orders). */
+  kind: string;
   startDate: string | null;
   dueDate: string | null;
   notes: string | null;

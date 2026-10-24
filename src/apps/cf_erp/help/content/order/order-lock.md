@@ -29,7 +29,7 @@ Freezing the design rolls a line's structure out into pieces and gives each piec
 5. The page shows *Frozen (date) by (name) · N pieces coded*, and the order header shows **Revise**.
 
 ## Rows with no flow
-If made rows have no flow, freezing is not held up, but release will ask for one later. Click **Give them a flow**, tick the rows, pick the flow and click **Give N rows (flow)**. A row made another way can be unticked and given its own flow on Structure & values. A row with no flow can still get one after the freeze, until release.
+If made rows have no flow, freezing is not held up, but **release will refuse these rows until they have a flow** — the checklist says so, with the rows. The same list shows on the order's Production step before you create or release production orders. Click **Give them a flow**, tick the rows, pick the flow and click **Give N rows (flow)**. A row made another way can be unticked and given its own flow on Structure & values. A row with no flow can still get one after the freeze, until release.
 
 ## Good to know
 - Freezing does not need the plates: nesting chooses them afterwards.

@@ -63,7 +63,7 @@ function pushRecent(entry: Recent) {
 }
 
 type Item =
-  | { kind: 'action' | 'nav'; id: string; label: string; hint?: string; slug: string; dialog?: PaletteDialog }
+  | { kind: 'action' | 'nav'; id: string; label: string; hint?: string; slug: string; dialog?: PaletteDialog; section?: string }
   | { kind: 'recent'; id: string; label: string; slug: string }
   | { kind: 'record'; id: string; label: string; hint?: string; slug: string; type: string };
 
@@ -141,7 +141,7 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
     const navs: Item[] = allScreens().filter(({ screen }) => isPermitted(screen.permission))
       .map((e) => ({ e, s: score(e.screen.label, `${e.section.label} ${(e.screen.keywords ?? []).join(' ')}`, term) }))
       .filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
-      .map(({ e: { section, screen } }) => ({ kind: 'nav' as const, id: `nav:${screen.path}`, label: screen.label, hint: section.label === screen.label ? undefined : section.label, slug: screen.path }));
+      .map(({ e: { section, screen } }) => ({ kind: 'nav' as const, id: `nav:${section.key}:${screen.path}`, label: screen.label, hint: section.label === screen.label ? undefined : section.label, slug: screen.path, section: section.key }));
     const recs: Item[] = records.map((r) => {
       // A revised order keeps its code, so "rev 2" goes with the code in the hint — even when the name is the code itself.
       const rev = r.revision && r.revision > 1 ? revisionLabel(r.revision) : null;
@@ -169,7 +169,8 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
     // screen" either — the palette steps out of the way and the dialog opens.
     if (item.kind === 'action' && item.dialog) { onClose(); onDialog(item.dialog); return; }
     if (item.kind !== 'record') pushRecent({ slug: item.slug, label: item.label });
-    navigate(`/${company}/cf_erp/${item.slug}`);
+    // A screen listed in two sections opens in the one its row named (navMeta navSectionOf).
+    navigate(`/${company}/cf_erp/${item.slug}`, item.kind === 'nav' && item.section ? { state: { navSection: item.section } } : undefined);
     onClose();
   }, [company, navigate, onClose, onDialog]);
 

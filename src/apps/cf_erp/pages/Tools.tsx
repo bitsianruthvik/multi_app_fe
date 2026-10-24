@@ -67,7 +67,7 @@ function LifeEditor({ item, canManage, onDone }: { item: ToolItem; canManage: bo
   );
 }
 
-/** Inventory › Tools: tools are stock items; this is their life. */
+/** Stores › Tools (also in the Maintenance menu): tools are stock items; this is their life. */
 export default function Tools() {
   const toast = useToast();
   const isPermitted = useIsPermitted();

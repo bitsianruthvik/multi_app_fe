@@ -10,10 +10,10 @@ This guide is for the MD and the managers who approve, watch the plant and the m
 
 ## Your screens
 - **Home**: what waits for you today.
+- **Management › Dashboard**: machines, orders and contractors for a period.
+- **Management › Plan health**: the plan against its baseline.
 - **Management › Approvals**: the one inbox of everything that needs your yes.
-- **Management › Overview**: plan health against the baseline.
-- **Production › Dashboard**: machines, orders and contractors for a period.
-- **Accounts › Order costing**: the margin of each order.
+- **Management › Order costing**: the margin of each order (the same page as Accounts › Order costing).
 - **Accounts › Billing** and **Receipts**: what is billed, owed and paid.
 
 ## Every morning
@@ -26,7 +26,7 @@ This guide is for the MD and the managers who approve, watch the plant and the m
    - **Close a PO short**: material that will not come, and why.
    - **Re-baseline**: the planner wants to move the committed plan. The card lists each order's new date and the days lost.
    - If something is wrong, click **Send back** and say why. The person who asked reads your reason.
-3. Open [Management overview](help:management-overview) and read **Plan health**: what is slipping most, and why.
+3. Open [Plan health](help:management-overview): what is slipping most, and why.
 
 ## Every week
 1. Open the [Dashboard](help:management-dashboard) for **This week**.

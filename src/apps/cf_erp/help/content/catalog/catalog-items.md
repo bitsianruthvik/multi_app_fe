@@ -11,7 +11,7 @@ order: 10
 ## What you see
 - Figures: **Matching**, **Active**, **Draft** (not usable yet) and **Without a code** (cannot be activated).
 - **Search code or name**, the chips **All**, **Catalog** and **Temporary (one order)**, and the status chips **Any status**, **Draft**, **Active** and **Obsolete**.
-- Columns: **Code**, **Name**, **Kind**, **Classification**, **BOM** and **Status**. The column menu adds **Short name**, **Tracked by**, **Comes from** and **Rev**.
+- Columns: **Code**, **Name**, **Kind**, **Classification**, **BOM** and **Status**. The column menu adds **Tracked by**, **Comes from**, **Short name** (the part the code is built from) and **Rev**.
 - Buttons: **Classification** (the family tree, see [Classification](help:catalog-classification)) and **New item**.
 - On each row, a copy icon: **Make a similar one**.
 

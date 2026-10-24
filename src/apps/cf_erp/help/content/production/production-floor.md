@@ -27,7 +27,7 @@ The screen on the shared tablet at each machine. The operator taps their name an
 Tap **Raise a fault** in the header when the machine breaks down. See [Raise a fault](help:maintenance-raise-fault).
 
 ## Good to know
-- This screen has no app menu, so the help button may not be on it — a supervisor can open this page from Help.
+- This screen has no app menu; the **i** button at the right of its own header opens this help.
 - Names come from Setup › Operators; stop reasons from Setup › Stop reasons.
 - Run hours and tonnes recorded here drive preventive maintenance plans.
 

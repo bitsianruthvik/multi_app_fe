@@ -43,6 +43,9 @@ export default function MachineDetail() {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_production_manage');
+  // The tools and spares list is what maintenance MRs start from, so Maintenance keeps it too (2026-10-24; backend
+  // toolsResources.js takes either). Shifts and the machine itself stay on production manage.
+  const canResources = isPermitted('cf_erp_production_manage|cf_erp_maintenance');
   // Specification rules are setup, not production: /rules is guarded by
   // cf_erp_setup_manage, so gating them on production_manage put buttons in
   // front of people the backend then refused with a 403.
@@ -121,7 +124,7 @@ export default function MachineDetail() {
           <SectionCard title="Specifications" subtitle="What its machine type says it must carry, and its own values. Timing formulas read these as machine.CODE.">
             <ErrorNotice error={specs.error} onRetry={specs.reload} />
             {specs.loading && !specs.data ? <SkeletonRows rows={4} /> : specs.data && (
-              <SpecsTable resolution={specs.data} emptyHint="Add rules on its machine type under Setup › Classification — e.g. a cutting speed for every cutter."
+              <SpecsTable resolution={specs.data} emptyHint="Add rules on its machine type — open the type from Machines › Machine types, Specifications tab — e.g. a cutting speed for every cutter."
                 onSave={canManage ? async (values) => { await cfApi.put(`/machines/${id}/values`, { values }); toast.success('Values saved.'); specs.reload(); setVersion((v) => v + 1); } : undefined} />
             )}
           </SectionCard>
@@ -157,7 +160,7 @@ export default function MachineDetail() {
       )}
 
       {tab === 'shifts' && <MachineShifts machine={m} />}
-      {tab === 'resources' && <MachineResourcesCard machineId={id} canManage={canManage} />}
+      {tab === 'resources' && <MachineResourcesCard machineId={id} canManage={canResources} />}
       {tab === 'history' && <ValueHistory path={`/machines/${id}/history`} version={version} subtitle="Every change to a value on this machine — who, when, from what to what." />}
 
       <MachineDialog open={editing} existing={m} tree={tree.data} onClose={() => setEditing(false)} onSaved={(saved) => { toast.success(`${saved.code} saved.`); refreshAll(); }} />

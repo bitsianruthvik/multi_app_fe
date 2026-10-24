@@ -76,7 +76,7 @@ function OffcutDialog({ offcut, onClose, company }: { offcut: Offcut | null; onC
   );
 }
 
-/** Inventory › Offcuts — what is left of cut plates, each with the drawing of its shape. */
+/** Stores › Offcuts — what is left of cut plates, each with the drawing of its shape. */
 export default function Offcuts() {
   const company = useCompanySlug();
   const [status, setStatus] = useUrlParam('status', 'available');

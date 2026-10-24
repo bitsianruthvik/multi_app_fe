@@ -32,7 +32,7 @@ One machine: what it carries, what it can do, when it works, the tools and spare
 ## Good to know
 - A machine with no shifts cannot be planned on. Planned downtime and open faults come off its shifts.
 - **Edit** and the bin (delete — its own values and rules go with it) are at the top.
-- Changes here need the production manage permission.
+- The **Tools & spares** list can be changed with the Maintenance permission or production manage. Everything else here (the machine, its shifts, its values) needs production manage.
 
 ## Related
 - [Machines](help:maintenance-machines)

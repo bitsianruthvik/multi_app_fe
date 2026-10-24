@@ -11,7 +11,8 @@ import { SuccessCheck } from '../motion';
 /** Setup › Cutting: the rate our scrap is valued at (GET / PUT /stock/scrap-rate). */
 export function ScrapRateCard() {
   const toast = useToast();
-  const canEdit = useIsPermitted()('cf_erp_inventory_manage');
+  // It sits with the catalog's cutting rules: catalog manage or inventory manage (2026-10-24; backend inventory.js the same).
+  const canEdit = useIsPermitted()('cf_erp_catalog_manage|cf_erp_inventory_manage');
   const rate = useLoad(() => getScrapRate(), []);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);

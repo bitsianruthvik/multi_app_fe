@@ -30,16 +30,16 @@ To raise a job yourself (the machine stays up until the work starts), click **Ne
 
 ### 4. Spares and tools
 - Your MR goes to the Stores [MR inbox](help:purchase-material-requests). Stores gives what is in stock and Purchase buys the rest; parts issued against the order are added to its cost.
-- Tools with a life are followed on [Tools](help:maintenance-tools): record each piece's use and **Retire** it when finished.
+- Tools with a life are followed on [Tools](help:maintenance-tools) (**Maintenance › Tools**, also under Stores): record each piece's use and **Retire** it when finished.
 
 ## Plan ahead
 - [Preventive plans](help:maintenance-plans) — every N days, run hours or tonnes. A due plan opens an MO by itself. Run hours and tonnes come from the machine log, so push operators to keep it up to date.
 - [Planned downtime](help:maintenance-downtime) — "every 1st Sunday, 8 h", or a one-off shutdown. It is written into the machine's calendar and the plan gives the machine no work in those hours.
 
 ## Set up once
-- [Machines](help:maintenance-machines) and [machine types](help:maintenance-machine-types) — the register. Production machines need shifts on [their page](help:maintenance-machine).
+- [Machines](help:maintenance-machines) and [machine types](help:maintenance-machine-types) — the register (**Maintenance › Machine register**, also Production › Machines). Production machines need shifts on [their page](help:maintenance-machine).
 - Each machine's **Tools & spares** tab — the tools, spares and consumables it needs, with a typical quantity. Every maintenance MR starts from this list.
 - [Stop reasons](help:production-stop-reasons) — what operators tap when a machine stands still.
 
 ## Permissions
-The Maintenance permission opens the Maintenance tab and lets you raise and work orders, plans and downtime. Raising a fault also works with the machine log or production manage permission. Editing machines, shifts and the tools and spares list needs the production manage permission. The Test login holds all of these in the testing phase.
+The Maintenance permission opens the Maintenance tab and lets you raise and work orders, plans and downtime. Raising a fault also works with the machine log or production manage permission. A machine's **Tools & spares** list can be kept with the Maintenance permission or production manage. Editing the machine itself and its shifts needs production manage. The register needs the production view permission and Tools the inventory view permission, as before. The Test login holds all of these in the testing phase.

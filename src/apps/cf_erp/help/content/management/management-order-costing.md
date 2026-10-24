@@ -6,7 +6,7 @@ roles: [management, accounts, admin]
 routes: ["/:company/cf_erp/order-costing"]
 order: 40
 ---
-**Accounts › Order costing** shows the margin of every accepted order. The margin is what the order has been charged so far, less the material and consumables it used, plus credits for scrap and offcuts. Management and Accounts read it.
+**Accounts › Order costing** (also **Management › Order costing**) shows the margin of every accepted order. The margin is what the order has been charged so far, less the material and consumables it used, plus credits for scrap and offcuts. Management and Accounts read it.
 
 ## What you see
 - A line of totals for **All orders**: charged, material, consumables, credits and margin. It also shows the general (overhead) issues this month.

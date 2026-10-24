@@ -26,6 +26,7 @@ import { saveCsv, saveXlsx } from '../../lib/dashboardExport';
 import { bomFileStem, pieceBomTable } from '../../lib/pieceBomExport';
 import { useBecame } from '../salesMotion';
 import { SuccessCheck } from '../../motion';
+import { freezeFlowDetail, releaseRefusesText } from '../../lib/releaseFlow';
 
 /**
  * The Lock stage (user, 2026-09-26): "Based on the BOM and the values, the
@@ -312,7 +313,9 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
             const action = ch.key === 'flows' && canManage && ch.rows?.length
               ? <Button size="small" variant="contained" data-testid="give-flow" onClick={() => setGiveFlow(ch.rows ?? [])}>Give them a flow</Button>
               : undefined;
-            return <CheckRow key={ch.key} check={ch} stageLabel={label} action={action} onGo={label && ch.stageKey ? () => onGoStage(ch.stageKey as string) : null} />;
+            // Still a warning (the user's choice), but said plainly: release WILL refuse these rows (lib/releaseFlow).
+            const shown = ch.key === 'flows' && ch.rows?.length ? { ...ch, detail: freezeFlowDetail(ch.rows.map((r) => r.name)) } : ch;
+            return <CheckRow key={ch.key} check={shown} stageLabel={label} action={action} onGo={label && ch.stageKey ? () => onGoStage(ch.stageKey as string) : null} />;
           })}
         </Box>
         {failing > 0 && (
@@ -351,7 +354,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
             <li>Nesting picks the plates for these pieces; buying and production carry on from there.</li>
             <li>A change after this means a new revision of the order.</li>
             {(noFlowRows?.length ?? 0) > 0 && (
-              <li data-testid="freeze-no-flow">{plural(noFlowRows?.length ?? 0, 'made row')} still {noFlowRows?.length === 1 ? 'has' : 'have'} no flow — release will ask for {noFlowRows?.length === 1 ? 'it' : 'them'}. A row with no flow can still be given one after the freeze.</li>
+              <li data-testid="freeze-no-flow">{releaseRefusesText(noFlowRows?.length ?? 0)}. A row with no flow can still be given one after the freeze (Give them a flow, or on the order's Production step).</li>
             )}
           </Box>
         )} />

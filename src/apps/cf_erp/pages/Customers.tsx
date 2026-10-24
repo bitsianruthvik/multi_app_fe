@@ -35,7 +35,10 @@ interface PartyCounts { roles: Record<string, number>; active: number; inactive:
  * module, shared by whatever app needs customers and suppliers; this screen
  * starts on customers because sales orders are what use them today.
  */
-/** `fixedRole` pins the screen to one kind of party (Production › Contractors). */
+/**
+ * `fixedRole` pins the screen to one kind of party (Production › Contractors, Purchase › Suppliers): no role chips, the
+ * title, words and remembered columns are that role's only, and the role stays ticked on the form (2026-10-24).
+ */
 export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {}) {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_parties_manage');
@@ -67,7 +70,10 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
   const columns: DataColumn<Party>[] = [
     { key: 'code', header: 'Code', render: (p) => <Mono chip>{p.code}</Mono>, sortValue: (p) => p.code, alwaysVisible: true },
     { key: 'name', header: 'Name', render: (p) => <Box sx={{ fontWeight: 500 }}>{p.name}</Box>, sortValue: (p) => p.name },
-    { key: 'roles', header: 'Roles', render: (p) => p.roles.map((r) => ROLE_WORD[r]).join(', '), sortValue: (p) => p.roles.join(',') },
+    // On a screen pinned to one role every row has it: the column shows only what else the record is, and starts hidden.
+    fixedRole
+      ? { key: 'roles', header: 'Also', render: (p) => p.roles.filter((r) => r !== fixedRole).map((r) => ROLE_WORD[r]).join(', ') || '—', sortValue: (p) => p.roles.join(','), defaultHidden: true }
+      : { key: 'roles', header: 'Roles', render: (p) => p.roles.map((r) => ROLE_WORD[r]).join(', '), sortValue: (p) => p.roles.join(',') },
     {
       key: 'contact', header: 'Contact', sortValue: (p) => p.contactName ?? '', exportValue: (p) => [p.contactName, p.email, p.phone].filter(Boolean).join(' · '),
       render: (p) => (
@@ -90,7 +96,7 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
         {!fixedRole && ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={list.counts?.roles[c.value]} onClick={() => setRole(c.value)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={list.rows} columns={columns} getRowId={(p) => p.id} loading={!list.loaded} storageKey="parties" exportName="parties" defaultSortKey="name"
+      <DataTable rows={list.rows} columns={columns} getRowId={(p) => p.id} loading={!list.loaded} storageKey={fixedRole ? `parties-${fixedRole}` : 'parties'} exportName={fixedRole ? PAGE_TITLE[fixedRole].toLowerCase() : 'parties'} defaultSortKey="name"
         server={{ ...list.server, sortable: ['code', 'name', 'roles', 'contact', 'tax', 'status'] }}
         onRowClick={canManage ? (p) => setEditing({ open: true, party: p }) : undefined}
         rowActions={canManage ? (p) => (
@@ -102,9 +108,9 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
         empty={<EmptyState icon={<PeopleRounded />} title={term ? 'Nobody matches' : 'Nobody here yet'}
           hint={term ? 'Try a code, a name or a contact.' : role === 'subcontractor' ? 'Add a contractor — then give them work from a production order (Give work to a contractor).' : role === 'supplier' ? 'Add a supplier — purchase orders need one.' : 'Add the first customer — orders need one.'}
           action={!term && canManage && <Button variant="contained" onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />} />
-      <PartyDialog open={editing.open} existing={editing.party} defaultRole={role === 'all' ? 'customer' : (role as PartyRole)} onClose={() => setEditing({ open: false, party: null })}
+      <PartyDialog open={editing.open} existing={editing.party} defaultRole={role === 'all' ? 'customer' : (role as PartyRole)} lockRole={!!fixedRole} onClose={() => setEditing({ open: false, party: null })}
         onSaved={(p) => { toast.success(`${p.name} saved.`); invalidateNavCounts(); list.reload(); }} />
-      <ConfirmDialog open={!!deleting} danger confirmLabel="Delete" title="Delete this party?" entityName={deleting ? `${deleting.code} · ${deleting.name}` : undefined}
+      <ConfirmDialog open={!!deleting} danger confirmLabel="Delete" title={fixedRole ? `Delete this ${ROLE_WORD[fixedRole].toLowerCase()}?` : 'Delete this party?'} entityName={deleting ? `${deleting.code} · ${deleting.name}` : undefined}
         body="Refused while an order names them — mark them inactive instead, so the orders keep their customer."
         onClose={() => setDeleting(null)}
         onConfirm={async () => { await cfApi.del(`/parties/${deleting?.id}`); toast.success('Deleted.'); invalidateNavCounts(); list.reload(); }} />

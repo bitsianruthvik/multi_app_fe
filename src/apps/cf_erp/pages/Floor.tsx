@@ -12,6 +12,9 @@ import { appPath } from '../navMeta';
 // §82: RAISE A FAULT from the machine (the machine is down for planning at once; a maintenance order opens).
 import { RaiseFaultDialog } from '../components/Maintenance/MaintenanceDialogs';
 import { useToast } from '../components/toastContext';
+// The shell gives this route no top navigation (so no shell "i"), but its HelpProvider still wraps it: the page's own header
+// carries the help button (2026-10-24).
+import { HelpButton } from '../help/HelpButton';
 
 /**
  * The machine log, at the machine (plan: CF_ERP_FLOOR_LOG_PLAN.md section 3).
@@ -67,6 +70,7 @@ export default function Floor() {
             <ButtonBase onClick={() => chooseOperator(null)} sx={{ height: TOUCH, px: 2, borderRadius: 'var(--r-md)', border: '2px solid var(--c-border)', fontSize: 16, fontWeight: 600 }}>Not you?</ButtonBase>
           </Box>
         )}
+        <HelpButton label="Help for the machine log" sx={{ width: TOUCH, height: TOUCH, borderRadius: 'var(--r-md)', border: '2px solid var(--c-border)' }} />
       </Box>
 
       <Box component="main" sx={{ maxWidth: 820, mx: 'auto', p: 2, pb: 6 }}>

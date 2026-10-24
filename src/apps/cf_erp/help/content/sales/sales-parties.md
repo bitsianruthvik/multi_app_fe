@@ -10,8 +10,9 @@ One list holds everyone you deal with: customers who order from you, suppliers y
 
 ## What you see
 - **Active**, **Inactive** (not offered on new orders) and **No contact** (no email or phone on record) figures.
-- On **Customers**, chips to switch between **Customers**, **Suppliers**, **Contractors** and **All**.
-- The table: **Code**, **Name**, **Roles**, **Contact**, **Status**, and a hidden **Tax number** column. The pencil edits a record; the bin deletes it.
+- On **Customers**, chips to switch between **Customers**, **Suppliers**, **Contractors** and **All**. **Suppliers** and **Contractors** show only their own role: no chips, and their own title.
+- The table: **Code**, **Name**, **Roles**, **Contact**, **Status**, and a hidden **Tax number** column. On Suppliers and Contractors the roles column is **Also** (hidden at first): the other roles a record holds. The pencil edits a record; the bin deletes it.
+- On Suppliers and Contractors the form keeps that role ticked, so a record cannot drop off the list by mistake.
 
 ## How to add a customer
 1. Click **New customer** (or **New supplier** / **New contractor**).

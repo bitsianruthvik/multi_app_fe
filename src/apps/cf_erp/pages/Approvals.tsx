@@ -262,11 +262,14 @@ export default function Approvals() {
   );
 }
 
-/** MANAGEMENT › OVERVIEW — room for the dashboards to come (§73: "an empty Overview section is fine"). */
+/**
+ * MANAGEMENT › PLAN HEALTH (the page at /management-overview; named Overview until 2026-10-24, when it held only this card).
+ * The Dashboard (by machine, by order, work orders) is Management › Dashboard; approvals are on Approvals.
+ */
 export function ManagementOverview() {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-      <PageHeader title="Overview" subtitle="Management's dashboards: plan health first. Approvals are on the Approvals screen." />
+      <PageHeader title="Plan health" subtitle="The saved production plan against its baseline: what is slipping most, and why. Machines and orders for a period are on Management › Dashboard." />
       {/* Step 5 (§84): the saved plan against the baseline. */}
       <PlanHealthCard />
     </Box>

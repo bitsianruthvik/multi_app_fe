@@ -6,7 +6,7 @@ roles: [maintenance, stores, production]
 routes: ["/:company/cf_erp/tools"]
 order: 60
 ---
-Tools are stock items like any other: received and issued under Stock. Give a tool item a life (uses, hours or metres) and every piece issued is counted until it is worn out.
+Tools are stock items like any other: received and issued under Stock. The page is **Stores › Tools**, and the same page is **Maintenance › Tools**. Give a tool item a life (uses, hours or metres) and every piece issued is counted until it is worn out.
 
 ## The two tabs
 - **Issued pieces** — every tool piece out: **Tool** (code, name, piece no.), **Issued**, **Used for** (a sales order or General), **On machine**, **Life** (a bar that turns red past 80%) and **State**. Pick **In use**, **Worn out**, **Retired** or **All**.

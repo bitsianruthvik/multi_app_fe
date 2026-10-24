@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import { ErrorBoundary } from '@core/components/ErrorBoundary';
-import { resolveNav, appPath } from '../../navMeta';
+import { resolveNav, appPath, navSectionOf } from '../../navMeta';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { TopNav } from './TopNav';
 import { SectionNav } from './SectionNav';
 import { MobileNavSheet } from './MobileNavSheet';
@@ -34,7 +35,15 @@ export function CfErpShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const shortcuts = useShortcutsHelp();
 
-  const resolved = useMemo(() => resolveNav(pathname), [pathname]);
+  // A path in two sections (Dashboard; Machines and Tools in Maintenance) stays in the section its menu link named, else
+  // in the section you were in — so Maintenance › Machine register does not jump to the Production tab.
+  const isPermitted = useIsPermitted();
+  const lastSection = useRef<string | null>(null);
+  // The section of the previous page: read on each navigation, written after it (an effect, not a render-time update).
+  const prefer = navSectionOf(state) ?? lastSection.current;
+  const resolved = useMemo(() => resolveNav(pathname, { prefer, isPermitted }), [pathname, prefer, isPermitted]);
+  const sectionKey = resolved?.section.key ?? null;
+  useEffect(() => { if (sectionKey) lastSection.current = sectionKey; }, [sectionKey]);
   const onDetail = !!resolved?.detailId;
 
   // Detail pages publish their own label (order number, item code…) via

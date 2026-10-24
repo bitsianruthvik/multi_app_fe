@@ -357,8 +357,9 @@ await check('Setup › Templates lists each kind, the default marked', async () 
 await check('the menu: Management (Approvals, Overview) for any approval tag; Sales › Orders board; Setup › Templates', () => {
   const mgmt = m.SECTIONS.find((s) => s.key === 'mgmt');
   assert.equal(mgmt.label, 'Management');
-  assert.deepEqual(mgmt.screens.map((s) => s.key), ['approvals', 'management-overview']);
-  assert.equal(mgmt.screens[0].permission.split('|').length, 6);
+  // 2026-10-24: Management holds the Dashboard, Plan health (the overview page), Approvals and Order costing.
+  assert.deepEqual(mgmt.screens.map((s) => s.key), ['mgmt-dashboard', 'management-overview', 'approvals', 'mgmt-order-costing']);
+  assert.equal(mgmt.screens.find((s) => s.key === 'approvals').permission.split('|').length, 6);
   assert.ok(m.SECTIONS.find((s) => s.key === 'sales').screens.some((s) => s.key === 'orders-board' && s.label === 'Orders board'));
   assert.ok(m.SECTIONS.find((s) => s.key === 'setup').screens.some((s) => s.key === 'term-templates' && s.label === 'Templates'));
   assert.match(m.SECTIONS.find((s) => s.key === 'purchase').screens.find((s) => s.key === 'purchase-orders').permission, /cf_erp_approve_purchase_order/);

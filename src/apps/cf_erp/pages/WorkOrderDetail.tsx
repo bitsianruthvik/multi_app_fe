@@ -23,7 +23,12 @@ const NEXT: Partial<Record<WorkOrderStatus, { to: WorkOrderStatus; label: string
   in_progress: { to: 'done', label: 'Done', done: 'marked done' },
 };
 
-/** One work order: who, for what, when — and the operations it covers, by piece. */
+/**
+ * One work order: who, for what, when — and the operations it covers, by piece. THE OLDER VIEW (2026-10-24): reached from
+ * Production › Dashboard › Work orders and from an older work order's contractor page. Contractor work orders are run on
+ * Accounts › Work orders (ContractorWorkOrderDetail, accounts manage); this page keeps its production manage rights for
+ * the dates, notes and status of a cells work order, and says so at the top with a link across.
+ */
 export default function WorkOrderDetail() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -68,6 +73,12 @@ export default function WorkOrderDetail() {
         />
       }
     >
+      <Typography data-testid="wo-older-view" sx={{ mb: 2, fontSize: 13.5, color: 'var(--c-text-2)' }}>
+        {w.kind === 'po'
+          ? 'This is the older work order view. This work order is run on its contractor work order page (Accounts › Work orders): its contractor PO, progress and payments are there. '
+          : 'This is the older work order view: operations on locked pieces, from before work orders were raised from a production order. Contractor work orders, their POs and payments are on Accounts › Work orders. '}
+        <Box component={Link} to={appPath(company, `contractor-work-orders/${w.id}`)} data-testid="wo-open-contractor" sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>Open the contractor work order</Box>
+      </Typography>
       <ErrorNotice error={error ?? (load.error && w ? load.error : null)} onRetry={load.reload} />
       <SectionCard title="Dates and notes">
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '180px 180px minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>

@@ -77,50 +77,61 @@ function bomCell(r: MasterRecord) {
   return <Mono muted>—</Mono>;
 }
 
+/**
+ * The list's columns, one set per screen (2026-10-24: they were one list with "Short name" in two places — first for
+ * definitions, hidden after Name for items — which read as a duplicate).
+ *   Definitions: Short name first (a definition is known by its short name, never its code — user, 2026-10-08), Name,
+ *     Kind, Classification, Picks from, Rev (hidden), Status.
+ *   Items: Code first, Name, Kind, Classification, BOM, Status; the column menu adds Tracked by, Comes from, Short name
+ *     (the part an item's code is built from, rarely read on the list) and Rev.
+ */
 function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>[] {
-  return [
-    // A definition is known by its short name, never its code (user, 2026-10-08).
-    recordKind === 'definition'
-      ? { key: 'shortName', header: 'Short name', render: (r: MasterRecord) => { const c = displayCode(r); return c ? <Mono chip>{c}</Mono> : <Mono muted>—</Mono>; }, sortValue: (r: MasterRecord) => r.shortName, alwaysVisible: true } as DataColumn<MasterRecord>
-      : { key: 'code', header: 'Code', render: (r: MasterRecord) => r.code ? <Mono chip>{r.code}</Mono> : <Mono muted>—</Mono>, sortValue: (r: MasterRecord) => r.code, alwaysVisible: true } as DataColumn<MasterRecord>,
-    {
-      key: 'name', header: 'Name', sortValue: (r) => r.name,
-      render: (r) => (
-        <Box sx={{ py: 0.5 }}>
-          <Box sx={{ fontWeight: 500, whiteSpace: 'normal' }}>{r.name}</Box>
-          {r.item?.itemType === 'temporary' && (r.sourceDefinitionShortName || r.owner) && (
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-              {r.sourceDefinitionShortName ? `from ${r.sourceDefinitionShortName}` : ''}{r.sourceDefinitionShortName && r.owner ? ' · ' : ''}{r.owner ? `${r.owner.orderCode} line ${r.owner.lineNo}` : ''}
-            </Typography>
-          )}
-        </Box>
-      ),
-    },
-    ...(recordKind === 'item' ? [{ key: 'shortName', header: 'Short name', defaultHidden: true, render: (r: MasterRecord) => (r.shortName != null ? <Mono>{shortNameText(r.shortName)}</Mono> : <Mono muted>—</Mono>), sortValue: (r: MasterRecord) => r.shortName } as DataColumn<MasterRecord>] : []),
-    { key: 'kind', header: 'Kind', render: (r) => <KindChip kind={r.kind} />, sortValue: (r) => r.kind },
-    { key: 'classification', header: 'Classification', render: (r) => r.classificationName, sortValue: (r) => r.classificationName },
-    recordKind === 'item'
-      // Six columns is what fits at 1024px, and the BOM is the more useful
-      // sixth: tracking is a setup fact, and there is no quantity here for its
-      // unit to qualify. One click in the column menu brings it back.
-      ? { key: 'tracked', header: 'Tracked by', defaultHidden: true, render: (r) => <>{r.item?.trackedBy} <Mono muted>· {r.item?.uom}</Mono></>, sortValue: (r) => r.item?.trackedBy, exportValue: (r) => (r.item ? `${r.item.trackedBy} · ${r.item.uom}` : '') }
+  const name: DataColumn<MasterRecord> = {
+    key: 'name', header: 'Name', sortValue: (r) => r.name,
+    render: (r) => (
+      <Box sx={{ py: 0.5 }}>
+        <Box sx={{ fontWeight: 500, whiteSpace: 'normal' }}>{r.name}</Box>
+        {r.item?.itemType === 'temporary' && (r.sourceDefinitionShortName || r.owner) && (
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+            {r.sourceDefinitionShortName ? `from ${r.sourceDefinitionShortName}` : ''}{r.sourceDefinitionShortName && r.owner ? ' · ' : ''}{r.owner ? `${r.owner.orderCode} line ${r.owner.lineNo}` : ''}
+          </Typography>
+        )}
+      </Box>
+    ),
+  };
+  const kind: DataColumn<MasterRecord> = { key: 'kind', header: 'Kind', render: (r) => <KindChip kind={r.kind} />, sortValue: (r) => r.kind };
+  const classification: DataColumn<MasterRecord> = { key: 'classification', header: 'Classification', render: (r) => r.classificationName, sortValue: (r) => r.classificationName };
+  // Most records are at no revision at all — one click away in the column menu.
+  const rev: DataColumn<MasterRecord> = { key: 'rev', header: 'Rev', defaultHidden: true, render: (r) => <Mono muted>{r.revision ?? '—'}</Mono>, sortValue: (r) => r.revision };
+  const status: DataColumn<MasterRecord> = { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} />, sortValue: (r) => r.status };
+
+  if (recordKind === 'definition') {
+    return [
+      { key: 'shortName', header: 'Short name', render: (r) => { const c = displayCode(r); return c ? <Mono chip>{c}</Mono> : <Mono muted>—</Mono>; }, sortValue: (r) => r.shortName, alwaysVisible: true },
+      name, kind, classification,
       // Sorted by the words the column shows, not by the raw enum behind them.
-      : { key: 'chooses', header: 'Picks from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : null) },
-    ...(recordKind === 'item' ? [{
-      key: 'sourcing', header: 'Comes from', defaultHidden: true,
-      render: (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order'),
-      sortValue: (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order'),
-    } as DataColumn<MasterRecord>] : []),
-    ...(recordKind === 'item' ? [{
+      { key: 'chooses', header: 'Picks from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : null) },
+      rev, status,
+    ];
+  }
+  const comesFrom = (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order');
+  return [
+    { key: 'code', header: 'Code', render: (r) => r.code ? <Mono chip>{r.code}</Mono> : <Mono muted>—</Mono>, sortValue: (r) => r.code, alwaysVisible: true },
+    name, kind, classification,
+    // Six columns is what fits at 1024px, and the BOM is the more useful
+    // sixth: tracking is a setup fact, and there is no quantity here for its
+    // unit to qualify. One click in the column menu brings it back.
+    { key: 'tracked', header: 'Tracked by', defaultHidden: true, render: (r) => <>{r.item?.trackedBy} <Mono muted>· {r.item?.uom}</Mono></>, sortValue: (r) => r.item?.trackedBy, exportValue: (r) => (r.item ? `${r.item.trackedBy} · ${r.item.uom}` : '') },
+    { key: 'sourcing', header: 'Comes from', defaultHidden: true, render: comesFrom, sortValue: comesFrom },
+    {
       key: 'bom', header: 'BOM', numeric: true, width: 80, render: bomCell,
       // The real count sorts the column; an item with no BOM has no number, so
       // it sorts with the other blanks (the table puts nulls last either way).
-      sortValue: (r: MasterRecord) => bomLines(r) ?? (r.bomStatus ? 0 : null),
-      exportValue: (r: MasterRecord) => bomLines(r) ?? (r.bomStatus ? r.bomStatus : ''),
-    } as DataColumn<MasterRecord>] : []),
-    // Most records are at no revision at all — one click away in the column menu.
-    { key: 'rev', header: 'Rev', defaultHidden: true, render: (r) => <Mono muted>{r.revision ?? '—'}</Mono>, sortValue: (r) => r.revision },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} />, sortValue: (r) => r.status },
+      sortValue: (r) => bomLines(r) ?? (r.bomStatus ? 0 : null),
+      exportValue: (r) => bomLines(r) ?? (r.bomStatus ? r.bomStatus : ''),
+    },
+    { key: 'shortName', header: 'Short name', defaultHidden: true, render: (r) => (r.shortName != null ? <Mono>{shortNameText(r.shortName)}</Mono> : <Mono muted>—</Mono>), sortValue: (r) => r.shortName },
+    rev, status,
   ];
 }
 

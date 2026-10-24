@@ -170,8 +170,9 @@ await check('the API helpers call the §82 routes', async () => {
 await check('the menu: a Maintenance tab — Machines, Maintenance orders, Preventive plans, Planned downtime — on cf_erp_maintenance', () => {
   const sec = m.SECTIONS.find((s) => s.key === 'maintenance');
   assert.equal(sec.label, 'Maintenance');
-  assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime']);
-  assert.ok(sec.screens.every((s) => s.permission === 'cf_erp_maintenance'));
+  // 2026-10-24: the machine register and Tools are in the Maintenance menu too, with their own (Production / Stores) permissions.
+  assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime', 'machines', 'tools']);
+  assert.ok(sec.screens.slice(0, 4).every((s) => s.permission === 'cf_erp_maintenance'));
   assert.equal(sec.screens[1].hasDetail, true);
   assert.ok(src('routes.tsx').includes("'/:company/cf_erp/maintenance-orders/:id'"));
 });

@@ -17,7 +17,10 @@ export interface NavScreen {
   path: string;
   /** Detail pages under this screen: /:company/cf_erp/<path>/:id */
   hasDetail?: boolean;
-  /** feature_tag that gates it; undefined = always visible. Tags joined by "|" = any one of them. */
+  /**
+   * feature_tag that gates it; undefined = always visible. Tags joined by "|" = any one of them; inside one of those,
+   * tags joined by "&" = all of them (`a&b|a&c`: a, with b or c — see bothOf).
+   */
   permission?: string;
   /** Key into GET /nav-counts for the row-2 badge. */
   countKey?: string;
@@ -47,6 +50,12 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  */
 const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline';
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
+/**
+ * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page
+ * itself needs) together with any one approval tag. Production people keep Production › Dashboard; accounts keep
+ * Accounts › Order costing — neither gets a Management tab for it.
+ */
+const bothOf = (tag: string, anyOf: string) => anyOf.split('|').map((t) => `${tag}&${t}`).join('|');
 const PURCHASE_ORDERS = `cf_erp_inventory_view|cf_erp_purchase|cf_erp_plate_change_approve|${APPROVE_ANY}`;
 /**
  * §79 STORES CHAIN (user 2026-10-18): Need → MR → STORES (take from stock, raise the PR) → Purchase (quotes → PO) →
@@ -59,7 +68,7 @@ const PURCHASE = 'cf_erp_inventory_view|cf_erp_purchase';
  * THE NESTING PLATE-CHANGE GATE IS OFF (§71, user 2026-10-18: "remove nesting approval from MD for now, will add back
  * later if required") — the backend's plateChangeService gate, default off. While it is off the "Plate changes" screen is
  * not in the menu (its page stays: a customer's substitute still goes to the MD there, linked from the MR screen and
- * Inventory › To return to customers). Turn both on together.
+ * Stores › To return to customers). Turn both on together.
  */
 /** §82: the Maintenance tab (also on every role that manages production). */
 const MAINTENANCE = 'cf_erp_maintenance';
@@ -78,12 +87,16 @@ export const SECTIONS: NavSection[] = [
     ],
   },
   {
-    // §73: what waits for Management's yes — one inbox — and room for dashboards later.
+    // §73: what waits for Management's yes — one inbox — and Management's own pages (2026-10-24): the Dashboard (the same
+    // page as Production › Dashboard), Plan health (the page at management-overview; its path stays) and Order costing
+    // (also under Accounts).
     key: 'mgmt',
     label: 'Management',
     screens: [
+      { key: 'mgmt-dashboard', label: 'Dashboard', path: 'management', permission: bothOf(PRODUCTION, APPROVE_ANY), keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report', 'work orders'] },
+      { key: 'management-overview', label: 'Plan health', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'overview', 'plan health', 'baseline', 'slipping', 'slip', 'late'] },
       { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_ANY, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
-      { key: 'management-overview', label: 'Overview', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'dashboard'] },
+      { key: 'mgmt-order-costing', label: 'Order costing', path: 'order-costing', permission: bothOf(ACCOUNTS, APPROVE_ANY), keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
     ],
   },
   {
@@ -127,7 +140,8 @@ export const SECTIONS: NavSection[] = [
     key: 'production',
     label: 'Production',
     screens: [
-      // Management's glance: by machine and by order. Not 'dashboard' — that path is the login landing (redirects to Home).
+      // Management's glance: by machine and by order — also Management › Dashboard (2026-10-24); production people read it
+      // here. Not 'dashboard' — that path is the login landing (redirects to Home).
       { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
       // Step 5 (§84): the planner per production order, step by step — auto (AI) / manual (Management), baseline, plan health.
       { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
@@ -176,6 +190,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'maintenance-orders', label: 'Maintenance orders', path: 'maintenance-orders', hasDetail: true, permission: MAINTENANCE, keywords: ['mo', 'repair', 'breakdown', 'fault', 'false alarm', 'waiting for parts', 'spares'] },
       { key: 'maintenance-plans', label: 'Preventive plans', path: 'maintenance-plans', permission: MAINTENANCE, keywords: ['preventive', 'pm', 'service', 'lubrication', 'run hours', 'tonnes', 'every n days'] },
       { key: 'planned-downtime', label: 'Planned downtime', path: 'planned-downtime', permission: MAINTENANCE, keywords: ['downtime', 'shutdown', 'calendar', 'every sunday', 'holiday', 'machine off'] },
+      // 2026-10-24: the machines register and Tools, as in Production / Stores (same routes, same permissions as there).
+      { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: PRODUCTION, keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types'] },
+      { key: 'maint-tools', label: 'Tools', path: 'tools', permission: INVENTORY, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
     ],
   },
   {
@@ -185,7 +202,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Value formulas', path: 'formulas', permission: VIEW, keywords: ['formulas', 'calculation', 'roll-up', 'weight', 'area'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
-      { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: ORDERS, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
+      { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
       { key: 'cutting', label: 'Cutting', path: 'cutting', permission: VIEW, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
@@ -215,18 +232,34 @@ export interface ResolvedNav {
   detailId: string | null;
 }
 
-/** Which section and screen a pathname belongs to. /:company/cf_erp/<screen>[/<id>] */
-export function resolveNav(pathname: string): ResolvedNav | null {
+/**
+ * Router state the menus put on their links: which section the screen was opened from. A path listed in two sections
+ * (Dashboard in Management and Production; Machines and Tools in Maintenance too) then stays in the section you came from.
+ */
+export interface NavSectionState { navSection?: string }
+export const navSectionOf = (state: unknown): string | null => {
+  const k = (state as NavSectionState | null)?.navSection;
+  return typeof k === 'string' ? k : null;
+};
+
+/**
+ * Which section and screen a pathname belongs to. /:company/cf_erp/<screen>[/<id>]
+ * A path in more than one section: `prefer` (the section it was opened from, else the one you were in) when it lists the
+ * path, else the first section that lists it where the screen is permitted, else the first that lists it.
+ */
+export function resolveNav(pathname: string, opts: { prefer?: string | null; isPermitted?: (tag?: string) => boolean } = {}): ResolvedNav | null {
   const parts = pathname.split('/').filter(Boolean);
   if (parts[1] !== 'cf_erp') return null;
   const [, , rawPath, detailId] = parts;
   // A machine type's page belongs to the Machines screen; it has no top-nav item of its own.
   const screenPath = rawPath === 'machine-types' ? 'machines' : rawPath;
+  const found: ResolvedNav[] = [];
   for (const section of SECTIONS) {
     const screen = section.screens.find((s) => s.path === screenPath);
-    if (screen) return { section, screen, detailId: screen.hasDetail && detailId ? detailId : null };
+    if (screen) found.push({ section, screen, detailId: screen.hasDetail && detailId ? detailId : null });
   }
-  return null;
+  const ok = (r: ResolvedNav) => !opts.isPermitted || opts.isPermitted(r.screen.permission);
+  return found.find((r) => r.section.key === opts.prefer && ok(r)) ?? found.find(ok) ?? found[0] ?? null;
 }
 
 /** Every screen with its section — the palette's "Go to" list. */

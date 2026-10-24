@@ -21,6 +21,8 @@ import { Badge, EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from 
 import { FlashOnChange, celebrate } from '../../motion';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { TimesPanel } from '../Production/TimesPanel';
+import { linesToCheck } from '../../lib/releaseFlow';
+import { ReleaseFlowGaps } from './ReleaseFlowGaps';
 import { useToast } from '../toastContext';
 
 const ROW_COLS = { xs: '1fr auto', md: '120px minmax(200px, 2fr) 120px 150px auto' };
@@ -74,6 +76,13 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
 
   const list = useMemo(() => d?.productionOrders ?? [], [d]);
   const toRelease = releasableIds(list);
+  // The rows release would refuse for having no flow, said before Create / Release is clicked (lib/releaseFlow).
+  const flowLines = d ? linesToCheck({
+    lineIds: lines.map((l) => l.id),
+    pendingLineIds: list.filter((po) => po.status === 'yet_to_plan').flatMap((po) => po.lineIds),
+    releasedLineIds: [...d.legacy.map((l) => l.lineId), ...list.filter((po) => po.status !== 'yet_to_plan').flatMap((po) => po.lineIds), ...lines.filter((l) => l.release).map((l) => l.id)],
+    toCreate: d.toCreate.count > 0,
+  }) : [];
 
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
@@ -122,6 +131,7 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
             </Box>
           )}>
           <ErrorNotice error={error ?? load.error} onRetry={error ? undefined : load.reload} />
+          {flowLines.length > 0 && <ReleaseFlowGaps lineIds={flowLines} canGive={isPermitted('cf_erp_orders_manage')} onChanged={onChanged} />}
           {d?.toCreate.why && d.toCreate.count > 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>{d.toCreate.why}</Typography>}
           {!d ? <SkeletonRows rows={3} height={40} /> : list.length === 0 ? (
             <EmptyState title="No production orders yet" hint={d.toCreate.count ? `${createLabel(d.toCreate.count)}: ${d.toCreate.labels.slice(0, 3).join(', ')}${d.toCreate.count > 3 ? '…' : ''}` : 'The execution plan asks for none.'} />

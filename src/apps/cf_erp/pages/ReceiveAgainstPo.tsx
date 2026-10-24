@@ -26,7 +26,7 @@ import { useSavedCheck } from '../hooks/useSavedCheck';
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
 /**
- * Inventory › Receive against PO (§71): every line still pending on a purchase order that waits for goods (approved by
+ * Stores › Receive against PO (§71): every line still pending on a purchase order that waits for goods (approved by
  * the MD, or the customer's own ₹0 PO). Each GRN is an ordinary stock receipt; a PO may take several. What arrives is
  * earmarked to the order(s) the PO line serves — nobody else can use it. When everything is in, the PO closes.
  */

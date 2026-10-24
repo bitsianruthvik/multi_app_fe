@@ -22,7 +22,7 @@ export function MobileNavSheet({ open, onClose }: { open: boolean; onClose: () =
                 const to = appPath(company, screen.path);
                 const active = pathname === to || pathname.startsWith(`${to}/`);
                 return (
-                  <Box key={screen.key} component={NavLink} to={to} onClick={onClose} sx={{
+                  <Box key={screen.key} component={NavLink} to={to} state={{ navSection: section.key }} onClick={onClose} sx={{
                     display: 'block', mx: 1, px: 1.5, py: 1, borderRadius: 'var(--r-sm)', textDecoration: 'none', fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 500,
                     color: active ? 'var(--c-primary-700)' : 'var(--c-text)', background: active ? 'var(--c-primary-50)' : 'transparent',
                   }}>

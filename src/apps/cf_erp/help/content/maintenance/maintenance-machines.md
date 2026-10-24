@@ -6,7 +6,7 @@ roles: [maintenance, production, admin]
 routes: ["/:company/cf_erp/machines"]
 order: 50
 ---
-The register of machines — what does the work. A machine's type decides what it must carry (a plasma cutter its cutting speed), and the operation rules turn those values into times. Maintenance, planning and the machine log all read this list.
+The register of machines — what does the work. It is **Production › Machines**, and the same page is **Maintenance › Machine register**. A machine's type decides what it must carry (a plasma cutter its cutting speed), and the operation rules turn those values into times. Maintenance, planning and the machine log all read this list.
 
 ## What you see
 - Figures: **Production machines** (or **All machines**), **Active**, and **Machine types** (click to manage them).

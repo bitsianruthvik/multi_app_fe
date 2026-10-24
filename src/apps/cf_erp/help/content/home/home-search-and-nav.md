@@ -9,7 +9,7 @@ order: 20
 How to find any order, item or screen fast, and how the menus are laid out. It is for everyone.
 
 ## What you see
-- **The top bar**: the sections Home, Sales, Management, Accounts, Purchase, Catalog, Production, Stores, Maintenance and Setup. You see only the sections your role may open. Click a section to open its first screen. Its screens show as a second row of tabs.
+- **The top bar**: the sections Home, Sales, Management, Accounts, Purchase, Catalog, Production, Stores, Maintenance and Setup. You see only the sections your role may open. Click a section to open its first screen. Its screens show as a second row of tabs. A few screens sit in two sections — the Dashboard (Management and Production), Order costing (Management and Accounts), and the machine register and Tools (also in Maintenance); it is the same page, and the menu stays on the section you opened it from.
 - **Search** (the box with **⌘K**) at the right of the top bar.
 - **Create** (the **+** button): New order, New item, Receive stock, New purchase order, New machine, New customer. You see only what you are allowed to create.
 - The light/dark switch.

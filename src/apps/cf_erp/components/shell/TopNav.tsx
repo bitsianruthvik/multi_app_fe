@@ -71,7 +71,7 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
             const first = section.screens.find((s) => isPermitted(s.permission));
             if (!first) return null;
             return (
-              <Box key={section.key} component={NavLink} to={appPath(company, first.path)} aria-current={active ? 'page' : undefined} sx={{
+              <Box key={section.key} component={NavLink} to={appPath(company, first.path)} state={{ navSection: section.key }} aria-current={active ? 'page' : undefined} sx={{
                 position: 'relative', display: 'inline-flex', alignItems: 'center', height: 52, px: 1.5, textDecoration: 'none', flexShrink: 0,
                 fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap',
                 color: active ? 'var(--c-text)' : 'var(--c-text-2)', transition: 'color var(--t-fast) var(--ease)', '&:hover': { color: 'var(--c-text)' },

@@ -44,7 +44,7 @@ export function toWorkOrderRow(raw: unknown): WorkOrderRow {
 export function toWorkOrderDetail(raw: unknown): WorkOrderDetail {
   const r = raw as Loose;
   return {
-    ...toWorkOrderRow(raw), startDate: str(r.startDate), dueDate: str(r.dueDate), notes: str(r.notes),
+    ...toWorkOrderRow(raw), kind: str(r.kind) ?? 'cells', startDate: str(r.startDate), dueDate: str(r.dueDate), notes: str(r.notes),
     scope: Array.isArray(r.scope) ? (r.scope as WorkOrderDetail['scope']).map((s) => ({ pieceCode: String(s.pieceCode ?? ''), operations: s.operations ?? [] })) : [],
   };
 }

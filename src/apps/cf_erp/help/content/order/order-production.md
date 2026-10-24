@@ -22,7 +22,7 @@ The Production step holds the times of every operation, then the production orde
 5. When a production order is finished, **Dispatch** ships it from here.
 
 ## Good to know
-- Release asks every made row for a flow. If a row has none, give it one on Structure & values (pick it, then **Save**) — this is allowed on a frozen line until release.
+- Release refuses a made row with no flow. Those rows are listed at the top of **Production orders** before you click — *Release will refuse these N rows until they have a flow* — with **Give them a flow** per line. Or give one on Structure & values (pick it, then **Save**) — this is allowed on a frozen line until release.
 - **Take back** undoes a release while nothing has started.
 - A customer order is confirmed only by an approved Customer acceptance; until then the stage says so and offers **Go to Customer acceptance**.
 - A line whose cut plates have no plate yet waits for Nesting.

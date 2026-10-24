@@ -16,7 +16,7 @@ order: 40
 - **AI nesting — grade, impact class and custom plate sizes**.
 
 ## Scrap rate
-Type the **₹ per kg** and click **Save scrap rate**. Leave it empty if it is not decided; scrap is then valued at 0 and shows *not costed* in [Order costing](help:management-order-costing). Setting it needs the inventory manage permission.
+Type the **₹ per kg** and click **Save scrap rate**. Leave it empty if it is not decided; scrap is then valued at 0 and shows *not costed* in [Order costing](help:management-order-costing). Setting it needs the catalog manage or the inventory manage permission.
 
 ## The shop's cutting habits
 - The defaults come from the shop's ProNest files. Kerf is 3 / 4 / 5 mm for 10–16 / 20–25 / 36–45 mm plate, with 5 mm from the plate edge, 5 mm between parts, 13 mm between shared-line blocks, and leads of 6 mm in and 2 mm out.

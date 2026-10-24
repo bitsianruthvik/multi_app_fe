@@ -6,7 +6,7 @@ roles: [management, production, admin]
 routes: ["/:company/cf_erp/management"]
 order: 30
 ---
-**Production › Dashboard** is Management's glance at the plant. It shows what the machines did, where every confirmed order stands and how far the contractors are, all for one period. It only reads; nothing is changed here.
+**Management › Dashboard** is Management's glance at the plant. Production people find the same page as **Production › Dashboard**. It shows what the machines did, where every confirmed order stands and how far the contractors are, all for one period. It only reads; nothing is changed here.
 
 ## What you see
 - **Period**: Today, This week (the default), This month, Last 30 days or Custom. Custom shows **From** and **To** dates and allows up to 92 days.
@@ -41,5 +41,5 @@ order: 30
 - You need production view or orders view to see this page.
 
 ## Related
-- [Management overview](help:management-overview)
+- [Plan health](help:management-overview)
 - [Contractor work orders](help:accounts-contractor-work-orders)

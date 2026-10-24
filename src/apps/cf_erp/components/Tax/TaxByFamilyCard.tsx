@@ -16,7 +16,8 @@ import { FlashOnChange, SuccessCheck, nudge } from '../../motion';
  */
 export function TaxByFamilyCard() {
   const toast = useToast();
-  const canEdit = useIsPermitted()('cf_erp_catalog_manage');
+  // Catalog managers, or Accounts (they own tax; 2026-10-24, backend gst.js the same).
+  const canEdit = useIsPermitted()('cf_erp_catalog_manage|cf_erp_accounts_manage');
   const data = useLoad(() => getTaxFamilies(), []);
   const [draft, setDraft] = useState<Record<number, { hsn: string; rate: string; overwrite: boolean }>>({});
   const [busy, setBusy] = useState<number | null>(null);
@@ -74,7 +75,7 @@ export function TaxByFamilyCard() {
             </Box>
           );
         })}
-        {d && !canEdit && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Setting a family needs the catalog manage permission.</Typography>}
+        {d && !canEdit && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Setting a family needs the catalog manage or accounts manage permission.</Typography>}
         {d && <Mono muted>Only the gaps are filled unless Overwrite is ticked. Templates in the family are set too (made parts read their template&rsquo;s).</Mono>}
       </Box>
     </SectionCard>

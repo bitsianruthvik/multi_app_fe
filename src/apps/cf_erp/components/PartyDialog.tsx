@@ -20,10 +20,12 @@ const ROLE_LABEL: Record<PartyRole, string> = { customer: 'Customer', supplier: 
  * Creates or edits a party. One party can hold several roles — a stockist who
  * sells steel and also buys scrap is one record, not two.
  */
-export function PartyDialog({ open, existing, defaultRole = 'customer', onClose, onSaved }: {
+export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole = false, onClose, onSaved }: {
   open: boolean;
   existing: Party | null;
   defaultRole?: PartyRole;
+  /** A screen pinned to one role (Contractors, Suppliers): that role stays ticked here, so a record cannot drop off it by accident. */
+  lockRole?: boolean;
   onClose: () => void;
   onSaved: (p: Party) => void;
 }) {
@@ -60,7 +62,7 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', onClose,
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Roles</Typography>
           <FormGroup row>
             {(Object.keys(ROLE_LABEL) as PartyRole[]).map((r) => (
-              <FormControlLabel key={r} control={<Checkbox size="small" checked={form.roles.includes(r)} onChange={() => toggleRole(r)} />} label={ROLE_LABEL[r]} />
+              <FormControlLabel key={r} control={<Checkbox size="small" checked={form.roles.includes(r)} disabled={lockRole && r === defaultRole} onChange={() => toggleRole(r)} />} label={ROLE_LABEL[r]} />
             ))}
           </FormGroup>
           {form.roles.length === 0 && <Typography sx={{ fontSize: 12, color: 'var(--c-danger-700)' }}>Tick at least one role.</Typography>}

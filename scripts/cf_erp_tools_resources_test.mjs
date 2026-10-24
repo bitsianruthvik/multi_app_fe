@@ -260,7 +260,8 @@ await check('the menu has Tools under Inventory, and the machine page has the To
   const t = inv.screens.find((s) => s.key === 'tools');
   assert.ok(t && t.path === 'tools');
   assert.match(src('pages/MachineDetail.tsx'), /value: 'resources', label: 'Tools & spares'/);
-  assert.match(src('pages/MachineDetail.tsx'), /<MachineResourcesCard machineId=\{id\} canManage=\{canManage\} \/>/);
+  // 2026-10-24: the list is kept with production manage OR maintenance (canResources); the machine itself stays production.
+  assert.match(src('pages/MachineDetail.tsx'), /<MachineResourcesCard machineId=\{id\} canManage=\{canResources\} \/>/);
   assert.match(src('routes.tsx'), /cf_erp\/tools/);
 });
 
