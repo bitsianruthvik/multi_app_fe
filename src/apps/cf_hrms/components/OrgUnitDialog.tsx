@@ -8,6 +8,8 @@ import { CodeNote } from './CodeNote';
 import { descendantIds, indentedLabel } from './OrgData';
 import { forgetUnitKinds, kindWord, nextKindDown, unitLabel } from './orgUnits';
 import { kindChipSx, kindColour } from './labels';
+import { UnitReportingFields } from './UnitReporting';
+import { useUnitReporting } from './useUnitReporting';
 
 /**
  * The new / edit org unit dialog, as one component (CF_HRMS_HIRING_SPEC.md
@@ -107,6 +109,8 @@ export function OrgUnitDialog({
   const [kindProblem, setKindProblem] = useState<string | null>(null);
   const [addingKind, setAddingKind] = useState(false);
   const [tick, setTick] = useState(0);
+  // Spec §40.2: an existing unit's head and Reports into, saved with the unit.
+  const reporting = useUnitReporting(open && unit ? unit.id : null);
 
   // Read the units and kinds when the caller did not pass them.
   const needRead = open && (!givenRows || !givenLabels);
@@ -177,6 +181,8 @@ export function OrgUnitDialog({
       serves: draft.isShared ? draft.serves : [],
     };
     const saved = draft.id ? await orgApi.departments.update(draft.id, body) : await orgApi.departments.create(body);
+    // After the unit: a move first, then the head and Reports into that are offered under the new place.
+    if (draft.id && reporting.dirty) await reporting.save();
     const saidKind = labels.find((l) => l.id === draft.labelId)?.name;
     const what = saidKind ? `${saidKind} “${draft.name.trim()}”` : `“${draft.name.trim()}”`;
     success(draft.id ? `${what} saved.` : `${what} added.`);
@@ -357,6 +363,16 @@ export function OrgUnitDialog({
               )}
             />
           )}
+          <Box sx={{ borderTop: '1px solid var(--c-divider)', pt: 2 }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)', mb: 1 }}>Head and reporting</Typography>
+            {draft.id ? (
+              <UnitReportingFields state={reporting} canEdit={can.org.edit} />
+            ) : (
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+                Its head and where it reports into are set once it exists and has positions: “Head and reporting” in its row menu. Until then it follows the unit it sits under.
+              </Typography>
+            )}
+          </Box>
           <TextField
             select
             label="Status"

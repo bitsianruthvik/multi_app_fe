@@ -77,6 +77,10 @@ export interface OrgChartDepartment {
   serves: number[];
   /** Pre-order place in the department tree; the array arrives in this order. */
   rank: number;
+  /** Spec §40.2: the head position(s) — one, or one per shift. */
+  headPositionIds?: number[];
+  reportsIntoMode?: 'DEFAULT' | 'CHOSEN';
+  reportsIntoPositionId?: number | null;
 }
 
 export interface OrgChartRequirement {
@@ -148,8 +152,22 @@ export interface OrgChartNode {
   hasContent: boolean;
 }
 
+/** Spec §40.3: where a manager came from. */
+export type ReportingSource = 'EXPLICIT' | 'UNIT_HEAD' | 'REPORTS_INTO' | 'WALKED_UP';
+
 export interface OrgChartEdge {
-  id?: number;
+  /** null on a DERIVED line (it is worked out from the org units, never stored). */
+  id?: number | null;
+  /** Stable within one answer: use it, not `id`, to key an edge. */
+  key?: string;
+  /** Spec §40: EXPLICIT = a stored line; DERIVED = it follows the org units (the head, or the unit's Reports into). */
+  origin?: 'EXPLICIT' | 'DERIVED';
+  /** On primary lines: EXPLICIT / UNIT_HEAD / REPORTS_INTO. null on other types. */
+  source?: ReportingSource | null;
+  /** The manager is not in the same org unit or one above it (spec §40.5). */
+  crossTree?: boolean;
+  /** Why that is intended, when someone said so. Not sent on the employee's own chart. */
+  crossTreeReason?: string | null;
   /** The subordinate. */
   fromPositionId: number;
   /** The manager. */

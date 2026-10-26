@@ -5,6 +5,7 @@ import { EmptyState, Mono, Surface, ToneBadge, CrossLink } from '@shared/ui';
 import type { StatusTone } from '@shared/ui';
 import type { ResolvedRelationship } from '../api/assignments';
 import { useCan } from '../access/can';
+import { derivedFromText } from './unitReportingText';
 
 /**
  * The reporting SET, rendered.
@@ -31,7 +32,16 @@ const TYPE_TONE: Record<string, StatusTone> = {
   SHIFT_SUPERVISOR: 'neutral',
 };
 
-export function OriginBadge({ origin }: { origin: 'POSITION' | 'ASSIGNMENT' }) {
+export function OriginBadge({ origin }: { origin: 'POSITION' | 'ASSIGNMENT' | 'DERIVED' }) {
+  if (origin === 'DERIVED') {
+    return (
+      <Tooltip title="No line is stored for this position: it follows its org unit — the unit’s head, or what the unit reports into. Add a line by hand only where it should differ.">
+        <span>
+          <ToneBadge tone="info" noIcon label="From the org unit" />
+        </span>
+      </Tooltip>
+    );
+  }
   return (
     <Tooltip
       title={
@@ -87,6 +97,12 @@ export function ReportingRow({
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" sx={{ mb: 0.75 }}>
             <ToneBadge tone={TYPE_TONE[row.relationshipType.code] ?? 'neutral'} label={row.relationshipType.name} />
             <OriginBadge origin={row.origin} />
+            {row.origin === 'DERIVED' && derivedFromText(row) && <ToneBadge tone="neutral" noIcon label={derivedFromText(row)!} />}
+            {row.crossTree && (
+              <Tooltip title={row.crossTreeReason ? `Intended: ${row.crossTreeReason}` : 'The manager is not in this org unit or one above it, and nobody has said why. The reporting check lists it.'}>
+                <span data-cross-tree=""><ToneBadge tone="warning" noIcon label="Outside the tree" /></span>
+              </Tooltip>
+            )}
             {row.isPrimary && (
               <Tooltip title="Primary for this reporting layer. It does not invalidate the dotted, functional or project managers beside it.">
                 <span><ToneBadge tone="success" noIcon label="Primary for this layer" /></span>

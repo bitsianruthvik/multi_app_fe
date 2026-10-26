@@ -321,13 +321,14 @@ export default function PositionDetail() {
                 emptyTitle="No formal reporting line"
                 emptyHint="This position has no manager in the organisation's design yet. A primary line plus a scoped functional or dotted line are separate rows on this one position."
                 emptyAction={can.positions.edit ? <Button size="small" variant="contained" onClick={() => setAddingReporting(true)}>Add line</Button> : undefined}
-                rowActions={(r) => can.positions.edit ? (
+                // A derived line (spec §40.3) is not stored: nothing to end. Add a line by hand to change it.
+                rowActions={(r) => can.positions.edit && r.origin !== 'DERIVED' && r.id != null ? (
                   <Stack direction="row" spacing={0.5}>
                     <Tooltip title="End this line today. History keeps it.">
                       <IconButton
                         size="small"
                         aria-label="End this reporting line"
-                        onClick={async () => { await positionsApi.endReporting(r.id); toast.success('Reporting line ended'); load(); }}
+                        onClick={async () => { await positionsApi.endReporting(r.id!); toast.success('Reporting line ended'); load(); }}
                       >
                         <EventBusyRounded fontSize="small" />
                       </IconButton>

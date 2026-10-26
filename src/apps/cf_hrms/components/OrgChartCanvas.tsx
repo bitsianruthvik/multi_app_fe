@@ -55,6 +55,18 @@ function renderPrim(p: Prim, key: string) {
         />
       );
     case 'path':
+      // §40.6: a line with words (outside the org unit tree, and why) says them on hover,
+      // over a wider invisible stroke so a 1.4px line can be pointed at.
+      if (p.title) {
+        return (
+          <g key={key} data-cross-tree-line="">
+            <path d={p.d} fill="none" stroke={p.stroke} strokeWidth={p.sw} strokeDasharray={p.dash?.join(' ')} />
+            <path d={p.d} fill="none" stroke="transparent" strokeWidth={9} pointerEvents="stroke">
+              <title>{p.title}</title>
+            </path>
+          </g>
+        );
+      }
       return (
         <path
           key={key}

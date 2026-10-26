@@ -47,6 +47,116 @@ export interface Department extends TreeMeta {
   serves?: number[];
   /** Its place among its siblings (spec §34): lists order by it, then code. Drag and drop sets it. */
   sortOrder?: number;
+  /** Spec §40.2: its head position(s) — one, or one per shift. Absent from an older backend. */
+  heads?: UnitHead[];
+  headsPerShift?: boolean;
+  reportsInto?: UnitReportsIntoSummary;
+  /** Positions directly in it. */
+  positionCount?: number;
+}
+
+/** A position as the reporting screens name it (spec §40). */
+export interface PosRef {
+  positionId: number;
+  code: string | null;
+  title: string;
+  unitId: number | null;
+  unitName: string | null;
+  unitType: string | null;
+  shiftId: number | null;
+  shiftCode: string | null;
+  occupantName: string | null;
+}
+
+/** One head of an org unit: per shift, or for every shift (`shiftId` null). */
+export interface UnitHead {
+  positionId: number;
+  shiftId: number | null;
+  shiftCode: string | null;
+  shiftName: string | null;
+  code: string | null;
+  title: string;
+  occupantName: string | null;
+}
+
+/** DEFAULT = the parent's head (or further up); CHOSEN = a position picked by hand. */
+export type ReportsIntoMode = 'DEFAULT' | 'CHOSEN';
+
+export interface UnitReportsIntoSummary {
+  mode: ReportsIntoMode;
+  positionId: number | null;
+  reason: string | null;
+  effective: PosRef | null;
+  /** "Head of Production — Ravi Kumar (default: the head of Production)" */
+  text: string;
+}
+
+/** GET /organisation/departments/:id/reporting — a unit's head and Reports into, and what may be picked. */
+export interface UnitReporting {
+  unit: { id: number; name: string; type: string | null; parentId: number | null };
+  heads: UnitHead[];
+  perShift: boolean;
+  reportsInto: {
+    mode: ReportsIntoMode;
+    positionId: number | null;
+    reason: string | null;
+    effective: PosRef | null;
+    defaultTarget: PosRef | null;
+    defaultText: string;
+  };
+  candidates: {
+    heads: PosRef[];
+    reportsInto: { unitId: number; unitName: string; unitType: string | null; distance: number; positions: PosRef[] }[];
+    elsewhere: PosRef[];
+  };
+  shifts: { id: number; code: string | null; name: string }[];
+}
+
+export interface UnitReportingBody {
+  heads?: { positionId: number; shiftId: number | null }[];
+  reportsInto?: { mode: 'DEFAULT' } | { mode: 'CHOSEN'; positionId: number; reason?: string };
+}
+
+/** Spec §40.5: one thing the consistency check found, with its one-click fixes. */
+export type FindingKind = 'CROSS_TREE' | 'UNIT_NO_HEAD' | 'NO_MANAGER' | 'LOOP';
+export type FixAction = 'USE_DEFAULT' | 'CHOOSE' | 'MARK_INTENDED' | 'SET_HEAD' | 'MAKE_HEAD';
+
+export interface ConsistencyFix {
+  action: FixAction;
+  label: string;
+  hint: string | null;
+  needsReason: boolean;
+  needsPosition: boolean;
+  candidates: PosRef[];
+  target: PosRef | null;
+  edgeId?: number;
+  unitId?: number;
+}
+
+export interface ConsistencyFinding {
+  key: string;
+  kind: FindingKind;
+  sentence: string;
+  unit: { id: number; name: string; type: string | null } | null;
+  position: PosRef | null;
+  manager: PosRef | null;
+  loop: PosRef[] | null;
+  fixes: ConsistencyFix[];
+}
+
+export interface Consistency {
+  asOf: string;
+  counts: { total: number; crossTree: number; unitNoHead: number; noManager: number; loops: number };
+  findings: ConsistencyFinding[];
+}
+
+export interface FixBody {
+  key: string;
+  action: FixAction;
+  positionId?: number;
+  reason?: string;
+  edgeId?: number;
+  unitId?: number;
 }
 
 /**
@@ -64,6 +174,11 @@ export interface MoveCheck {
   problem: string | null;
   /** "Move Lamination (Section) from Production to Operations — 6 positions and 2 units under it move with it". */
   sentence: string;
+  /**
+   * Spec §40.4: what the move does to its Reports into. DEFAULT follows the new parent's head by itself;
+   * CHOSEN asks (`ask`): keep the chosen position, or switch to the new parent's head (`afterMove`).
+   */
+  reportsInto?: { mode: ReportsIntoMode; current: PosRef | null; afterMove: PosRef | null; ask: boolean };
 }
 
 export interface Address {
@@ -178,14 +293,23 @@ export const orgApi = {
      * Re-parent (spec §34.3): under `parentId` (null = the top level), after its new siblings
      * or at `sortOrder`. The server refuses a cycle. Undo = the same call with the old parent and sortOrder.
      */
-    move: (id: number, parentId: number | null, sortOrder?: number) =>
-      api.put<Department>(`/organisation/departments/${id}`, { parentId, ...(sortOrder ? { sortOrder } : {}) }),
+    move: (id: number, parentId: number | null, sortOrder?: number, reportsInto?: 'KEEP' | 'SWITCH') =>
+      api.put<Department>(`/organisation/departments/${id}`, { parentId, ...(sortOrder ? { sortOrder } : {}), ...(reportsInto ? { reportsInto } : {}) }),
+    /** Spec §40.2: the unit's head(s) and Reports into, with what may be picked. */
+    reporting: (id: number) => api.get<UnitReporting>(`/organisation/departments/${id}/reporting`),
+    setReporting: (id: number, body: UnitReportingBody) => api.put<UnitReporting>(`/organisation/departments/${id}/reporting`, body),
     /** The siblings under one parent (null = the top level), every one once, in the order wanted. */
     reorder: (parentId: number | null, ids: number[]) =>
       api.put<{ parentId: number | null; rows: { id: number; sortOrder: number }[] }>('/organisation/departments/order', { parentId, ids }),
     /** The confirm's words for a move (`parentId` null = the top level). */
     moveCheck: (id: number, parentId: number | null) =>
       api.get<MoveCheck>(`/organisation/departments/${id}/move-check?parentId=${parentId ?? ''}`),
+  },
+
+  /** Spec §40.5: the reporting consistency check, and its fixes. */
+  consistency: {
+    read: () => api.get<Consistency>('/organisation/consistency'),
+    fix: (body: FixBody) => api.post<{ ok: true; fixed: string; consistency: Consistency }>('/organisation/consistency/fix', body),
   },
 
   locations: {

@@ -47,8 +47,20 @@ export interface ReportingManager {
  */
 export interface ResolvedRelationship {
   key: string;
-  id: number;
-  origin: 'POSITION' | 'ASSIGNMENT';
+  /** null on a DERIVED row: it is worked out from the org units and has no row to end or remove. */
+  id: number | null;
+  /**
+   * POSITION / ASSIGNMENT: a stored line, from that layer. DERIVED (spec §40.3): no line is stored —
+   * the position follows its org unit (UNIT_HEAD: the unit's head; REPORTS_INTO: the unit's Reports into).
+   */
+  origin: 'POSITION' | 'ASSIGNMENT' | 'DERIVED';
+  /** EXPLICIT on a stored primary line; UNIT_HEAD / REPORTS_INTO on a derived one; null on other types. */
+  source?: 'EXPLICIT' | 'UNIT_HEAD' | 'REPORTS_INTO' | 'WALKED_UP' | null;
+  /** A derived row: the org unit it follows. */
+  unit?: { id: number; name: string; type: string | null } | null;
+  /** A stored primary line whose manager is outside the org unit tree (spec §40.5), and why if someone said so. */
+  crossTree?: boolean;
+  crossTreeReason?: string | null;
   layer: 'FORMAL' | 'ACTUAL';
   inherited: boolean;
   relationshipType: {

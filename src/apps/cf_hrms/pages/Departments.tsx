@@ -7,6 +7,7 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import LabelOutlined from '@mui/icons-material/LabelOutlined';
+import SupervisorAccountRounded from '@mui/icons-material/SupervisorAccountRounded';
 import {
   ConfirmDialog,
   EmptyState,
@@ -45,6 +46,10 @@ import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { matchesQuery, multiValues, useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
+import { UnitReportingSheet } from '../components/UnitReporting';
+import { unitReportingLine } from '../components/unitReportingText';
+import { ReportingCheckCallout, ReportingCheckSheet } from '../components/ReportingCheck';
+import { useConsistency } from '../components/useConsistency';
 
 /**
  * Org units — departments, sections, machines and what sits under them, as a
@@ -79,6 +84,14 @@ import { ExcelButtons } from '../components/excel/ExcelButtons';
  *
  * THE CODE IS NOT TYPED (spec §11). It is issued by Setup › Code formats when
  * the unit is created and never changes.
+ *
+ * REPORTING FOLLOWS THE TREE (spec §40). Each row says who heads the unit and
+ * where it reports into; "Head and reporting" in the row menu changes both.
+ * Moving a unit whose Reports into was chosen asks "keep, or switch to the new
+ * parent's head?". A callout above the tree counts what the reporting check
+ * found (lines outside the tree without a reason, units with no head and
+ * nothing to report into, positions with no manager, loops) and opens the list
+ * with its one-click fixes.
  */
 
 /** "3 roles · 12 positions" — what an org unit holds, on its row. */
@@ -106,11 +119,16 @@ export default function Departments() {
     [],
   );
   const { data, error, loading, reload: reloadData } = useOrgLoad(load);
+  const check = useConsistency(can.org.view || can.positions.view);
+  const reloadCheck = check.reload;
   // Every other screen shows "Name (Kind)" from one shared read: refresh it too.
   const reload = useCallback(() => {
     forgetUnitKinds();
+    reloadCheck();
     return reloadData();
-  }, [reloadData]);
+  }, [reloadData, reloadCheck]);
+  const [reportingFor, setReportingFor] = useState<Department | null>(null);
+  const [checkOpen, setCheckOpen] = useState(false);
   const staffingOf = useMemo(
     () => new Map((data?.staffing.departments ?? []).map((d) => [d.departmentId ?? 0, d])),
     [data],
@@ -216,7 +234,11 @@ export default function Departments() {
     const unit = byId.get(m.unitId);
     if (!unit) return;
     const old = { parentId: unit.parentId ?? null, sortOrder: unit.sortOrder || undefined };
-    await orgApi.departments.move(m.unitId, m.parentId, m.sortOrder);
+    // §40.4: switching a chosen Reports into is undone by choosing it again.
+    const oldChosen = m.reportsInto === 'SWITCH' && unit.reportsInto?.mode === 'CHOSEN' && unit.reportsInto.positionId != null
+      ? { positionId: unit.reportsInto.positionId, reason: unit.reportsInto.reason }
+      : null;
+    await orgApi.departments.move(m.unitId, m.parentId, m.sortOrder, m.reportsInto);
     const to = m.parentId != null ? nameOf.get(m.parentId) : null;
     await reload();
     setUndo({
@@ -224,6 +246,11 @@ export default function Departments() {
       run: async () => {
         try {
           await orgApi.departments.move(unit.id, old.parentId, old.sortOrder);
+          if (oldChosen) {
+            await orgApi.departments.setReporting(unit.id, {
+              reportsInto: { mode: 'CHOSEN', positionId: oldChosen.positionId, ...(oldChosen.reason ? { reason: oldChosen.reason } : {}) },
+            });
+          }
           success(`${unit.name} is back where it was.`);
         } catch (e) {
           toastError((e as Error)?.message || 'It could not be moved back.');
@@ -338,6 +365,8 @@ export default function Departments() {
             />
           </Box>
 
+          <ReportingCheckCallout count={check.data?.counts.total} onOpen={() => setCheckOpen(true)} />
+
           {can.org.edit && rows.length > 1 && (
             <Typography data-drag-hint="" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: -1, mb: 1, px: 0.5 }}>
               {draggable
@@ -435,7 +464,7 @@ export default function Departments() {
               }
               renderSecondary={(row) => {
                 const served = (row.serves ?? []).map((id) => nameOf.get(id)).filter(Boolean);
-                return [parentPath(row), served.length ? `serves ${served.join(', ')}` : null]
+                return [parentPath(row), served.length ? `serves ${served.join(', ')}` : null, unitReportingLine(row)]
                   .filter(Boolean)
                   .join(' · ');
               }}
@@ -480,6 +509,12 @@ export default function Departments() {
                                     label: 'Move to…',
                                     icon: <DriveFileMoveRounded fontSize="small" />,
                                     onClick: () => setMoveTo(row),
+                                  },
+                                  {
+                                    key: 'reporting',
+                                    label: 'Head and reporting',
+                                    icon: <SupervisorAccountRounded fontSize="small" />,
+                                    onClick: () => setReportingFor(row),
                                   },
                                 ]
                               : undefined
@@ -541,6 +576,20 @@ export default function Departments() {
         onPick={(parentId) => { if (moveTo) setPending({ unitId: moveTo.id, parentId }); }}
       />
       <MoveConfirm move={pending} onClose={() => setPending(null)} onConfirm={doMove} />
+      <UnitReportingSheet
+        unit={reportingFor}
+        canEdit={can.org.edit}
+        onClose={() => setReportingFor(null)}
+        onSaved={() => { setReportingFor(null); void reload(); }}
+      />
+      <ReportingCheckSheet
+        open={checkOpen}
+        onClose={() => setCheckOpen(false)}
+        data={check.data}
+        error={check.error}
+        canFix={can.org.edit || can.positions.edit}
+        onChanged={(next) => { check.setData(next); void reloadData(); }}
+      />
       <UndoBar text={undo?.text ?? null} onUndo={() => undo?.run()} onClose={() => setUndo(null)} />
 
       <LabelsSheet

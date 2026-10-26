@@ -93,14 +93,14 @@ function ReportsTo({
         emptyTitle="Nobody is recorded as their manager"
         emptyHint="Neither the position nor this person has a reporting line."
         rowActions={(r) =>
-          canEditLines && r.origin === 'ASSIGNMENT' ? (
+          canEditLines && r.origin === 'ASSIGNMENT' && r.id != null ? (
             <Tooltip title="End this line today. It is kept in history.">
               <IconButton
                 size="small"
                 aria-label="End this reporting line"
                 onClick={async () => {
                   try {
-                    await assignmentsApi.endReporting(r.id);
+                    await assignmentsApi.endReporting(r.id!);
                     toast.success('Reporting line ended');
                     load();
                   } catch (e) {

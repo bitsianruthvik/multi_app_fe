@@ -66,6 +66,8 @@ import { LabelViewOptions } from '../components/OrgChartViewOptions';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
 import { useOrgChartEdit } from '../components/OrgChartEdit';
 import { EditBanner } from '../components/OrgChartEditBanner';
+import { ReportingCheckSheet } from '../components/ReportingCheck';
+import { useConsistency } from '../components/useConsistency';
 import { kindColours } from '../components/orgChartKindColours';
 import { performanceApi, type ChartBands } from '../api/performance';
 
@@ -603,11 +605,19 @@ export default function OrgChart() {
     },
     [deptTree],
   );
+  // Spec §40.5: the reporting check, in Edit mode only (a count in the banner, the list in a sheet).
+  const check = useConsistency(editing && mayEdit);
+  const reloadCheck = check.reload;
+  const [checkOpen, setCheckOpen] = useState(false);
+  const refreshAndCheck = useCallback(() => {
+    refresh();
+    reloadCheck();
+  }, [refresh, reloadCheck]);
   const editor = useOrgChartEdit({
     active: editing && mayEdit,
     model,
     can,
-    onChanged: refresh,
+    onChanged: refreshAndCheck,
     onOpenUnit: openUnit,
   });
 
@@ -954,7 +964,12 @@ export default function OrgChart() {
       {editing && mayEdit && !isFull && (
         <EditBanner
           action={
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              {!!check.data?.counts.total && (
+                <Button size="small" variant="outlined" color="warning" data-reporting-check="" onClick={() => setCheckOpen(true)}>
+                  {check.data.counts.total === 1 ? '1 thing to check in reporting' : `${check.data.counts.total} things to check in reporting`}
+                </Button>
+              )}
               {!boxed && model && model.departments.length > 0 && (
                 <Button size="small" variant="outlined" onClick={() => setShow({ ...show, departments: true })}>
                   Show org units
@@ -971,6 +986,14 @@ export default function OrgChart() {
           {!boxed && ' Org units are hidden: show them to add or move units.'}
         </EditBanner>
       )}
+      <ReportingCheckSheet
+        open={checkOpen && editing}
+        onClose={() => setCheckOpen(false)}
+        data={check.data}
+        error={check.error}
+        canFix={can.org.edit || can.positions.edit}
+        onChanged={(next) => { check.setData(next); refresh(); }}
+      />
 
       {/*
         THE REGION: toolbar + chart. It is a fixed-height panel filling the

@@ -618,7 +618,8 @@ export function ManagerLines({
                     {m.manager.roleTitle}
                   </Box>
                 )}
-                {m.origin && <OriginChip origin={m.origin} />}
+                {/* A derived line (spec §40.3) is part of the position's design: it follows the org unit. */}
+                {m.origin && <OriginChip origin={m.origin === 'DERIVED' ? 'POSITION' : m.origin} />}
               </Box>
               {/* The scope is the whole reason a second manager is not a second
                   job: authority over PART of the work is a property of the

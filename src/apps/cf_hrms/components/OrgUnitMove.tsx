@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Autocomplete, Box, Button, Snackbar, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, FormControlLabel, Radio, RadioGroup, Snackbar, TextField, Typography } from '@mui/material';
 import { ConfirmDialog, FormDialog } from '@shared/ui';
 import { orgApi, type Department, type MoveCheck } from '../api/organisation';
 import { descendantIds } from './OrgData';
 import { unitLabel } from './orgUnits';
+import { posLine } from './unitReportingText';
 
 /**
  * Moving an org unit (CF_HRMS_HIRING_SPEC.md §34.3), the pieces a screen puts together:
@@ -78,6 +79,11 @@ export interface PendingMove {
   unitId: number;
   parentId: number | null;
   sortOrder?: number;
+  /**
+   * Spec §40.4: a unit whose Reports into was CHOSEN — keep that position, or switch to the new
+   * parent's head. Set by the confirm; a DEFAULT Reports into follows the new parent by itself.
+   */
+  reportsInto?: 'KEEP' | 'SWITCH';
 }
 
 export function MoveConfirm({ move, onClose, onConfirm }: {
@@ -87,9 +93,11 @@ export function MoveConfirm({ move, onClose, onConfirm }: {
 }) {
   const [check, setCheck] = useState<MoveCheck | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [choice, setChoice] = useState<'KEEP' | 'SWITCH' | null>(null);
   useEffect(() => {
     setCheck(null);
     setProblem(null);
+    setChoice(null);
     if (!move) return undefined;
     let live = true;
     orgApi.departments.moveCheck(move.unitId, move.parentId)
@@ -98,21 +106,51 @@ export function MoveConfirm({ move, onClose, onConfirm }: {
     return () => { live = false; };
   }, [move]);
   const refused = check && !check.allowed ? check.problem : problem;
+  const ri = check?.allowed ? check.reportsInto : undefined;
+  const ask = !!ri?.ask;
   return (
     <ConfirmDialog
       open={!!move}
       title="Move this org unit?"
       body={
         <Box data-move-confirm="">
-          {check ? <Typography sx={{ fontSize: 14, color: 'var(--c-text)' }}>{check.sentence}.</Typography> : !refused && <Typography sx={{ fontSize: 14 }}>Checking…</Typography>}
+          {check ? (
+            <Typography sx={{ fontSize: 14, color: 'var(--c-text)' }}>
+              {/[.?!]$/.test(check.sentence.trim()) ? check.sentence : `${check.sentence}.`}
+            </Typography>
+          ) : (
+            !refused && <Typography sx={{ fontSize: 14 }}>Checking…</Typography>
+          )}
           {refused && <Typography role="alert" sx={{ fontSize: 13.5, color: 'var(--c-danger-600)', mt: check ? 1 : 0 }}>{refused}</Typography>}
+          {ask && ri && (
+            <Box data-move-choice="" sx={{ mt: 1.25 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>Its Reports into was chosen by hand</Typography>
+              <RadioGroup value={choice ?? ''} onChange={(e) => setChoice(e.target.value as 'KEEP' | 'SWITCH')}>
+                <FormControlLabel
+                  value="KEEP"
+                  control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: 13.5 }}>Keep {ri.current ? posLine(ri.current) : 'the chosen position'}</Typography>}
+                />
+                <FormControlLabel
+                  value="SWITCH"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 13.5 }}>
+                      Switch to {ri.afterMove ? `${posLine(ri.afterMove)} (the new parent’s head)` : 'the new parent’s head'}
+                    </Typography>
+                  }
+                />
+              </RadioGroup>
+            </Box>
+          )}
           {check?.allowed && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 1 }}>You can undo it right after.</Typography>}
         </Box>
       }
       confirmLabel="Move"
       onConfirm={async () => {
         if (!move || !check?.allowed) throw new Error(refused || 'This move cannot be made.');
-        await onConfirm(move);
+        if (ask && !choice) throw new Error('Choose whether it keeps its Reports into or switches to the new parent’s head.');
+        await onConfirm(ask && choice ? { ...move, reportsInto: choice } : move);
       }}
       onClose={onClose}
     />

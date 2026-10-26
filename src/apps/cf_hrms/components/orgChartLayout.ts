@@ -295,6 +295,13 @@ export interface ChartModel {
   secondary: OrgChartEdge[];
   /** Edges dropped to keep the tree a tree, reported rather than hidden. */
   droppedPrimary: OrgChartEdge[];
+  /**
+   * Spec §40.6: what kind of line joins a card to its drawn parent — `derived` (it follows the org
+   * units: plain), `explicit` (a Reports to set by hand: solid accent), `cross` (outside the org unit
+   * tree: dashed, the reason on hover). From the payload's `origin` / `crossTree`; an older backend
+   * without them reads as explicit.
+   */
+  lineKind: Map<number, { kind: LineKind; reason: string | null }>;
   order: number[];
   /** The department tree, in rank order (empty for a payload that predates it). */
   departments: OrgChartDepartment[];
@@ -302,6 +309,20 @@ export interface ChartModel {
 }
 
 /** A shift's short code. General / Day / Night are G / D / N; any other shift keeps its own. */
+/** Spec §40.6: the three kinds of primary line. */
+export type LineKind = 'derived' | 'explicit' | 'cross';
+const KIND_WEIGHT: Record<LineKind, number> = { derived: 0, explicit: 1, cross: 2 };
+/** The stronger of two kinds: one hand-set or out-of-tree row among a card's rows decides how its line is drawn. */
+export const strongerKind = (a: LineKind, b: LineKind): LineKind => (KIND_WEIGHT[b] > KIND_WEIGHT[a] ? b : a);
+/** The kind of one primary edge. */
+export function edgeLineKind(e: Pick<OrgChartEdge, 'origin' | 'crossTree'>): LineKind {
+  if (e.crossTree) return 'cross';
+  return e.origin === 'DERIVED' ? 'derived' : 'explicit';
+}
+/** The words on hover of a line outside the tree. */
+export const crossTreeText = (reason: string | null | undefined): string =>
+  reason ? `Outside the org unit tree: ${reason}` : 'Outside the org unit tree — no reason given';
+
 export function shiftCodeOf(n: OrgChartNode): string {
   return n.defaultShift?.code || n.shiftPattern || 'G';
 }
@@ -461,8 +482,20 @@ export function buildModel(graph: OrgChartGraph): ChartModel {
   const departments = [...(graph.departments ?? [])].sort((a, b) => a.rank - b.rank || a.id - b.id);
   const deptById = new Map(departments.map((d) => [d.id, d]));
 
+  // §40.6: every primary row of a card that lands on its drawn parent decides how the line is drawn.
+  const lineKind = new Map<number, { kind: LineKind; reason: string | null }>();
+  for (const e of graph.edges) {
+    if (e.typeCode !== PRIMARY) continue;
+    const child = cardOf.get(e.fromPositionId);
+    const mgr = cardOf.get(e.toPositionId);
+    if (child === undefined || mgr === undefined || parent.get(child) !== mgr) continue;
+    const kind = edgeLineKind(e);
+    const had = lineKind.get(child);
+    if (!had || strongerKind(had.kind, kind) !== had.kind) lineKind.set(child, { kind, reason: e.crossTreeReason ?? null });
+  }
+
   return {
-    byId, positions, cardOf, children, parent, roots, depth, secondary, droppedPrimary, order, departments, deptById,
+    byId, positions, cardOf, children, parent, roots, depth, secondary, droppedPrimary, lineKind, order, departments, deptById,
   };
 }
 
@@ -1105,8 +1138,13 @@ export interface DeptLayout {
   boxes: Map<number, DeptBox>;
   /** Draw order: a parent before its children. */
   order: number[];
-  /** Reporting lines: roll-ups, buses, spines and the in-box chains. */
+  /** Reporting lines: roll-ups, buses, spines and the in-box chains — the parts several lines share. */
   solid: string[];
+  /**
+   * Spec §40.6: the parts of a line that belong to ONE card (`child`) or to one box's roll-up (`box`),
+   * so each can be drawn as its kind of line (derived plain, explicit accent, cross-tree dashed).
+   */
+  owned: OwnedSeg[];
   /** "Serves" links routed in the open (never under a box). */
   serves: string[];
   /** "Serves" links that pass behind boxes on the way (drawn under everything). */
@@ -1117,11 +1155,19 @@ export interface DeptLayout {
   exceptions: { from: number; to: number }[];
 }
 
+/** A piece of a reporting line that belongs to one card (`child`) or one box's roll-up (`box`). */
+export interface OwnedSeg {
+  d: string;
+  child?: number;
+  box?: number;
+}
+
 interface Inner {
   pos: Map<number, { x: number; y: number }>;
   w: number;
   h: number;
-  lines: string[];
+  /** `child` null: a part several lines share (a manager's drop, a bus, a spine). */
+  lines: { d: string; child: number | null }[];
 }
 
 /**
@@ -1140,7 +1186,8 @@ function innerLayout(
   arrange: Record<number, Arrange>,
 ): Inner {
   const pos = new Map<number, { x: number; y: number }>();
-  const lines: string[] = [];
+  const lines: Inner['lines'] = [];
+  const line = (d: string, child: number | null = null) => lines.push({ d, child });
   if (!roots.length) return { pos, w: 0, h: 0, lines };
   const isMgr = (id: number) => kidsIn(id).length > 0;
   const lined = !(
@@ -1208,9 +1255,9 @@ function innerLayout(
         for (const k of n.col) {
           const c = pos.get(k)!;
           last = c.y + Math.min(hOf(k) / 2, 17);
-          lines.push(`M${sx} ${last}H${c.x}`);
+          line(`M${sx} ${last}H${c.x}`, k);
         }
-        lines.push(`M${sx} ${top + h}V${last}`);
+        line(`M${sx} ${top + h}V${last}`);
       }
       return bottom;
     }
@@ -1238,17 +1285,17 @@ function innerLayout(
     const cxs = n.row.map((k) => pos.get(k)!.x + W / 2);
     const spine = n.col.length ? pos.get(n.col[0])!.x - ind / 2 : null;
     if (spine != null) cxs.push(spine);
-    lines.push(`M${px} ${top + h}V${my}`);
-    lines.push(`M${Math.min(px, ...cxs)} ${my}H${Math.max(px, ...cxs)}`);
-    for (const k of n.row) lines.push(`M${pos.get(k)!.x + W / 2} ${my}V${cy}`);
+    line(`M${px} ${top + h}V${my}`);
+    line(`M${Math.min(px, ...cxs)} ${my}H${Math.max(px, ...cxs)}`);
+    for (const k of n.row) line(`M${pos.get(k)!.x + W / 2} ${my}V${cy}`, k);
     if (spine != null) {
       let last = my;
       for (const k of n.col) {
         const c = pos.get(k)!;
         last = c.y + Math.min(hOf(k) / 2, 17);
-        lines.push(`M${spine} ${last}H${c.x}`);
+        line(`M${spine} ${last}H${c.x}`, k);
       }
-      lines.push(`M${spine} ${my}V${last}`);
+      line(`M${spine} ${my}V${last}`);
     }
     return bottom;
   };
@@ -1692,6 +1739,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
   };
 
   const solid: string[] = [];
+  const owned: OwnedSeg[] = [];
   const serves: string[] = [];
   const servesUnder: string[] = [];
   const arrows: DeptLayout['arrows'] = [];
@@ -1731,7 +1779,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
         const key = laneKey(d, k);
         const sx = x + 8 + col.keys.indexOf(key) * LANE;
         const ty = kb.y + 16;
-        solid.push(`M${sx} ${ty}H${kb.x}`);
+        owned.push({ d: `M${sx} ${ty}H${kb.x}`, box: k });
         ticks.set(key, ty);
         y += kb.h + BSG;
       }
@@ -1747,7 +1795,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
         const kb = boxes.get(u.id)!;
         const key = laneKey(d, u.id);
         const x = kb.x + kb.w / 2;
-        solid.push(`M${x} ${laneY(key)}V${kb.y}`);
+        owned.push({ d: `M${x} ${laneY(key)}V${kb.y}`, box: u.id });
         drop(key, x);
       } else if (u.kind === 'col') {
         putColumn(u.col, ux);
@@ -1819,15 +1867,15 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     // The in-box paths use only M / H / V with absolute numbers, so moving them
     // into chart coordinates is a matter of re-reading each command.
     for (const seg of inner.lines) {
-      solid.push(
-        seg.replace(/([MHV])(-?[\d.]+)(?: (-?[\d.]+))?/g, (_m, c: string, a: string, b2?: string) =>
-          c === 'M'
-            ? `M${Number(a) + ox} ${Number(b2) + oy}`
-            : c === 'H'
-              ? `H${Number(a) + ox}`
-              : `V${Number(a) + oy}`,
-        ),
+      const d = seg.d.replace(/([MHV])(-?[\d.]+)(?: (-?[\d.]+))?/g, (_m, c: string, a: string, b2?: string) =>
+        c === 'M'
+          ? `M${Number(a) + ox} ${Number(b2) + oy}`
+          : c === 'H'
+            ? `H${Number(a) + ox}`
+            : `V${Number(a) + oy}`,
       );
+      if (seg.child == null) solid.push(d);
+      else owned.push({ d, child: seg.child });
     }
   }
 
@@ -1880,7 +1928,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     order: cardOrder,
     width: Math.max(600, x - BGAP * 2 + M),
     height: bottom + M,
-    dept: { boxes, order, solid, serves, servesUnder, arrows, exceptions },
+    dept: { boxes, order, solid, owned, serves, servesUnder, arrows, exceptions },
   };
 }
 
@@ -1929,7 +1977,8 @@ export type Prim =
       sw?: number;
       dash?: number[];
     }
-  | { k: 'path'; d: string; stroke: string; sw?: number; dash?: number[]; fill?: string }
+  /** `title`: the words on hover (a line outside the org unit tree says why). */
+  | { k: 'path'; d: string; stroke: string; sw?: number; dash?: number[]; fill?: string; title?: string }
   | { k: 'circle'; cx: number; cy: number; r: number; fill?: string; stroke?: string; sw?: number }
   | {
       k: 'text';
@@ -2007,7 +2056,7 @@ export interface SceneLegendItem {
   /** A tinted swatch (attendance), or a sample of a line. */
   swatch?: string;
   fill?: string;
-  line?: 'solid' | 'dash' | 'serves' | 'thin' | 'same';
+  line?: 'solid' | 'dash' | 'serves' | 'thin' | 'same' | 'explicit' | 'cross';
   /** The line's stroke, width and dash as the chart draws that kind of line. */
   stroke?: string;
   sw?: number;
@@ -2129,6 +2178,8 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
 
   const linePath: string[] = [];
+  // §40.6: the parts of the lines that belong to one card, drawn by that card's kind of line.
+  const ownedSegs: OwnedSeg[] = [];
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     if (!n.kids.length) continue;
@@ -2138,7 +2189,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       for (const k of n.kids) {
         const c = lay.placed.get(k)!;
         const cy = c.y + Math.min(c.info.h / 2, 17);
-        linePath.push(`M${sx} ${cy}H${c.x}`);
+        ownedSegs.push({ d: `M${sx} ${cy}H${c.x}`, child: k });
         last = cy;
       }
       linePath.push(`M${sx} ${n.y + n.info.h}V${last}`);
@@ -2161,21 +2212,68 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       linePath.push(`M${Math.min(px, ...cxs)} ${my}H${Math.max(px, ...cxs)}`);
       for (const k of row) {
         const c = lay.placed.get(k)!;
-        linePath.push(`M${c.x + W / 2} ${my}V${c.y}`);
+        ownedSegs.push({ d: `M${c.x + W / 2} ${my}V${c.y}`, child: k });
       }
       if (spine != null) {
         let last = my;
         for (const k of column) {
           const c = lay.placed.get(k)!;
           last = c.y + Math.min(c.info.h / 2, 17);
-          linePath.push(`M${spine} ${last}H${c.x}`);
+          ownedSegs.push({ d: `M${spine} ${last}H${c.x}`, child: k });
         }
         linePath.push(`M${spine} ${my}V${last}`);
       }
     }
   }
-  if (dl) linePath.push(...dl.solid);
-  if (linePath.length) edges.push({ k: 'path', d: linePath.join(''), stroke: p.faint, sw: 1.2 });
+  if (dl) {
+    linePath.push(...dl.solid);
+    ownedSegs.push(...dl.owned);
+  }
+  // A card's kind is its own line's; a box's roll-up takes the strongest of the lines that leave the box
+  // for the person it hangs from (the exceptions are drawn on their own, below).
+  const plain: { kind: LineKind; reason: string | null } = { kind: 'derived', reason: null };
+  const kindOfCard = (id: number) => model.lineKind.get(id) ?? plain;
+  const kindOfBox = (boxId: number): { kind: LineKind; reason: string | null } => {
+    const b = dl?.boxes.get(boxId);
+    let out = plain;
+    if (!b) return out;
+    const inside = new Set(b.members);
+    for (const m of b.members) {
+      const up = model.parent.get(m);
+      if (up == null || inside.has(up) || b.exceptions.includes(m)) continue;
+      const k = kindOfCard(m);
+      if (strongerKind(out.kind, k.kind) !== out.kind) out = k;
+    }
+    return out;
+  };
+  const explicitPath: string[] = [];
+  const crossByOwner = new Map<string, { d: string[]; reason: string | null }>();
+  let explicitDrawn = 0;
+  for (const s of ownedSegs) {
+    const k = s.child != null ? kindOfCard(s.child) : s.box != null ? kindOfBox(s.box) : plain;
+    if (k.kind === 'explicit') {
+      explicitPath.push(s.d);
+      explicitDrawn += 1;
+    } else if (k.kind === 'cross') {
+      const key = s.child != null ? `c${s.child}` : `b${s.box}`;
+      const g = crossByOwner.get(key) ?? { d: [], reason: k.reason };
+      g.d.push(s.d);
+      crossByOwner.set(key, g);
+    } else {
+      linePath.push(s.d);
+    }
+  }
+  const lineStyle = {
+    derived: { stroke: p.faint, sw: 1.2 },
+    explicit: { stroke: p.accent, sw: 1.4 },
+    cross: { stroke: p.noticeText, sw: 1.4, dash: [5, 3] },
+  };
+  if (linePath.length) edges.push({ k: 'path', d: linePath.join(''), ...lineStyle.derived });
+  if (explicitPath.length) edges.push({ k: 'path', d: explicitPath.join(''), ...lineStyle.explicit });
+  let crossDrawn = crossByOwner.size;
+  for (const g of crossByOwner.values()) {
+    edges.push({ k: 'path', d: g.d.join(''), ...lineStyle.cross, title: crossTreeText(g.reason) });
+  }
 
   // ── Secondary links. A dashed line with no words on it is exactly what made
   // this client invent fake roles to explain who else they answer to, so a
@@ -2432,6 +2530,8 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     // the box keeps its own line — thin and dashed, so it reads as the exception.
     const exc: string[] = [];
     const excUnder: string[] = [];
+    const excExplicit: string[] = [];
+    const excExplicitUnder: string[] = [];
     for (const e of dl.exceptions) {
       const s = lay.placed.get(e.from);
       const t = lay.placed.get(e.to);
@@ -2439,6 +2539,21 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       const tb = boxOfSeat.get(e.to);
       if (!s || !t || !sb || !tb) continue;
       const r = routeBoxed(s, t, sb, tb);
+      // §40.6: an exception is still one card's line — drawn as its kind.
+      const k = kindOfCard(e.from);
+      if (k.kind === 'cross') {
+        const title = crossTreeText(k.reason);
+        links.push({ k: 'path', d: r.stubs, ...lineStyle.cross, title });
+        under.push({ k: 'path', d: r.out, ...lineStyle.cross, title });
+        crossDrawn += 1;
+        continue;
+      }
+      if (k.kind === 'explicit') {
+        excExplicit.push(r.stubs);
+        excExplicitUnder.push(r.out);
+        explicitDrawn += 1;
+        continue;
+      }
       exc.push(r.stubs);
       excUnder.push(r.out);
     }
@@ -2446,6 +2561,9 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     const thin = { stroke: p.faint, sw: 1, dash: [3, 3] };
     if (exc.length) links.push({ k: 'path', d: exc.join(''), ...thin });
     if (excUnder.length) under.push({ k: 'path', d: excUnder.join(''), ...thin });
+    const thinExplicit = { stroke: p.accent, sw: 1.2, dash: [3, 3] };
+    if (excExplicit.length) links.push({ k: 'path', d: excExplicit.join(''), ...thinExplicit });
+    if (excExplicitUnder.length) under.push({ k: 'path', d: excExplicitUnder.join(''), ...thinExplicit });
   }
 
   // ── Boxes ────────────────────────────────────────────────────────────────
@@ -2801,16 +2919,25 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
   // "Colour by performance": one key entry per band.
   for (const b of opts.labels?.performance?.legend ?? []) legend.push({ swatch: b.colour, fill: b.colour, text: b.word });
-  legend.push({ line: 'solid', text: 'Reports to' });
+  // §40.6: the three kinds of primary line. Only the plain one while no line is set by hand.
+  legend.push({ line: 'solid', text: explicitDrawn || crossDrawn ? 'Reports to (follows the org units)' : 'Reports to' });
+  if (explicitDrawn) legend.push({ line: 'explicit', text: 'Reports to (set by hand)' });
+  if (crossDrawn) legend.push({ line: 'cross', text: 'Outside the org unit tree' });
   if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
   if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the org unit' });
   if (servesDrawn) legend.push({ line: 'serves', text: 'Serves' });
   if (sameDrawn) legend.push({ line: 'same', text: 'Same person' });
   for (const g of legend) {
     if (!g.line) continue;
-    g.stroke = g.line === 'dash' ? p.muted : g.line === 'serves' || g.line === 'same' ? p.accent : p.faint;
+    g.stroke = g.line === 'dash'
+      ? p.muted
+      : g.line === 'serves' || g.line === 'same' || g.line === 'explicit'
+        ? p.accent
+        : g.line === 'cross'
+          ? p.noticeText
+          : p.faint;
     g.sw = g.line === 'thin' ? 1 : 1.4;
-    g.dash = g.line === 'dash' ? [6, 4] : g.line === 'serves' ? [5, 3] : g.line === 'thin' ? [3, 3] : undefined;
+    g.dash = g.line === 'dash' ? [6, 4] : g.line === 'serves' || g.line === 'cross' ? [5, 3] : g.line === 'thin' ? [3, 3] : undefined;
     if (g.line === 'same') g.ring = { fill: p.surface, stroke: p.accent };
   }
   const titleBlock = opts.titleBlock !== false;
@@ -2961,7 +3088,8 @@ export function describeChart(model: ChartModel, ids: number[], filter: ShiftFil
     '. ' +
     (tops.length ? `It starts at ${tops.join('; ')}. ` : '') +
     'Each card is a role; each row in it is one position, with the person in it or the word Vacant, and its shift. ' +
-    'Primary reporting lines are solid; every other reporting relationship is dashed and labelled with its scope. ' +
+    'Primary reporting lines are solid: plain where they follow the org units, in the accent colour where they were set by hand, ' +
+    'and dashed in amber where the manager is outside the org unit tree. Every other reporting relationship is dashed and labelled with its scope. ' +
     'With Org units on, each org unit is a box around its people, with its kind as a small tag, joined by one line to the person it rolls up to; ' +
     'a shared unit has a dashed frame and an arrow to each unit it serves. ' +
     'Each card is focusable: use the arrow keys to move between a manager, its reports and its siblings, ' +

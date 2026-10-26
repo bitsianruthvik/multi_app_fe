@@ -35,6 +35,7 @@ import { PositionShiftMenu } from './PositionShiftControl';
 import { PositionReportingDialog } from './ReportingDialogs';
 import { RoleFormDialog } from './RoleFormDialog';
 import { OrgUnitDialog } from './OrgUnitDialog';
+import { UnitReportingSheet } from './UnitReporting';
 import { forgetUnitKinds, unitLabel } from './orgUnits';
 import { NO_DEPT, type ChartModel } from './orgChartLayout';
 
@@ -153,6 +154,8 @@ export function useOrgChartEdit({
   const [menu, setMenu] = useState<{ target: EditTarget; anchor: Element } | null>(null);
   const [shiftAt, setShiftAt] = useState<{ anchor: Element; positionId: number } | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  // Spec §40.2: a unit box's "Head and reporting" — the Org units page's own sheet.
+  const [reportingUnit, setReportingUnit] = useState<{ id: number; name: string; type: string | null } | null>(null);
   const [moveAsk, setMoveAsk] = useState<MoveAsk | null>(null);
   const [options, setOptions] = useState<PositionOptions | null>(null);
   const hiring = useStartHiring(null, onChanged);
@@ -269,6 +272,9 @@ export function useOrgChartEdit({
         item('move', <DriveFileMoveRounded fontSize="small" />, 'Move…', () => { void loadUnitRows(); setDialog({ kind: 'unit-move-pick', unit: t.deptId }); }, {
           hint: 'Put it under another unit (or drag the box)',
         });
+        item('reporting', <SupervisorAccountRounded fontSize="small" />, 'Head and reporting…', () => {
+          setReportingUnit({ id: t.deptId, name: d?.name ?? nameOf(t.deptId), type: d?.type ?? null });
+        }, { hint: 'Who heads it, and where it reports into' });
       }
     } else if (t.kind === 'card') {
       const card = model.byId.get(t.cardId);
@@ -344,14 +350,22 @@ export function useOrgChartEdit({
   // (not the unit itself or anything under it), MoveConfirm says it in the
   // server's words (GET …/move-check), and UndoBar offers one Undo.
   const pending = useMemo<PendingMove | null>(() => (moveAsk ? { unitId: moveAsk.unit, parentId: moveAsk.to } : null), [moveAsk]);
-  const [undo, setUndo] = useState<{ text: string; unitId: number; parentId: number | null; sortOrder?: number } | null>(null);
+  const [undo, setUndo] = useState<{
+    text: string; unitId: number; parentId: number | null; sortOrder?: number;
+    chosen?: { positionId: number; reason: string | null } | null;
+  } | null>(null);
   const doMove = async (m: PendingMove) => {
     // Where it was, for Undo (from the list read for the picker, else from the chart).
     const before = unitRows?.find((r) => r.id === m.unitId);
     const oldParent = before ? before.parentId : (deptById?.get(m.unitId)?.parentId ?? null);
-    await orgApi.departments.move(m.unitId, m.parentId, m.sortOrder);
+    // §40.4: a chosen Reports into that the move switched comes back with Undo.
+    const dept = deptById?.get(m.unitId);
+    const chosenId = before?.reportsInto?.mode === 'CHOSEN' ? before.reportsInto.positionId
+      : dept?.reportsIntoMode === 'CHOSEN' ? (dept.reportsIntoPositionId ?? null) : null;
+    const chosen = m.reportsInto === 'SWITCH' && chosenId != null ? { positionId: chosenId, reason: before?.reportsInto?.reason ?? null } : null;
+    await orgApi.departments.move(m.unitId, m.parentId, m.sortOrder, m.reportsInto);
     forgetUnitKinds();
-    setUndo({ text: `${nameOf(m.unitId)} is now under ${nameOf(m.parentId)}.`, unitId: m.unitId, parentId: oldParent, sortOrder: before?.sortOrder });
+    setUndo({ text: `${nameOf(m.unitId)} is now under ${nameOf(m.parentId)}.`, unitId: m.unitId, parentId: oldParent, sortOrder: before?.sortOrder, chosen });
     setUnitRows(null);
     if (m.parentId != null) onOpenUnit(m.parentId);
     onChanged();
@@ -494,6 +508,11 @@ export function useOrgChartEdit({
         onUndo={async () => {
           if (!undo) return;
           await orgApi.departments.move(undo.unitId, undo.parentId, undo.sortOrder);
+          if (undo.chosen) {
+            await orgApi.departments.setReporting(undo.unitId, {
+              reportsInto: { mode: 'CHOSEN', positionId: undo.chosen.positionId, ...(undo.chosen.reason ? { reason: undo.chosen.reason } : {}) },
+            });
+          }
           forgetUnitKinds();
           if (undo.parentId != null) onOpenUnit(undo.parentId);
           onChanged();
@@ -544,6 +563,13 @@ export function useOrgChartEdit({
         options={options}
         onClose={() => setDialog(null)}
         onDone={done}
+      />
+
+      <UnitReportingSheet
+        unit={reportingUnit}
+        canEdit={can.org.edit}
+        onClose={() => setReportingUnit(null)}
+        onSaved={() => { setReportingUnit(null); onChanged(); }}
       />
     </>
   );

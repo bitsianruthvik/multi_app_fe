@@ -353,6 +353,13 @@ export const positionsApi = {
       position: { id: number; code: string | null; title: string | null; roleTitle: string | null };
       relationships: ResolvedRelationship[];
       summary: ReportingSummary;
+      /** Spec §40.3: the one manager the app routes by — the first filled chair up the resolved chain. */
+      resolvedManager?: {
+        positionId: number | null;
+        source: 'EXPLICIT' | 'UNIT_HEAD' | 'REPORTS_INTO' | 'WALKED_UP' | null;
+        through: number[];
+        occupantName: string | null;
+      } | null;
     }>(`/positions/${id}/resolved-reporting${qs({ on })}`),
   addReporting: (id: number, body: Record<string, unknown>) => api.post<{ id: number }>(`/positions/${id}/reporting-relationships`, body),
   endReporting: (rowId: number, effectiveTo?: string) => api.post<{ ok: true }>(`/position-reporting-relationships/${rowId}/end`, { effectiveTo }),

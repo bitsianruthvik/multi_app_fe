@@ -118,6 +118,7 @@ export function OrgChartTitleStrip({
         <Box
           component="ul"
           aria-label="Key"
+          data-line-legend=""
           // Not on a phone: there the key wraps to three lines and takes the chart's
           // height; the export still carries it.
           sx={{ display: { xs: 'none', sm: 'flex' }, flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.25, m: 0, p: 0, listStyle: 'none' }}
