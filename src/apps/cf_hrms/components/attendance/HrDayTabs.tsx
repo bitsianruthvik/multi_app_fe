@@ -3,6 +3,7 @@
  * tabs of HR's Attendance screen.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
@@ -30,12 +31,14 @@ const STATE: Record<BoardState, { tone: 'success' | 'warning' | 'danger' | 'info
 export function AttToday() {
   const can = useCan();
   const toast = useToast();
-  const [date, setDate] = useState(todayLocal());
+  // A dashboard tile or an absence alert links here with ?date= and ?department= (spec §42).
+  const [params] = useSearchParams();
+  const [date, setDate] = useState(/^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date')! : todayLocal());
   const [data, setData] = useState<TodayBoard | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [only, setOnly] = useState<BoardState | ''>('');
   // One or more org units, each with everything under it (spec §34.2).
-  const [units, setUnits] = useState('');
+  const [units, setUnits] = useState(params.get('department') ?? '');
   const unitOptions = useOrgUnitOptions(can.org.view || can.positions.view);
   const load = useCallback(() => { attendanceApi.today({ date, departmentId: units || null }).then((d) => { setData(d); setError(null); }).catch(setError); }, [date, units]);
   useEffect(load, [load]);
@@ -105,12 +108,13 @@ export function AttToday() {
 export function AttMonth() {
   const can = useCan();
   const toast = useToast();
-  const [month, setMonth] = useState(thisMonth());
+  const [params] = useSearchParams();
+  const [month, setMonth] = useState(/^\d{4}-\d{2}$/.test(params.get('month') ?? '') ? params.get('month')! : thisMonth());
   const [q, setQ] = useState('');
   const [data, setData] = useState<MonthGrid | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [person, setPerson] = useState<number | null>(null);
-  const [units, setUnits] = useState('');
+  const [units, setUnits] = useState(params.get('department') ?? '');
   const unitOptions = useOrgUnitOptions(can.org.view || can.positions.view);
   const load = useCallback(() => { setData(null); attendanceApi.month({ month, q, departmentId: units || null }).then((d) => { setData(d); setError(null); }).catch(setError); }, [month, q, units]);
   useEffect(() => { const t = setTimeout(load, q ? 300 : 0); return () => clearTimeout(t); }, [load, q]);

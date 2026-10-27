@@ -8,7 +8,7 @@ import {
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
 import { HiringDialogProvider } from '../HiringDialog';
-import { SECTIONS, COUNT_META, SELF_ONLY, APPROVER, PAY_SCREEN } from '../../navMeta';
+import { SECTIONS, COUNT_META, SELF_ONLY, APPROVER, PAY_SCREEN, DASHBOARD } from '../../navMeta';
 import { TAG, useAccessWatch, useCan } from '../../access/can';
 import { MyAccessLine } from '../../access/Guard';
 import { fetchNavCounts } from '../../api/client';
@@ -16,6 +16,7 @@ import { usePendingApprovals } from '../../api/approvals';
 import { peopleApi } from '../../api/people';
 import { orgChartApi } from '../../api/orgchart';
 import { complianceApi } from '../../api/compliance';
+import { NOTIFICATIONS_CHANGED, notificationsApi } from '../../api/dashboard';
 // Side effect: registers every cf_hrms status with its tone and label, so a
 // StatusBadge reads the same on every screen. Every route renders inside this
 // shell, so importing it here covers the whole app.
@@ -108,6 +109,8 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
       if (tag === APPROVER) return access.leave.edit || access.attendance.edit || (pendingApprovals ?? 0) > 0;
       // Payroll runs and salaries show people's pay: payroll view AND the named pay view (navMeta.ts).
       if (tag === PAY_SCREEN) return access.payroll.view && access.named.payView;
+      // The dashboard (spec §42.1): any area one of its tiles shows.
+      if (tag === DASHBOARD) return access.employees.view || access.attendance.view || access.positions.view || access.payroll.view;
       return access.has(tag);
     },
     [access, pendingApprovals],
@@ -126,20 +129,27 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * The bell (spec §36.4): law changes waiting to be acknowledged and deadlines in the next three days,
-   * for a login with Compliance view. Read on load and every five minutes; advisory — a failure shows no badge.
+   * The bell: the login's own unread notifications (spec §42.3 — absence digests), plus, for a login with
+   * Compliance view, law changes waiting to be acknowledged and deadlines in the next three days (spec §36.4).
+   * It opens Notifications, which links on to Compliance. Read on load and every five minutes; advisory — a
+   * failure shows no badge.
    */
   const mayCompliance = access.compliance.view;
   const [bellCount, setBellCount] = useState(0);
   useEffect(() => {
-    if (!mayCompliance) { setBellCount(0); return undefined; }
     let live = true;
-    const read = () => { complianceApi.bell().then((b) => { if (live) setBellCount(b.count); }).catch(() => { /* no badge */ }); };
+    const read = () => {
+      Promise.all([
+        notificationsApi.list(true).then((n) => n.unread).catch(() => 0),
+        mayCompliance ? complianceApi.bell().then((b) => b.count).catch(() => 0) : Promise.resolve(0),
+      ]).then(([mine, law]) => { if (live) setBellCount(mine + law); });
+    };
     read();
     const t = window.setInterval(read, 5 * 60 * 1000);
-    // Acknowledging or marking a deadline done re-reads it at once (the Compliance panels say so).
+    // Acknowledging, marking a deadline done or reading a notification re-reads it at once.
     window.addEventListener('cf-hrms-compliance-changed', read);
-    return () => { live = false; window.clearInterval(t); window.removeEventListener('cf-hrms-compliance-changed', read); };
+    window.addEventListener(NOTIFICATIONS_CHANGED, read);
+    return () => { live = false; window.clearInterval(t); window.removeEventListener('cf-hrms-compliance-changed', read); window.removeEventListener(NOTIFICATIONS_CHANGED, read); };
   }, [mayCompliance]);
 
   const navCounts = useMemo(
@@ -231,7 +241,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             quickCreate={QUICK_CREATE}
             can={can}
             accountItems={<MyAccessLine />}
-            notificationsPath={mayCompliance ? 'compliance' : undefined}
+            notificationsPath="notifications"
             notificationCount={bellCount}
           >
             <HiringDialogProvider>{children}</HiringDialogProvider>

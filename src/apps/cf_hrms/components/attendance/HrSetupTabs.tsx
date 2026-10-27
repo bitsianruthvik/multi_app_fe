@@ -19,7 +19,7 @@ import { listRoles } from '../../api/roles';
 import { peopleApi } from '../../api/people';
 import {
   attendanceApi, dayLabel, hm, minutesWord, monthLabel, todayLocal,
-  type Action, type ApiKey, type AssignmentRow, type AttPolicy, type Device, type DeviceEvent, type ImportPreview, type Mapping, type MonthState, type Rules, type Settings, type Unmapped,
+  type Action, type ApiKey, type AssignmentRow, type AttPolicy, type Device, type DeviceEvent, type DutyRule, type ImportPreview, type Mapping, type MonthState, type Rules, type Settings, type Unmapped,
 } from '../../api/attendance';
 import { ScreenHeader } from '../TabbedScreen';
 import { PolicySentences } from './AttendanceParts';
@@ -33,6 +33,41 @@ const EMPTY_RULES: Rules = {
   graceInMinutes: 10, graceOutMinutes: 10, lateMarks: null, shortDay: { halfDayBelowHours: 4.5, absentBelowHours: null },
   missingPunch: { treatAs: 'ASK', askWithinDays: 3 }, absentIsLop: true, sandwich: false, shortPermission: null, overtime: null,
 };
+
+/**
+ * Sunday / festival duty (spec §42.4): an allowance (₹ a day, ₹ an hour; or for a festival N × the day's wage)
+ * and/or comp-off, from a least number of hours. Off = the rule is null.
+ */
+function DutyFields({ kind, rule, onChange }: { kind: 'weekly' | 'holiday'; rule: DutyRule | null | undefined; onChange: (r: DutyRule | null) => void }) {
+  const weekly = kind === 'weekly';
+  const on = Boolean(rule);
+  const r: DutyRule = rule ?? { pay: weekly ? 'PER_DAY' : 'FIXED', amount: weekly ? 500 : 1000, wageMultiple: null, minHours: 4, compOffDays: null, alsoOvertime: false };
+  const set = (patch: Partial<DutyRule>) => onChange({ ...r, ...patch });
+  return (
+    <>
+      <FormControlLabel control={<Switch checked={on} onChange={(e) => onChange(e.target.checked ? r : null)} data-field={weekly ? 'duty-weekly' : 'duty-holiday'} />}
+        label={weekly ? 'Work on a weekly off: Sunday duty allowance and/or comp-off' : 'Work on a festival holiday: festival duty allowance and/or comp-off'} />
+      {on && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, pl: 2, borderLeft: '2px solid var(--c-divider)' }}>
+          <TextField select size="small" label="Allowance" value={r.pay ?? ''} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
+            onChange={(e) => set({ pay: (e.target.value || null) as DutyRule['pay'], ...(e.target.value === 'DAY_WAGE' ? { wageMultiple: r.wageMultiple ?? 2 } : {}) })} data-field={`${kind}-pay`}>
+            <MenuItem value="">None (comp-off only)</MenuItem>
+            {weekly ? [<MenuItem key="d" value="PER_DAY">A fixed ₹ for the day</MenuItem>, <MenuItem key="h" value="PER_HOUR">₹ for each hour worked</MenuItem>]
+              : [<MenuItem key="f" value="FIXED">A fixed ₹ for the day</MenuItem>, <MenuItem key="w" value="DAY_WAGE">Times the day’s wage</MenuItem>]}
+          </TextField>
+          {r.pay && r.pay !== 'DAY_WAGE' && <TextField size="small" label={r.pay === 'PER_HOUR' ? '₹ an hour' : '₹ for the day'} value={str(r.amount)} onChange={(e) => set({ amount: num(e.target.value) })} data-field={`${kind}-amount`} />}
+          {r.pay === 'DAY_WAGE' && <TextField size="small" label="How many times the day’s wage" value={str(r.wageMultiple)} onChange={(e) => set({ wageMultiple: num(e.target.value) })} helperText="The day’s wage = (Basic + DA) ÷ 26" />}
+          <TextField size="small" label="Counts from (hours worked)" value={str(r.minHours)} onChange={(e) => set({ minHours: num(e.target.value) })} helperText="Blank: any work" />
+          <TextField select size="small" label="Comp-off" value={r.compOffDays == null ? '' : String(r.compOffDays)} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
+            onChange={(e) => set({ compOffDays: e.target.value === '' ? null : Number(e.target.value) })} data-field={`${kind}-compoff`}>
+            <MenuItem value="">None</MenuItem><MenuItem value="0.5">Half a day</MenuItem><MenuItem value="1">A whole day</MenuItem>
+          </TextField>
+          <FormControlLabel sx={{ gridColumn: '1 / -1' }} control={<Checkbox checked={r.alsoOvertime} onChange={(e) => set({ alsoOvertime: e.target.checked })} />} label="Also pay the hours as overtime (normally not: the duty pays them)" />
+        </Box>
+      )}
+    </>
+  );
+}
 
 function PolicyEditor({ policy, types, onClose, onSaved }: { policy: AttPolicy | null; types: LeaveType[]; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(policy?.name ?? '');
@@ -122,6 +157,9 @@ function PolicyEditor({ policy, types, onClose, onSaved }: { policy: AttPolicy |
               <TextField size="small" label="At most a day (min)" value={str(r.overtime.maxMinutesPerDay)} onChange={(e) => set({ overtime: { ...r.overtime!, maxMinutesPerDay: num(e.target.value) } })} />
             </Box>
           )}
+          <DutyFields kind="weekly" rule={r.weeklyOffDuty} onChange={(v) => set({ weeklyOffDuty: v })} />
+          <DutyFields kind="holiday" rule={r.holidayDuty} onChange={(v) => set({ holidayDuty: v })} />
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Comp-off goes to a leave type “earned by working on a holiday or weekly off” in the person’s leave policy; without one, HR credits it.</Typography>
         </Stack>
         <Box>
           <Typography sx={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.75 }}>In words</Typography>
@@ -177,7 +215,7 @@ export function AttPolicies() {
   useEffect(() => { load(); leaveApi.types().then(setTypes).catch(() => {}); }, [load]);
   return (
     <>
-      <ScreenHeader title="Policies" subtitle="Rules for late marks, short days, missing punches, absence, overtime — and where each policy applies."
+      <ScreenHeader title="Policies" subtitle="Rules for late marks, short days, missing punches, absence, overtime, Sunday and festival duty — and where each policy applies."
         actions={can.attendance.edit ? (
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button onClick={() => setAssigning(true)} disabled={!data?.policies.length}>Where it applies</Button>

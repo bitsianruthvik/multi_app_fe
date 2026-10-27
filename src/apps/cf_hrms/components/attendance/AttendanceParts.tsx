@@ -13,7 +13,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { FormDialog, ToneBadge } from '@shared/ui';
 import {
   KIND_WORDS, STATUS_WORDS, dayLabel, hm, minutesWord, monthLabel, shiftMonth,
-  type AskBody, type Cell, type MonthGrid as Grid, type Penalty, type PersonDay, type PersonMonth, type RequestKind,
+  type AskBody, type Cell, type DutyDay, type MonthGrid as Grid, type Penalty, type PersonDay, type PersonMonth, type RequestKind,
 } from '../../api/attendance';
 
 /* ── the letter of a day ─────────────────────────────────────────────── */
@@ -56,8 +56,20 @@ export function Legend({ legend }: { legend: { letter: string; words: string }[]
       ))}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><DayLetter letter="P" late size={22} /> Late mark</Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><DayLetter letter="P" missing size={22} /> One punch</Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><Box sx={{ position: 'relative' }}><DayLetter letter="WO" size={22} /><DutyDot /></Box> Day off worked (duty)</Box>
     </Box>
   );
+}
+
+/** Sunday / festival duty (spec §42.4): "Sunday duty · 8 h · ₹480 · ½ day comp-off". */
+function dutyWords(d: DutyDay): string {
+  const pay = d.kind === 'SUNDAY' ? (d.amount ? `₹${d.amount.toLocaleString('en-IN')}` : null) : [d.amount ? `₹${d.amount.toLocaleString('en-IN')}` : null, d.wageDays ? `${d.wageDays} × the day’s wage` : null].filter(Boolean).join(' + ') || null;
+  return [d.kind === 'SUNDAY' ? 'Sunday duty' : 'Festival duty', `${d.hours} h`, pay, d.compOff ? `${d.compOff === 0.5 ? 'half a day' : `${d.compOff} day${d.compOff === 1 ? '' : 's'}`} comp-off` : null].filter(Boolean).join(' · ');
+}
+
+/** The small mark on a day off worked. */
+function DutyDot() {
+  return <Box component="span" aria-label="duty" sx={{ position: 'absolute', top: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: 'var(--c-success-600)', border: '1.5px solid var(--c-surface)' }} />;
 }
 
 function cellTitle(c: Cell): ReactNode {
@@ -68,6 +80,7 @@ function cellTitle(c: Cell): ReactNode {
       {(c.inTime || c.outTime) && <Box>{hm(c.inTime) || '—'} → {hm(c.outTime) || '—'}</Box>}
       {c.why && <Box>{c.why}</Box>}
       {!!c.overtime && <Box>Overtime {minutesWord(c.overtime)}</Box>}
+      {c.duty && <Box>{dutyWords(c.duty)}</Box>}
     </Box>
   );
 }
@@ -98,7 +111,7 @@ export function MusterGrid({ grid, onPerson }: { grid: Grid; onPerson?: (employe
                 <Box sx={{ fontSize: 11 }}>{d.weekday.slice(0, 2)}</Box>{d.day}
               </Box>
             ))}
-            {['P', 'A', 'L', 'Late', 'OT h', 'LOP'].map((h) => (
+            {['P', 'A', 'L', 'Late', 'OT h', 'Duty ₹', 'LOP'].map((h) => (
               <Box component="th" key={h} sx={{ ...head, p: 0.75, borderBottom: '1px solid var(--c-divider)', whiteSpace: 'nowrap' }}>{h}</Box>
             ))}
           </tr>
@@ -118,10 +131,14 @@ export function MusterGrid({ grid, onPerson }: { grid: Grid; onPerson?: (employe
               </Box>
               {r.cells.map((c) => (
                 <Box component="td" key={c.date} sx={{ p: '2px', textAlign: 'center', borderBottom: '1px solid var(--c-divider)' }}>
-                  <DayLetter letter={c.letter} late={c.late} missing={c.missing} size={26} title={cellTitle(c)} />
+                  <Box sx={{ position: 'relative', display: 'inline-block' }} data-duty={c.duty ? c.duty.kind : undefined}>
+                    <DayLetter letter={c.letter} late={c.late} missing={c.missing} size={26} title={cellTitle(c)} />
+                    {c.duty && <DutyDot />}
+                  </Box>
                 </Box>
               ))}
-              {[r.totals?.present, r.totals?.absent, r.totals ? r.totals.leave.paid + r.totals.leave.unpaid : null, r.totals?.lateMarks, r.totals?.overtime.hours, r.totals?.lopDays].map((v, i) => (
+              {[r.totals?.present, r.totals?.absent, r.totals ? r.totals.leave.paid + r.totals.leave.unpaid : null, r.totals?.lateMarks, r.totals?.overtime.hours,
+                r.totals?.duty ? (r.totals.duty.sunday.amount + r.totals.duty.festival.amount) || (r.totals.duty.festival.wageDays ? `${r.totals.duty.festival.wageDays}×` : 0) : 0, r.totals?.lopDays].map((v, i) => (
                 <Box component="td" key={i} sx={{ p: 0.75, textAlign: 'right', borderBottom: '1px solid var(--c-divider)', fontVariantNumeric: 'tabular-nums' }}>{v ?? '—'}</Box>
               ))}
             </tr>
@@ -163,7 +180,7 @@ export function MonthCalendar({ days, onDay, selected }: { days: PersonDay[]; on
                 <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)' }}>{Number(d.date.slice(8, 10))}</Typography>
                 {d.late && <Box component="span" aria-label="late" sx={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--c-danger-600)' }} />}
               </Box>
-              <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: s.fg }}>{d.letter === '·' ? '' : d.letter}</Typography>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: s.fg }}>{d.letter === '·' ? '' : d.letter}{d.duty ? <Box component="span" sx={{ color: 'var(--c-success-700)', ml: 0.25 }}>+</Box> : null}</Typography>
               {(d.inTime || d.outTime) && (
                 <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-2)', display: { xs: 'none', sm: 'block' } }}>{hm(d.inTime) || '—'}–{hm(d.outTime) || '—'}</Typography>
               )}
@@ -193,8 +210,9 @@ export function DayDetail({ d, action }: { d: PersonDay; action?: ReactNode }) {
         {d.workedMinutes != null && <span>Worked {minutesWord(d.workedMinutes)}</span>}
         {d.lateMinutes > 0 && <span>{minutesWord(d.lateMinutes)} late</span>}
         {d.earlyMinutes > 0 && <span>Left {minutesWord(d.earlyMinutes)} early</span>}
-        {d.overtimeMinutes > 0 && <span>Overtime {minutesWord(d.overtimeMinutes)}</span>}
+        {d.overtimeMinutes > 0 && !d.duty && <span>Overtime {minutesWord(d.overtimeMinutes)}</span>}
       </Box>
+      {d.duty && <Typography sx={{ fontSize: 13, mt: 0.5, color: 'var(--c-success-800)' }} data-day-duty={d.duty.kind}>{dutyWords(d.duty)}</Typography>}
       <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.75 }}>
         {d.punches.length ? `Punches: ${d.punches.map((p) => `${hm(p.at)}${p.direction !== 'UNKNOWN' ? ` ${p.direction}` : ''} (${p.method.toLowerCase()})`).join(', ')}` : 'No punches.'}
       </Typography>
@@ -298,6 +316,10 @@ export function MonthFigures({ m }: { m: PersonMonth['summary'] }) {
     ['Present', m.present], ['Absent', m.absent], ['Leave', m.leave.paid + m.leave.unpaid], ['Weekly offs', m.weeklyOffs], ['Holidays', m.holidays],
     ['Late marks', m.lateMarks], ['Overtime', minutesWord(m.overtime.minutes)], ['Loss of pay', `${m.lopDays} day${m.lopDays === 1 ? '' : 's'}`],
   ];
+  // Sunday / festival duty (spec §42.4), when there is any.
+  if (m.duty?.sunday.days) items.push(['Sunday duty', `${m.duty.sunday.days} · ₹${m.duty.sunday.amount.toLocaleString('en-IN')}`]);
+  if (m.duty?.festival.days) items.push(['Festival duty', `${m.duty.festival.days}${m.duty.festival.amount ? ` · ₹${m.duty.festival.amount.toLocaleString('en-IN')}` : ''}${m.duty.festival.wageDays ? ` · ${m.duty.festival.wageDays}× wage` : ''}`]);
+  if (m.duty?.compOffDays) items.push(['Comp-off earned', `${m.duty.compOffDays} day${m.duty.compOffDays === 1 ? '' : 's'}`]);
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0,1fr))', sm: 'repeat(4, minmax(0,1fr))' }, gap: 1 }} data-month-figures>
       {items.map(([k, v]) => (

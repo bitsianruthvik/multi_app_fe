@@ -91,6 +91,12 @@ export const APPROVER = 'cf_hrms_approver';
  */
 export const PAY_SCREEN = 'cf_hrms_payroll_pay_screen';
 
+/**
+ * A sentinel, not a tag: "this login may open the management dashboard" (spec §42.1) — any of employees,
+ * attendance, positions or payroll view. Each tile asks for its own right on the server. CfHrmsShell answers it.
+ */
+export const DASHBOARD = 'cf_hrms_dashboard';
+
 /** Every tag that opens an HR screen. Holding any of them = not self-only. */
 export const HR_SCREEN_TAGS = SCREEN_TAGS;
 
@@ -104,7 +110,13 @@ export const SECTIONS: NavSection[] = [
     key: 'home',
     label: 'Home',
     screens: [
-      { key: 'home', label: 'Home', path: 'home', keywords: ['today', 'what needs me', 'dashboard'] },
+      { key: 'home', label: 'Home', path: 'home', keywords: ['today', 'what needs me'] },
+      // The management dashboard (spec §42.1): headcount, absenteeism, overtime, manpower shortage, payroll cost.
+      { key: 'dashboard', label: 'Dashboard', path: 'dashboard', permission: DASHBOARD, keywords: ['dashboard', 'headcount', 'absenteeism', 'absent', 'overtime', 'ot', 'manpower', 'shortage', 'payroll cost', 'cost', 'trend', 'management', 'mis'] },
+      // Manpower (spec §42.2): required · filled · vacant · present · short, by org unit, role and shift, any day.
+      { key: 'manpower', label: 'Manpower', path: 'manpower', permission: POSITIONS, keywords: ['manpower', 'required', 'sanctioned', 'filled', 'vacant', 'present', 'short', 'shortage', 'strength', 'deployment', 'machine', 'shift'] },
+      // The bell: absence alerts and other notifications for this login (spec §42.3).
+      { key: 'notifications', label: 'Notifications', path: 'notifications', keywords: ['bell', 'alerts', 'absence alert', 'not punched', 'notifications'] },
       /**
        * The employee's Org chart — their own slice (managers above, their team
        * below), served by GET /user/me/orgchart. SELF_ONLY, so only a login with

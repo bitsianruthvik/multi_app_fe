@@ -37,6 +37,14 @@ export function Guard({ tag, children }: { tag: string; children: ReactNode }) {
   return <NoAccess />;
 }
 
+/** Like Guard, for a screen any ONE of several rights opens (the dashboard: spec §42.1). */
+export function AnyOf({ tags, children }: { tags: string[]; children: ReactNode }) {
+  const can = useCan();
+  if (tags.some((t) => can.has(t))) return <>{children}</>;
+  if (!can.settled) return <ListSkeleton rows={6} />;
+  return <NoAccess />;
+}
+
 /** One quiet line where a whole section is missing because of a right (spec §12.7: say why). */
 export function NoAccessNote({ children }: { children: ReactNode }) {
   return (

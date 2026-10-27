@@ -25,6 +25,17 @@ export interface Cell {
   outTime?: string | null;
   why?: string | null;
   source?: string;
+  /** A weekly off or festival holiday worked, paid as duty (spec §42.4). */
+  duty?: DutyDay | null;
+}
+
+/** Sunday / festival duty of one day (spec §42.4). */
+export interface DutyDay { date: string; kind: 'SUNDAY' | 'FESTIVAL'; hours: number; amount: number; wageDays: number; compOff: number }
+export interface MonthDuty {
+  sunday: { days: number; hours: number; amount: number };
+  festival: { days: number; hours: number; amount: number; wageDays: number };
+  compOffDays: number;
+  days: DutyDay[];
 }
 
 export interface MonthTotals {
@@ -35,6 +46,8 @@ export interface MonthTotals {
   overtime: { minutes: number; hours: number; multiplier: number | null };
   penalties: { leaveDays: number; lopDays: number; amount: number; warnings: number };
   lopDays: number; payableDays: number; ncpDays: number; esiDays: number; lateMarks: number; lateMinutes: number; earlyMinutes: number;
+  /** Absent in a month closed before 2026-10-27. */
+  duty?: MonthDuty;
 }
 
 export interface MonthGrid {
@@ -63,6 +76,7 @@ export interface PersonDay {
   date: string; weekday: string; letter: string; status: DayStatus | null;
   inTime: string | null; outTime: string | null; workedMinutes: number | null; lateMinutes: number; earlyMinutes: number; overtimeMinutes: number;
   late: boolean; missing: boolean; why: string | null; source: string | null; shift: string | null; punches: Punch[]; future: boolean;
+  duty?: DutyDay | null;
 }
 
 export interface Penalty {
@@ -85,6 +99,8 @@ export interface PersonMonth {
   approver: Person | null;
   webPunch: { enabled: boolean; needsLocation: boolean; today: Punch[]; next: 'IN' | 'OUT' };
   lateWords: string | null;
+  /** Comp-off earned this month (spec §42.4): credited to a comp-off leave type, or for HR to credit. */
+  compOff?: { days: number; leaveTypeId: number | null; leaveTypeName: string | null; note: string } | null;
 }
 
 export interface AttRequest {
@@ -113,6 +129,27 @@ export interface Rules {
   absentIsLop: boolean; sandwich: boolean;
   shortPermission: { perMonth: number; maxMinutes: number } | null;
   overtime: { afterMinutes: number; rateMultiplier: number; minMinutes: number; maxMinutesPerDay: number | null } | null;
+  /** Spec §42.4: work on a weekly off — PER_DAY / PER_HOUR ₹ and/or comp-off. */
+  weeklyOffDuty?: DutyRule | null;
+  /** Spec §42.4: work on a festival holiday — FIXED ₹ or DAY_WAGE × N, and/or comp-off. */
+  holidayDuty?: DutyRule | null;
+}
+export interface DutyRule {
+  pay: 'PER_DAY' | 'PER_HOUR' | 'FIXED' | 'DAY_WAGE' | null; amount: number | null; wageMultiple: number | null;
+  minHours: number | null; compOffDays: number | null; alsoOvertime: boolean;
+}
+
+/* ── absence alerts (spec §42.3) ── */
+export interface AlertSettings {
+  enabled: boolean; delayMinutes: number; hrTemplates: ('OWNER' | 'HR_MANAGER' | 'HR_EXECUTIVE')[]; notifyManagers: boolean;
+  channels: { inApp: boolean; email: boolean; sms: boolean; whatsapp: boolean }; saved?: boolean;
+}
+export interface AlertsScreen {
+  settings: AlertSettings;
+  channels: { key: 'IN_APP' | 'EMAIL' | 'SMS' | 'WHATSAPP'; label: string; ready: boolean; provider: string | null; note: string | null }[];
+  now: string; live: boolean; liveFrom: string | null;
+  due: { runKey: string; date: string; shift: string | null; start: string; dueAt: string; sent: boolean; people: number; absent: { employeeId: number; code: string | null; name: string; why: string }[] }[];
+  runs: { id: number; date: string; shift: string | null; dueAt: string | null; absent: number; digests: number; trigger: 'SCHEDULED' | 'BY_HAND'; deliveries: { channel: string; status: string; count: number }[] }[];
 }
 export interface AssignmentRow { id: number; scope: 'COMPANY' | 'LOCATION' | 'ROLE' | 'LABEL'; locationId: number | null; roleId: number | null; labelId: number | null; policyId: number; target: string }
 export interface AttPolicy { id: number; code: string | null; name: string; description: string | null; status: string; rules: Rules; sentences: string[]; assignments: AssignmentRow[] }
@@ -180,6 +217,9 @@ export const attendanceApi = {
   months: (year?: number) => api.get<{ year: number; months: MonthState[] }>(`/attendance/months${qs({ year })}`),
   close: (month: string) => api.post<{ month: MonthState; pendingRequests: number }>(`/attendance/months/${month}/close`, {}),
   reopen: (month: string, reason: string) => api.post<{ month: MonthState }>(`/attendance/months/${month}/reopen`, { reason }),
+  alerts: () => api.get<AlertsScreen>('/attendance/alerts'),
+  putAlerts: (body: Partial<AlertSettings>) => api.put<{ settings: AlertSettings }>('/attendance/alerts/settings', body).then((r) => r.settings),
+  checkNow: () => api.post<{ sent: { runKey: string; absent: number; digests: number }[]; screen: AlertsScreen }>('/attendance/alerts/check-now', {}),
 };
 
 export const myAttendanceApi = {

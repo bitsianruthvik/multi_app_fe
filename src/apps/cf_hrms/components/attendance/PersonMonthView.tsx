@@ -41,6 +41,11 @@ export function PersonMonthView({
           {day && <DayDetail d={day} action={dayAction?.(day)} />}
           <MonthFigures m={data.summary} />
           {data.lateWords && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{data.lateWords} this month.</Typography>}
+          {data.compOff && (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }} data-comp-off>
+              Comp-off earned this month: {data.compOff.days} day{data.compOff.days === 1 ? '' : 's'}. {data.compOff.note}
+            </Typography>
+          )}
         </Stack>
       </Box>
       <SectionCard title="Penalties" subtitle="What the attendance rules took this month, and anything waived or given back.">

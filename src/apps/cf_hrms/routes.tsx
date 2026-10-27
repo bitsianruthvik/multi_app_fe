@@ -4,9 +4,13 @@ import type { RouteObject } from 'react-router-dom';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { CfHrmsShell } from './components/shell/CfHrmsShell';
 import { TAG, useCan } from './access/can';
-import { Guard } from './access/Guard';
+import { AnyOf, Guard } from './access/Guard';
 
 const Home = lazy(() => import('./pages/Home'));
+// Karni's requirements round (spec §42): the management dashboard, the manpower report, the bell's page.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Manpower = lazy(() => import('./pages/Manpower'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 
 // The employee self view. Not lazy-grouped with anything else: for a
 // shop-floor login these are the only chunks they load.
@@ -198,7 +202,10 @@ export function getCfHrmsRoutes(
 
   return [
     { path: '/:company/cf_hrms', element: <ToHome /> },
-    { path: '/:company/cf_hrms/dashboard', element: <ToHome /> },
+    // The management dashboard (spec §42.1): any one of the areas its tiles show; each tile checks its own right.
+    { path: '/:company/cf_hrms/dashboard', element: wrap(<AnyOf tags={[TAG.employees.view, TAG.attendance.view, TAG.positions.view, TAG.payroll.view]}><Dashboard /></AnyOf>) },
+    { path: '/:company/cf_hrms/manpower', element: guarded(TAG.positions.view, <Manpower />) },
+    { path: '/:company/cf_hrms/notifications', element: wrap(<Notifications />) },
     { path: '/:company/cf_hrms/home', element: wrap(<HomeOrMyPlace />) },
 
     // The signed-in person's own place. Inside the same shell as everything
