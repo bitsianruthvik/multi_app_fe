@@ -246,8 +246,9 @@ export function ShipDialog({ release, onClose, onShipped }: {
   const [reference, setReference] = useState('');
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
-  // A tax invoice rides with every dispatch. Only someone who may write orders can make one.
-  const canInvoice = useIsPermitted()('cf_erp_orders_manage');
+  // A tax invoice rides with every dispatch — drafted only for Accounts (invoices are accounts manage only, 2026-10-27;
+  // the backend leaves the shipment un-invoiced for anyone else).
+  const canInvoice = useIsPermitted()('cf_erp_accounts_manage');
   const [invoice, setInvoice] = useState(true);
   useEffect(() => {
     if (release) { setQuantity(String(release.finished.readyToShip)); setReference(''); setDate(''); setNote(''); setInvoice(true); }

@@ -2,7 +2,7 @@
 id: maintenance-orders
 title: Maintenance orders
 area: maintenance
-roles: [maintenance, management]
+roles: [maintenance, production, management]
 routes: ["/:company/cf_erp/maintenance-orders"]
 order: 20
 ---
@@ -21,7 +21,7 @@ Every maintenance order (MO) — raised by a fault, by a preventive plan, or by 
 ## Good to know
 - A job raised here does not stop the machine — it stays up until the work starts. A fault stops it at once.
 - Preventive plans open orders by themselves when they fall due.
-- Raising and moving orders needs the Maintenance permission.
+- Raising and moving orders needs the Maintenance permission. With production view the list is read only.
 
 ## Related
 - [A maintenance order](help:maintenance-order)

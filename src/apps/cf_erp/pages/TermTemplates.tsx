@@ -50,7 +50,8 @@ function summary(t: TermTemplate, lists: TermLists | null): string {
  */
 export default function TermTemplates() {
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_orders_manage');
+  // Kept by Accounts manage only (2026-10-27, backend acceptance.js the same); Sales reads and picks them on the order.
+  const canManage = useIsPermitted()('cf_erp_accounts_manage');
   const [kindParam, setKind] = useUrlParam('kind', 'charges');
   const kind = (KINDS.some(([k]) => k === kindParam) ? kindParam : 'charges') as Kind;
   const [rows, setRows] = useState<TermTemplate[] | null>(null);

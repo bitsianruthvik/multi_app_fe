@@ -49,7 +49,7 @@ The MD approves it in **Management › Approvals**. If it comes back, the reason
 - A customer order is confirmed only by an approved acceptance, never by a button.
 - Once a line is frozen, changing it means **Revise** (a new revision of the order). See [The order page](help:order-page).
 - Keep good structures for next time: **Save line N as a standard drawing**. See [Standard drawings](help:sales-standard-drawings).
-- Keep your usual terms as templates in **Setup › Templates**. See [Templates](help:sales-term-templates).
+- Your usual terms are templates in **Setup › Templates**, kept by Accounts; pick one on the order with **Fill from template**. See [Templates](help:sales-term-templates).
 
 ## Related
 - [Orders](help:sales-orders)

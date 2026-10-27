@@ -26,7 +26,7 @@ One maintenance order, full screen: what happened, the machine's state, the move
 ## Good to know
 - The MR goes to Stores like every MR: Stores issues what is in stock, Purchase buys the rest. Its cost lands on the machine's maintenance, or on the sales order you named.
 - Parts issued against the order are added to its cost by Stores.
-- The keys S, M and C work when no box is being typed in. The buttons need the Maintenance permission.
+- The keys S, M and C work when no box is being typed in. The buttons need the Maintenance permission; with production view the order is read only.
 
 ## Related
 - [Maintenance orders](help:maintenance-orders)

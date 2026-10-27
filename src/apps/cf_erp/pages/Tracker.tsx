@@ -53,7 +53,8 @@ export default function Tracker() {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canProduce = isPermitted('cf_erp_production_manage');
-  const canStock = isPermitted('cf_erp_inventory_manage');
+  // Reserve / issue / let go to production: Stores (inventory manage) or PPC (production manage) — 2026-10-27.
+  const canStock = isPermitted('cf_erp_inventory_manage|cf_erp_production_manage');
   const [view, setView] = useUrlParam('view', 'tree');
   const flat = view !== 'tree';
   const [status, setStatus] = useUrlParam('status', 'open');

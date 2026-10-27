@@ -22,7 +22,7 @@ Every machine at a glance: running, down, stopped or in planned downtime, today 
 
 ## Good to know
 - **Refresh** (R) reads the board again; the full-screen button suits a wall screen.
-- Raising a fault needs the Maintenance permission, the machine log (floor) permission or the production manage permission.
+- Raising a fault needs the Maintenance permission, the machine log (floor) permission or the production manage permission. With production view the board is read only.
 
 ## Related
 - [Raise a fault](help:maintenance-raise-fault)

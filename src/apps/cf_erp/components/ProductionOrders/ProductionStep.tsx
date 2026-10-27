@@ -40,7 +40,8 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canProduce = isPermitted('cf_erp_production_manage');
-  const canShip = isPermitted('cf_erp_inventory_manage');
+  // Dispatch: Stores (inventory manage) or PPC (production manage) — 2026-10-27.
+  const canShip = isPermitted('cf_erp_inventory_manage|cf_erp_production_manage');
   const fs = useFullScreen('production-step');
   const load = useLoad(() => getOrderProductionOrders(order.id), [order.id]);
   const d = load.data;

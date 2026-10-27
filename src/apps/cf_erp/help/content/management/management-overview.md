@@ -2,7 +2,7 @@
 id: management-overview
 title: Plan health
 area: management
-roles: [management, admin]
+roles: [management, production, admin]
 routes: ["/:company/cf_erp/management-overview"]
 order: 20
 ---
@@ -22,6 +22,7 @@ order: 20
 
 ## Good to know
 - Approvals are not on this page. They have their own screen, **Approvals**.
+- Production sees this page too, read only, under **Production › Plan health**. Approving a re-baseline stays with Management.
 - For machine use, order progress and contractors, use the [Dashboard](help:management-dashboard) (**Management › Dashboard**).
 - For margins, use [Order costing](help:management-order-costing).
 

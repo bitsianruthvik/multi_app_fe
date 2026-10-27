@@ -27,7 +27,7 @@ For anything not reserved by a step (gas, grinding discs, a tool), use **Issue**
 ## Good to know
 - Cutting takes plates only from storage or WIP areas. A plate in a dispatch area cannot be cut ("reserved but not on the shelf") — transfer it to a storage area first.
 - Stock in quarantine, on hold or rejected is never issued.
-- Reserving and issuing need the inventory manage permission.
+- Reserving and issuing need the inventory manage or the production manage permission.
 
 ## Related
 - [Tracker](help:production-tracker)

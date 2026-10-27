@@ -29,7 +29,7 @@ The header shows ONE value. Before terms exist it is the *estimate* from the lin
 - A cancel is refused while a line is released to production. Take the release back first.
 - A closed, lost, cancelled or revised order no longer changes.
 - A revised order shows *Revised — kept as it was* with a link to the newer revision.
-- Buttons appear only with the orders permission.
+- Buttons appear only with the orders permission. Deleting an order needs the order delete permission (the MD).
 
 ## Related
 - [Structure & values](help:order-structure)

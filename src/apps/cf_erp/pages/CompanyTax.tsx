@@ -110,8 +110,8 @@ function TaxForm({ settings, states, canEdit, onSaved }: { settings: TaxSettings
 
 /** Setup › Company tax details: the seller's identity on every invoice, and the GST rates on offer. */
 export default function CompanyTax() {
-  // The people who invoice: Sales (orders manage) or Accounts (they own tax; 2026-10-24, backend gst.js the same).
-  const canEdit = useIsPermitted()('cf_erp_orders_manage|cf_erp_accounts_manage');
+  // Accounts own tax: saved with accounts manage only (2026-10-27, backend gst.js the same); Sales reads.
+  const canEdit = useIsPermitted()('cf_erp_accounts_manage');
   const settings = useLoad(() => getTaxSettings(), []);
   const states = useLoad(() => getStates(), []);
   return (

@@ -29,7 +29,7 @@ Hours a machine is planned to be off — a monthly service, a shutdown, a holida
 
 ## Good to know
 - For a single day's change to a machine's shifts (a holiday, overtime) you can also use **Change a day** on the machine's **Shifts** tab.
-- Changing planned downtime needs the Maintenance permission.
+- Changing planned downtime needs the Maintenance permission. With production view the list is read only.
 
 ## Related
 - [Planner](help:production-planner)

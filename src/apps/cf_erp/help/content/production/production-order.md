@@ -17,7 +17,7 @@ One production order: its state, what it covers, every piece with its steps, and
 ## How to release, take back and dispatch
 1. **Release** (Yet to plan) puts its pieces on the floor.
 2. **Take back** undoes a release while nothing has started and nothing was issued.
-3. **Dispatch** (state Dispatch) ships the finished units; when all are shipped the production order is **Closed**. This button needs the inventory manage permission.
+3. **Dispatch** (state Dispatch) ships the finished units; when all are shipped the production order is **Closed**. This button needs the production manage or the inventory manage permission.
 4. **Open in Tracker** shows the same steps in the Tracker, scoped to this production order.
 
 ## How to give work to a contractor

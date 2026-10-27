@@ -30,6 +30,7 @@ One tax invoice: who it is billed and shipped to, the tax, its lines, and the fi
 
 ## Good to know
 - An issued invoice cannot be edited. To correct it, click **Cancel**, type why, and raise a new one.
+- The buttons need the accounts manage permission. Without it the invoice is read only.
 - Deleting a draft sends its shipments back to un-invoiced.
 - The software does not talk to the portals. You upload and copy back by hand.
 

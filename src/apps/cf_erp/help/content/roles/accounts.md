@@ -14,7 +14,7 @@ This guide is for the accounts team. Your job in the app: set up the company's t
 - **Receipts**: money received.
 - **Order costing**: the margin of each order.
 - **Work orders**: contractor work and its weekly payments.
-- And under Setup, **Company tax details**.
+- And under Setup, **Company tax details** and **Templates** (the charges, payment milestones and post-production stages a customer acceptance starts from — see [Templates](help:sales-term-templates)). Invoices, the tax details and the templates are changed only with the accounts manage permission.
 
 ## Once, before the first invoice
 1. Open [Company tax details](help:accounts-company-tax).

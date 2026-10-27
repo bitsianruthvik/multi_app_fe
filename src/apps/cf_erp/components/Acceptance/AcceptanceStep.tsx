@@ -80,6 +80,8 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_orders_manage');
   const canSupply = isPermitted('cf_erp_inventory_manage') || canManage;
+  // Setup › Templates are kept by Accounts manage only (2026-10-27): Sales fills from them, Accounts saves new ones.
+  const canSaveTemplate = isPermitted('cf_erp_accounts_manage');
   const full = useFullScreen('so-acceptance');
   const loaded = useLoad(() => getAcceptance(order.id), [order.id]);
   const view = loaded.data;
@@ -155,7 +157,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
             {list.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</MenuItem>)}
           </TextField>
         )}
-        <Button size="small" onClick={() => { setSaveTpl(kind); setTplName(''); }} data-testid={`save-tpl-${kind}`}>Save as template</Button>
+        {canSaveTemplate && <Button size="small" onClick={() => { setSaveTpl(kind); setTplName(''); }} data-testid={`save-tpl-${kind}`}>Save as template</Button>}
       </Box>
     );
   };

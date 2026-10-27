@@ -166,6 +166,8 @@ export default function OrderDetail() {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_orders_manage');
+  // Deleting an order is the MD's (cf_erp_orders_delete, 2026-10-27) — status changes stay on orders manage.
+  const canDelete = isPermitted('cf_erp_orders_delete');
   const canStock = isPermitted('cf_erp_inventory_view');
   const canTrack = isPermitted('cf_erp_production_view');
   const canReserve = isPermitted('cf_erp_inventory_manage');
@@ -343,7 +345,7 @@ export default function OrderDetail() {
           {/* A later revision is taken back by discarding it, never deleted: the revision before it becomes current again. */}
           {o.revision > 1
             ? canDiscard && <Button color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setDiscarding(true)}>Discard revision</Button>
-            : DELETABLE.includes(o.status) && (
+            : canDelete && DELETABLE.includes(o.status) && (
               <Tooltip title="Delete — only drafts, inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
             )}
         </>

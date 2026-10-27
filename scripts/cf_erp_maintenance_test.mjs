@@ -172,9 +172,36 @@ await check('the menu: a Maintenance tab — Machines, Maintenance orders, Preve
   assert.equal(sec.label, 'Maintenance');
   // 2026-10-24: the machine register and Tools are in the Maintenance menu too, with their own (Production / Stores) permissions.
   assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime', 'machines', 'tools']);
-  assert.ok(sec.screens.slice(0, 4).every((s) => s.permission === 'cf_erp_maintenance'));
+  // 2026-10-27: the board, the orders and planned downtime are READ with production view too (PPC); the plans stay Maintenance's.
+  assert.deepEqual(sec.screens.slice(0, 4).map((s) => s.permission), ['cf_erp_maintenance|cf_erp_production_view', 'cf_erp_maintenance|cf_erp_production_view', 'cf_erp_maintenance', 'cf_erp_maintenance|cf_erp_production_view']);
   assert.equal(sec.screens[1].hasDetail, true);
   assert.ok(src('routes.tsx').includes("'/:company/cf_erp/maintenance-orders/:id'"));
+});
+
+await check('production view reads the schedule with no write buttons: board (no fault), orders (no New), an MO (no moves), planned downtime (no New / Remove)', async () => {
+  reset(); asUser(['cf_erp_production_view']);
+  globalThis.__routes['GET /maintenance/board'] = () => BOARD();
+  await mount(React.createElement(m.Board));
+  await settle(100);
+  assert.equal(qa('board-card').length, 4, 'the board is read');
+  assert.equal(q1('board-fault'), null, 'no Raise a fault without maintenance / floor / production manage');
+  globalThis.__routes['GET /maintenance/orders'] = () => ({ now: NOW, rows: [MO()] });
+  await mount(React.createElement(m.MaintenanceOrders), '/testco/cf_erp/maintenance-orders');
+  await settle(120);
+  assert.match(text(document.body), /MO-000050/);
+  assert.equal(q1('mo-new'), null, 'no New');
+  globalThis.__routes['GET /maintenance/orders/50'] = () => MO();
+  await mount(React.createElement(m.Routes, null, React.createElement(m.Route, { path: '/:company/cf_erp/maintenance-orders/:id', element: React.createElement(m.Detail) })), '/testco/cf_erp/maintenance-orders/50');
+  await settle(120);
+  assert.match(text(document.body), /Machine down 1 h 35 min/);
+  assert.equal(q1('mo-actions'), null, 'no moves');
+  assert.equal(q1('mo-close'), null); assert.equal(q1('mo-false-alarm'), null); assert.equal(q1('mo-mr'), null);
+  globalThis.__routes['GET /maintenance/downtime'] = () => ({ today: '2026-10-18', rows: [] });
+  await mount(React.createElement(m.PlannedDowntime), '/testco/cf_erp/planned-downtime');
+  await settle(120);
+  assert.match(text(document.body), /Planned downtime/);
+  assert.equal(q1('dt-new'), null, 'no New');
+  assert.equal(calls('POST', '/maintenance/downtime').length, 0);
 });
 
 // ── 3: the board and raising a fault ────────────────────────────────────────────────────────────

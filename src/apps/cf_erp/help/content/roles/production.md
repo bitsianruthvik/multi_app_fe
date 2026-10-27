@@ -40,7 +40,7 @@ A step is **Ready** only when its earlier steps are done and its material is res
 On [a production order](help:production-order), **Give work to a contractor**: pick BOM rows × operations, the contractor and the rate per tonne, then **Raise contractor PO**. Management approves it; Accounts pays weekly ([Contractor work orders](help:production-contractor-work-orders)). Those steps show "with … (WO-…)".
 
 ### 6. Dispatch
-When every step is done the production order shows **Dispatch**. Stores clicks **Dispatch**; it becomes **Closed**.
+When every step is done the production order shows **Dispatch**. Production or Stores clicks **Dispatch**; it becomes **Closed**. The tax invoice for it is raised by Accounts.
 
 ## Set up once
 - [Operations](help:production-operations) — each with a machine type and times (setup and operation time both per quantity).
@@ -49,4 +49,4 @@ When every step is done the production order shows **Dispatch**. Stores clicks *
 - [Planned downtime](help:maintenance-downtime) comes off the machines' shifts.
 
 ## Permissions
-Releasing, planning, recording steps and changing operations, flows, machines, operators and stop reasons need the production manage permission. Operators need only the machine log (floor) permission. Dispatch needs the inventory manage permission. The Test login holds all of these in the testing phase.
+Releasing, planning, recording steps and changing operations, flows, machines, operators and stop reasons need the production manage permission. Operators need only the machine log (floor) permission. Dispatching, shipping a line, and reserving and issuing material to production need the production manage or the inventory manage permission. With production view you can read **Production › Plan health**, the Maintenance machines board, maintenance orders and planned downtime; changing them needs the Maintenance permission. The Test login holds all of these in the testing phase.

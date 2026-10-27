@@ -6,7 +6,7 @@ roles: [sales, management, accounts]
 routes: ["/:company/cf_erp/term-templates"]
 order: 50
 ---
-**Setup › Templates** holds the rows a customer acceptance starts from: charges, payment milestones and post-production stages. The default of each kind fills every new acceptance, so sales only changes what differs. Sales and management keep them up to date.
+**Setup › Templates** holds the rows a customer acceptance starts from: charges, payment milestones and post-production stages. The default of each kind fills every new acceptance, so sales only changes what differs. Accounts keep them up to date; Sales picks them on each order.
 
 ## What you see
 - Three chips: **Charges**, **Payment milestones** and **Post-production stages**, each with how many templates it has.
@@ -32,7 +32,7 @@ On an order's Customer acceptance step, **Save as template** keeps that order's 
 ## Good to know
 - Deleting a template does not touch acceptances already made from it: they keep their own rows.
 - A milestone billed on a post-production stage names the stage by its key (s1, s2 …) from the stages template.
-- Changing templates needs the orders permission.
+- Changing templates, and **Save as template** on an order, need the accounts manage permission. Anyone who sees orders can read them and fill an order from them.
 
 ## Related
 - [Customer acceptance](help:order-acceptance)

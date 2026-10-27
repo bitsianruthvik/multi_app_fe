@@ -54,7 +54,7 @@ export default function ProductionOrderDetail() {
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             {canProduce && po.actions.release && <Button variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy} onClick={(e) => run(async () => { const r = await releaseProductionOrders([po.id]); return releaseToast(r.released, r.fromMr); }, e.currentTarget)}>Release</Button>}
             {canProduce && po.actions.takeBack && <Button color="inherit" startIcon={<UndoRounded />} disabled={busy} onClick={(e) => run(async () => { await takeBackProductionOrder(po.id); return `${po.code} taken back.`; }, e.currentTarget)}>Take back</Button>}
-            {isPermitted('cf_erp_inventory_manage') && po.actions.dispatch && <Button variant="contained" color="success" startIcon={<LocalShippingRounded />} disabled={busy}
+            {isPermitted('cf_erp_inventory_manage|cf_erp_production_manage') && po.actions.dispatch && <Button variant="contained" color="success" startIcon={<LocalShippingRounded />} disabled={busy}
               onClick={(e) => { const anchor = e.currentTarget; void run(async () => { const r = await dispatchProductionOrder(po.id); if (r.closed) celebrate(anchor); return r.closed ? `${po.code} dispatched and closed.` : `${po.code}: finished units dispatched.`; }, anchor); }}>Dispatch</Button>}
             {po.state !== 'yet_to_plan' && <Button startIcon={<AccountTreeRounded />} component={Link} to={appPath(company, trackerPathOf(po.id))}>Open in Tracker</Button>}
             <FullScreenToggle on={fs.on} onToggle={fs.toggle} />

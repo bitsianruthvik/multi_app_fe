@@ -172,7 +172,7 @@ function MaterialSection({ release, canStock, onChange, refreshKey }: {
 export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBack, onShipped }: {
   release: ReleaseSummary;
   canProduce: boolean;
-  /** May move stock — reserve, issue, ship (cf_erp_inventory_manage). */
+  /** May move stock — reserve, issue, ship (cf_erp_inventory_manage or cf_erp_production_manage, 2026-10-27). */
   canStock: boolean;
   onChange: (r: ReleaseSummary) => void;
   onTakenBack: () => void;

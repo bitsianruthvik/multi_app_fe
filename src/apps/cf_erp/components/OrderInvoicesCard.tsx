@@ -20,7 +20,8 @@ export function OrderInvoicesCard({ orderId }: { orderId: number }) {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_orders_manage');
+  // Raising an invoice from the dispatches: Accounts manage only (2026-10-27).
+  const canManage = useIsPermitted()('cf_erp_accounts_manage');
   const data = useLoad(() => orderInvoices(orderId), [orderId]);
   const [busy, setBusy] = useState<number | 'all' | null>(null);
   const [error, setError] = useState<CfApiError | null>(null);

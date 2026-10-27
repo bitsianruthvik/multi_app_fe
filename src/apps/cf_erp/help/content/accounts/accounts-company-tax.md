@@ -33,7 +33,7 @@ order: 50
 ## Good to know
 - The company **State** against the customer's ship-to state decides CGST + SGST (same state) or IGST (another state).
 - An item with no GST rate shows GST ₹0 on purchase orders and stops invoices. A made part reads its template's HSN and rate, and setting a family sets the templates in it too.
-- Changing these details needs the orders manage or the accounts manage permission. Setting a family needs the catalog manage or the accounts manage permission.
+- Changing these details needs the accounts manage permission. Sales can read them. Setting a family needs the catalog manage or the accounts manage permission.
 - Rates are not built into the software. When the government changes a rate, change this list.
 
 ## Related

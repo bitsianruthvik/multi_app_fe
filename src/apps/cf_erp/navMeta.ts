@@ -72,6 +72,8 @@ const PURCHASE = 'cf_erp_inventory_view|cf_erp_purchase';
  */
 /** §82: the Maintenance tab (also on every role that manages production). */
 const MAINTENANCE = 'cf_erp_maintenance';
+/** 2026-10-27: the maintenance schedule read-only for production view (backend routes/maintenance.js reads the same). */
+const MAINTENANCE_READ = `${MAINTENANCE}|${PRODUCTION}`;
 export const PLATE_CHANGE_GATE = false;
 
 export const SECTIONS: NavSection[] = [
@@ -146,6 +148,9 @@ export const SECTIONS: NavSection[] = [
       // Step 5 (§84): the planner per production order, step by step — auto (AI) / manual (Management), baseline, plan health.
       { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
       { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
+      // Plan health (the page at management-overview, also Management › Plan health): read-only for production view too
+      // (user 2026-10-27) — PPC sees what is slipping; approving a re-baseline stays Management's.
+      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview'] },
       // Every released line, by sales order (2026-10-17). A production order = a release; work orders stay the contractors'.
       { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION, keywords: ['released', 'release', 'yet to plan', 'planned', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
@@ -186,10 +191,12 @@ export const SECTIONS: NavSection[] = [
     key: 'maintenance',
     label: 'Maintenance',
     screens: [
-      { key: 'maintenance', label: 'Machines', path: 'maintenance', permission: MAINTENANCE, keywords: ['maintenance', 'breakdown', 'fault', 'down', 'running', 'machines board', 'raise a fault'] },
-      { key: 'maintenance-orders', label: 'Maintenance orders', path: 'maintenance-orders', hasDetail: true, permission: MAINTENANCE, keywords: ['mo', 'repair', 'breakdown', 'fault', 'false alarm', 'waiting for parts', 'spares'] },
+      // 2026-10-27: the board, maintenance orders and planned downtime are READ by production view too (the planner's
+      // machine calendar; PPC) — the pages show no write buttons without cf_erp_maintenance (a fault: floor / production manage).
+      { key: 'maintenance', label: 'Machines', path: 'maintenance', permission: MAINTENANCE_READ, keywords: ['maintenance', 'breakdown', 'fault', 'down', 'running', 'machines board', 'raise a fault'] },
+      { key: 'maintenance-orders', label: 'Maintenance orders', path: 'maintenance-orders', hasDetail: true, permission: MAINTENANCE_READ, keywords: ['mo', 'repair', 'breakdown', 'fault', 'false alarm', 'waiting for parts', 'spares'] },
       { key: 'maintenance-plans', label: 'Preventive plans', path: 'maintenance-plans', permission: MAINTENANCE, keywords: ['preventive', 'pm', 'service', 'lubrication', 'run hours', 'tonnes', 'every n days'] },
-      { key: 'planned-downtime', label: 'Planned downtime', path: 'planned-downtime', permission: MAINTENANCE, keywords: ['downtime', 'shutdown', 'calendar', 'every sunday', 'holiday', 'machine off'] },
+      { key: 'planned-downtime', label: 'Planned downtime', path: 'planned-downtime', permission: MAINTENANCE_READ, keywords: ['downtime', 'shutdown', 'calendar', 'every sunday', 'holiday', 'machine off'] },
       // 2026-10-24: the machines register and Tools, as in Production / Stores (same routes, same permissions as there).
       { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: PRODUCTION, keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types'] },
       { key: 'maint-tools', label: 'Tools', path: 'tools', permission: INVENTORY, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
@@ -210,7 +217,8 @@ export const SECTIONS: NavSection[] = [
       // which is how a girder is made and lives under Production.
       { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },
       // §73: what a customer acceptance starts from — charges, payment milestones, post-production stages.
-      { key: 'term-templates', label: 'Templates', path: 'term-templates', permission: ORDERS, keywords: ['templates', 'charges', 'rates', 'milestones', 'payment terms', 'post-production', 'stages', 'acceptance'] },
+      // Templates: read by Sales, kept by Accounts (accounts manage only, 2026-10-27).
+      { key: 'term-templates', label: 'Templates', path: 'term-templates', permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['templates', 'charges', 'rates', 'milestones', 'payment terms', 'post-production', 'stages', 'acceptance'] },
     ],
   },
 ];

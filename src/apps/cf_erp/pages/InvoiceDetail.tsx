@@ -138,7 +138,8 @@ export default function InvoiceDetail() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_orders_manage');
+  // Edit, issue, cancel, IRN, e-way bills: Accounts manage only (2026-10-27); Sales reads.
+  const canManage = useIsPermitted()('cf_erp_accounts_manage');
   const inv = useLoad(() => getInvoice(id), [id]);
   const [printAnchor, setPrintAnchor] = useState<HTMLElement | null>(null);
   const [issuing, setIssuing] = useState(false);

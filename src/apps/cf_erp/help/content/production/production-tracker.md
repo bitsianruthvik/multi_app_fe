@@ -30,7 +30,7 @@ Every released piece and step, what it waits for, and the material it needs. Sup
 
 ## Good to know
 - A refusal lists every reason — read them all; usually a step waits for two or three things at once.
-- Start, Record and Hold need the production manage permission; Reserve and Issue need the inventory manage permission.
+- Start, Record and Hold need the production manage permission; Reserve and Issue need the production manage or the inventory manage permission.
 - Operators normally record on the Machine log; the Tracker is for supervisors and catching up.
 
 ## Related

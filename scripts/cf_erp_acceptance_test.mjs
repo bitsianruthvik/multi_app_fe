@@ -341,10 +341,22 @@ await check('the board: seven lanes from facts; a post-production card is a chec
 });
 
 // ── 5: Setup › Templates, the menu, what went ───────────────────────────────────────────────────
-await check('Setup › Templates lists each kind, the default marked', async () => {
+const TEMPLATE_ROWS = () => ({ rows: [{ id: 3, kind: 'charges', name: 'Bridge girders', isDefault: true, rows: { charges: TERMS.charges, material: TERMS.material, lumpSums: TERMS.lumpSums }, notes: null },
+  { id: 4, kind: 'stages', name: 'RITES + erection', isDefault: true, rows: { stages: TERMS.stages }, notes: null }], starter: { charges: {}, milestones: {}, stages: {} }, lists: LISTS });
+await check('Setup › Templates with orders manage only: read, no Edit (templates are accounts manage, 2026-10-27)', async () => {
   reset(); asUser(['cf_erp_orders_view', 'cf_erp_orders_manage']);
-  globalThis.__routes['GET /term-templates'] = () => ({ rows: [{ id: 3, kind: 'charges', name: 'Bridge girders', isDefault: true, rows: { charges: TERMS.charges, material: TERMS.material, lumpSums: TERMS.lumpSums }, notes: null },
-    { id: 4, kind: 'stages', name: 'RITES + erection', isDefault: true, rows: { stages: TERMS.stages }, notes: null }], starter: { charges: {}, milestones: {}, stages: {} }, lists: LISTS });
+  globalThis.__routes['GET /term-templates'] = TEMPLATE_ROWS;
+  await mount(React.createElement(m.TermTemplates), '/testco/cf_erp/term-templates');
+  await settle(80);
+  assert.match(text(q1('tpl-list')), /Bridge girders/);
+  assert.equal(q1('tpl-edit'), null, 'no Edit');
+  assert.match(src('components/Acceptance/AcceptanceStep.tsx'), /const canSaveTemplate = isPermitted\('cf_erp_accounts_manage'\);/);
+  assert.match(src('components/Acceptance/AcceptanceStep.tsx'), /\{canSaveTemplate && <Button size="small" onClick=\{\(\) => \{ setSaveTpl\(kind\); setTplName\(''\); \}\} data-testid=\{`save-tpl-\$\{kind\}`\}>Save as template<\/Button>\}/);
+});
+
+await check('Setup › Templates lists each kind, the default marked (accounts manage)', async () => {
+  reset(); asUser(['cf_erp_accounts_view', 'cf_erp_accounts_manage']);
+  globalThis.__routes['GET /term-templates'] = TEMPLATE_ROWS;
   await mount(React.createElement(m.TermTemplates), '/testco/cf_erp/term-templates');
   await settle(80);
   assert.match(text(q1('tpl-list')), /Bridge girders.*Fabrication ₹45,000\/t · Painting ₹120\/m2 · material ₹70,000\/t · Transport ₹50,000.*Default/);

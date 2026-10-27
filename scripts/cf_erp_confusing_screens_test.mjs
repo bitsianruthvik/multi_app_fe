@@ -230,7 +230,8 @@ const taxRoutes = () => {
 };
 for (const [label, perms, canEdit, canFamily] of [
   ['accounts manage', ['cf_erp_accounts_view', 'cf_erp_accounts_manage'], true, true],
-  ['orders manage', ['cf_erp_orders_view', 'cf_erp_orders_manage'], true, false],
+  // 2026-10-27: Company tax details are accounts manage only — orders manage reads them.
+  ['orders manage', ['cf_erp_orders_view', 'cf_erp_orders_manage'], false, false],
   ['catalog manage + orders view', ['cf_erp_orders_view', 'cf_erp_catalog_manage'], false, true],
   ['orders view only', ['cf_erp_orders_view'], false, false],
 ]) {
