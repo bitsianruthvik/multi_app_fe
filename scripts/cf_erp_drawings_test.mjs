@@ -213,6 +213,7 @@ await writeFile(stub, [
   'export const deleteDrawing = async () => null; export const startDrawing = async () => null;',
   'export const downloadDrawing = async () => {}; export const downloadRegisterFile = async () => {};',
   'export const fetchDrawingBlob = async () => new Blob([]); export const blobAsText = async () => "";',
+  'export const getDrawingTree = async () => globalThis.__tree; export const fetchRegisterBlob = async () => new Blob([]);',
 ].join('\n'));
 const domBuilt = await build({
   alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') },
@@ -222,7 +223,7 @@ const domBuilt = await build({
     b.onResolve({ filter: /^@core\/(api\/client|contexts\/AuthContext)$/ },(x) => ({ path: x.path, namespace: 'stub' }));
     b.onLoad({ filter: /.*/, namespace: 'stub' }, (x) => ({ loader: 'js', resolveDir: process.cwd(), contents: x.path.endsWith('client') ? 'export async function apiFetch() { return {}; }' : 'export const useAuth = () => ({ user: null });' }));
   } }],
-  stdin: { contents: "export { DrawingsButton, DrawingsDialog } from './src/apps/cf_erp/components/Drawings/DrawingsDialog'; export { RowDrawingCell } from './src/apps/cf_erp/components/Drawings/RowDrawingCell'; export { BomGrid } from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export { rowDrawing } from './src/apps/cf_erp/lib/drawings';", resolveDir: process.cwd(), loader: 'tsx' },
+  stdin: { contents: "export { DrawingsButton, DrawingsDialog } from './src/apps/cf_erp/components/Drawings/DrawingsDialog'; export { RowDrawingCell } from './src/apps/cf_erp/components/Drawings/RowDrawingCell'; export { BomGrid } from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export { rowDrawing } from './src/apps/cf_erp/lib/drawings'; export { levelView } from './src/apps/cf_erp/lib/drawingLevels';", resolveDir: process.cwd(), loader: 'tsx' },
   bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic',
 });
 const domArtifact = resolve(cache, `drawings-dom-test-${process.pid}.mjs`);
@@ -447,6 +448,58 @@ await checkAsync('a row with no copies has no switch', async () => {
   await drop('alone.dxf', 7, 13);
   assert.equal(document.querySelector('[data-testid="only-this-row"]'), null);
   assert.equal(document.querySelector('[data-testid="drawing-values"]'), null);
+});
+
+// ── 2026-10-27: RDSO sheets on the structure levels (a register drawing kept at its issuer's site, or by a standard) ──
+const rdsoSheet = { id: 77, code: null, number: 'RDSO/B-11753/2', revision: 'R4', status: 'issued', title: 'DETAILS OF X-FRAME AND END DIAPHRAGM', earlier: [], url: 'https://rdso.example/series.pdf#page=3', hasFile: false, fileName: null, fileKind: null };
+const sheetView = view({ waiting: [{ drawing: rdsoSheet, rows: [{ id: 7, code: 'DP', name: 'End diaphragm', level: 'Diaphragm', isPlatePart: false, pieces: 2, lengthMm: null, widthMm: null, thicknessMm: null, sizeMatches: null }] }] });
+await checkAsync('a row an RDSO sheet covers is seen, not "waiting for a file": the row icon opens it', async () => {
+  const st = d.rowDrawing(sheetView, 7);
+  assert.equal(st.kind, 'sheet');
+  assert.equal(st.number, 'RDSO/B-11753/2');
+  const plain = d.rowDrawing(view({ waiting: [{ drawing: { ...rdsoSheet, url: null }, rows: sheetView.waiting[0].rows }] }), 7);
+  assert.equal(plain.kind, 'waiting', 'no link and no file: still waiting for a file');
+  let viewed = 0;
+  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, onClick: () => {}, onView: () => { viewed++; } })));
+  const cell = document.querySelector('[data-testid="row-drawing"]');
+  assert.equal(cell.getAttribute('data-state'), 'sheet');
+  assert.match(cell.getAttribute('aria-label'), /RDSO\/B-11753\/2 · rev R4 — click to see it \(kept at its issuer/);
+  await act(async () => { cell.click(); });
+  assert.equal(viewed, 1);
+});
+const treeRow = (rowId, parentId, name, level, more = {}) => ({ rowId, parentId, code: null, name, level, depth: parentId ? 1 : 0, seq: rowId, mark: null, hasDrawing: false, drawingId: null, fileKind: null, fileName: null, number: null, revision: null, status: null, isPlatePart: false, cutPlateIds: [], sheet: null, ...more });
+const sheetOf = (r) => ({ id: r.id, number: r.number, revision: r.revision, title: r.title, status: r.status, url: r.url, hasFile: r.hasFile, fileName: r.fileName, fileKind: r.fileKind });
+globalThis.__tree = { line: sheetView.line, rows: [
+  treeRow(1, null, 'Composite girder span', 'Composite Girder', { sheet: sheetOf({ ...rdsoSheet, id: 70, number: 'RDSO/B-11753', revision: 'R3', title: 'GENERAL ARRANGEMENT', url: 'https://rdso.example/series.pdf' }) }),
+  treeRow(7, 1, 'End diaphragm', 'Diaphragm', { mark: 'DP', sheet: sheetOf(rdsoSheet) }),
+  treeRow(9, 7, 'Diaphragm top flange', 'Plate part', { mark: 'DTF', hasDrawing: true, drawingId: 5, fileKind: 'dxf', fileName: 'DTF.dxf' }),
+] };
+await checkAsync('levels: a row with only a sheet is a level with a drawing (it is shown, and its crumb can be stepped to)', async () => {
+  const lv = d.levelView(globalThis.__tree, 7);
+  assert.equal(lv.shown.rowId, 7);
+  assert.equal(lv.inherited, false);
+  assert.deepEqual(lv.crumbs.map((c) => c.hasDrawing), [true, true]);
+});
+await checkAsync('the structure\'s "view" on a sheet-only row opens the level viewer: the sheet, its title, "Open the sheet" at its page, the part below', async () => {
+  await act(() => root.render(React.createElement(d.DrawingsButton, { orderId: 1, lineId: 5, canManage: true, drawings: provide(sheetView), viewRow: { id: 7, name: 'End diaphragm' }, onViewDone: () => {} })));
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const note = document.querySelector('[data-testid="row-viewer-sheet"]');
+  assert.ok(note, 'the sheet note is shown');
+  assert.match(note.textContent, /RDSO\/B-11753\/2 · rev R4/);
+  assert.match(note.textContent, /DETAILS OF X-FRAME AND END DIAPHRAGM/);
+  assert.match(note.textContent, /kept at its issuer/);
+  const open = document.querySelector('[data-testid="row-viewer-open-sheet"]');
+  assert.equal(open.getAttribute('href'), 'https://rdso.example/series.pdf#page=3');
+  assert.equal(open.getAttribute('target'), '_blank');
+  assert.deepEqual([...document.querySelectorAll('[data-testid="row-viewer-part"]')].map((b) => b.textContent), ['Diaphragm top flange']);
+  await act(() => root.render(React.createElement('div')));
+});
+await checkAsync('the Drawings dialog: a waiting register drawing with a link has "Open the sheet"', async () => {
+  await act(() => root.render(React.createElement(d.DrawingsDialog, { open: true, onClose: () => {}, orderId: 1, lineId: 5, canManage: true, view: sheetView, error: null, loading: false, onView: () => {} })));
+  const a = document.querySelector('[data-testid="waiting-open"]');
+  assert.ok(a, 'the link is there');
+  assert.equal(a.getAttribute('href'), 'https://rdso.example/series.pdf#page=3');
+  await act(() => root.render(React.createElement('div')));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

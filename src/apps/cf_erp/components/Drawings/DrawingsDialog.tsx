@@ -5,6 +5,7 @@ import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 import DrawRounded from '@mui/icons-material/DrawRounded';
+import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
@@ -26,6 +27,7 @@ import { NO_MANAGE } from '../../lib/nesting';
 import { Badge, CapsLabel, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { DrawingViewer } from './DrawingViewer';
+import { RowDrawingViewer } from './RowDrawingViewer';
 import { DialogHeader, FormDialog } from '../FormDialog';
 
 /**
@@ -307,6 +309,24 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onOpen, onDel
 
 type Waiting = DrawingsView['waiting'][number];
 
+/** A register drawing with no file on this line can still be seen: its kept file (a standard's), or its link (an RDSO sheet). */
+function SheetActions({ d }: { d: RegisterRef }) {
+  const toast = useToast();
+  return (
+    <>
+      {d.hasFile && (
+        <Button size="small" startIcon={<DownloadRounded />} data-testid="waiting-download"
+          onClick={async () => { try { await downloadRegisterFile(d.id, d.fileName ?? d.number); } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } }}>
+          Download
+        </Button>
+      )}
+      {!d.hasFile && d.url && (
+        <Button size="small" startIcon={<OpenInNewRounded />} href={d.url} target="_blank" rel="noreferrer" data-testid="waiting-open">Open the sheet</Button>
+      )}
+    </>
+  );
+}
+
 /** Register drawings that are linked to rows but have no file yet. */
 function WaitingTable({ waiting, mayAttach, busy, onAttach }: {
   waiting: Waiting[]; mayAttach: boolean; busy: boolean; onAttach: (d: RegisterRef) => void;
@@ -326,12 +346,15 @@ function WaitingTable({ waiting, mayAttach, busy, onAttach }: {
               <td style={{ overflowWrap: 'anywhere' }}>{w.drawing.title ?? '—'}</td>
               <td><Rows rows={w.rows} geometry={null} /></td>
               <td>
-                {mayAttach && (
-                  <Button size="small" variant="outlined" startIcon={<AttachFileRounded />} disabled={busy} onClick={() => onAttach(w.drawing)}
-                    aria-label={`Attach file to ${refText(w.drawing)}`}>
-                    Attach file
-                  </Button>
-                )}
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                  <SheetActions d={w.drawing} />
+                  {mayAttach && (
+                    <Button size="small" variant="outlined" startIcon={<AttachFileRounded />} disabled={busy} onClick={() => onAttach(w.drawing)}
+                      aria-label={`Attach file to ${refText(w.drawing)}`}>
+                      Attach file
+                    </Button>
+                  )}
+                </Box>
               </td>
             </tr>
           ))}
@@ -419,7 +442,8 @@ function FocusCard({ view, row, mayAttach, canManage, onView, onDownload, onAtta
         {waiting.map((w) => (
           <Box key={w.drawing.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', fontSize: 13 }}>
             <Mono>{w.drawing.number}</Mono><span>rev {w.drawing.revision}</span><RegisterBadge status={w.drawing.status} />
-            <Box component="span" sx={{ color: 'var(--c-text-2)' }}>waiting for a file</Box>
+            <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{w.drawing.hasFile ? 'kept with the standard' : w.drawing.url ? 'kept at its issuer’s site' : 'waiting for a file'}</Box>
+            <SheetActions d={w.drawing} />
             {mayAttach && <Button size="small" startIcon={<AttachFileRounded />} onClick={() => onAttach(w.drawing)}>Attach file</Button>}
           </Box>
         ))}
@@ -799,6 +823,12 @@ export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, fo
           {buttonLabel(data?.summary)}
         </Button>
       </Tooltip>
+      {!viewing && viewRow && data && (
+        // No file on the line covers the row: the viewer by levels shows its register sheet (or the level above's).
+        <span style={{ display: 'contents' }} onClick={(e) => e.stopPropagation()}>
+          <RowDrawingViewer target={{ orderId, lineId, rowId: viewRow.id, label: viewRow.name }} onClose={() => onViewDone?.()} />
+        </span>
+      )}
       {viewing && viewRow && (
         <DrawingViewer orderId={orderId} lineId={lineId} drawing={viewing} onClose={() => onViewDone?.()}
           onUploadRevision={canManage && !data?.line.released && onUploadRevision ? () => { onUploadRevision(viewRow); onViewDone?.(); } : undefined} />

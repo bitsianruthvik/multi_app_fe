@@ -2,7 +2,8 @@ import type { DrawingTree, DrawingTreeRow } from '../api/drawings';
 
 /**
  * The levels of an order line as the drawing viewer walks them (Span › Girder › Segment › Part), from the drawing tree.
- * Pure. A row with no drawing of its own shows the drawing of its nearest ancestor that has one, and says so.
+ * Pure. A row with no drawing of its own shows the drawing of its nearest ancestor that has one, and says so. A row an
+ * RDSO sheet covers (no file on the line, a register drawing with a kept file or a link) counts as having one.
  */
 
 export interface Crumb { rowId: number; name: string; level: string; hasDrawing: boolean; current: boolean }
@@ -31,17 +32,20 @@ export function findRow(tree: DrawingTree, ref: { rowId?: number | null; cutPlat
 
 export const rowLabel = (r: DrawingTreeRow) => r.code ?? r.name;
 
+/** A row has something to show: a file on the line, or a register drawing that covers it (its kept file, or its link). */
+export const rowShows = (r: DrawingTreeRow): boolean => r.hasDrawing || !!r.sheet;
+
 export function levelView(tree: DrawingTree, atId: number): LevelView | null {
   const rows = byId(tree);
   const at = rows.get(atId);
   if (!at) return null;
   const chain: DrawingTreeRow[] = [];
   for (let r: DrawingTreeRow | undefined = at, n = 0; r && n < 64; r = r.parentId != null ? rows.get(r.parentId) : undefined, n++) chain.unshift(r);
-  const shown = [...chain].reverse().find((r) => r.hasDrawing) ?? null;
+  const shown = [...chain].reverse().find(rowShows) ?? null;
   const parts = tree.rows.filter((r) => r.parentId === at.rowId).sort((a, b) => a.seq - b.seq);
   return {
     at, shown, inherited: !!shown && shown.rowId !== at.rowId,
-    crumbs: chain.map((r) => ({ rowId: r.rowId, name: r.name, level: r.level, hasDrawing: r.hasDrawing, current: r.rowId === at.rowId })),
+    crumbs: chain.map((r) => ({ rowId: r.rowId, name: r.name, level: r.level, hasDrawing: rowShows(r), current: r.rowId === at.rowId })),
     parts,
   };
 }

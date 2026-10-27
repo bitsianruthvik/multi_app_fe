@@ -29,6 +29,10 @@ export interface DrawingRow {
 export interface RegisterRef {
   id: number; code: string | null; number: string; revision: string;
   status: 'draft' | 'issued' | 'superseded' | 'withdrawn'; title: string | null;
+  /** where the sheet lives when no file is kept here (an RDSO series PDF, opened at its page) */
+  url?: string | null;
+  /** a file of this revision is kept somewhere (an order line, a standard drawing): GET /drawings/:id/file opens it */
+  hasFile?: boolean; fileName?: string | null; fileKind?: 'dxf' | 'pdf' | null;
   /** earlier revisions of the same drawing, oldest first */
   earlier: { id: number; revision: string; status: string; hasFile: boolean; fileName: string | null }[];
 }
@@ -175,6 +179,10 @@ export const downloadDrawing = (orderId: number, lineId: number, d: { id: number
 export const downloadRegisterFile = (drawingId: number, fileName: string): Promise<void> =>
   saveBlob(`/drawings/${drawingId}/file`, fileName);
 
+/** A register revision's file as a Blob (kept on any order line, or by a standard drawing), for the viewer. */
+export const fetchRegisterBlob = (drawingId: number): Promise<Blob> =>
+  cfApi.getBlob(`/drawings/${drawingId}/file`, { timeoutMs: LONG_WRITE_MS });
+
 /** The saved file as a Blob, for the viewer (the same route as the download, so the JWT goes with it). */
 export const fetchDrawingBlob = (orderId: number, lineId: number, d: { id: number }): Promise<Blob> =>
   cfApi.getBlob(`${base(orderId, lineId)}/${d.id}/file`, { timeoutMs: LONG_WRITE_MS });
@@ -201,6 +209,12 @@ export interface DrawingTreeRow {
   fileKind: 'dxf' | 'pdf' | null; fileName: string | null;
   number: string | null; revision: string | null; status: RegisterRef['status'] | null;
   isPlatePart: boolean; cutPlateIds: number[];
+  /** No file on the line: the register drawing that covers the row — opened by its kept file, else by its link. */
+  sheet?: RowSheet | null;
+}
+export interface RowSheet {
+  id: number; number: string; revision: string; title: string | null; status: RegisterRef['status'];
+  url: string | null; hasFile: boolean; fileName: string | null; fileKind: 'dxf' | 'pdf' | null;
 }
 export interface DrawingTree { line: DrawingsView['line']; rows: DrawingTreeRow[] }
 

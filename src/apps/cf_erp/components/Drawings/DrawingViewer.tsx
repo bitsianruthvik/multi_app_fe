@@ -20,7 +20,7 @@ import { useDialogFullscreen } from '../../hooks/useDialogFullscreen';
 import { usePanZoom } from '../../hooks/usePanZoom';
 import { fmtCutM, fmtM2, fmtMm, fmtPct, holesTitle, REGISTER_STATUS_FAMILY, rowCodes, sizeText } from '../../lib/drawings';
 import { DxfError, parseDxf, type DxfLayer, type DxfView, type LayerRole } from '../../lib/dxfView';
-import { inheritedLabel, rowLabel, type LevelView } from '../../lib/drawingLevels';
+import { inheritedLabel, rowLabel, rowShows, type LevelView } from '../../lib/drawingLevels';
 import { useToast } from '../toastContext';
 import { Badge, CapsLabel, ErrorNotice, Mono } from '../ui';
 
@@ -133,10 +133,10 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels }: {
           <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
             {levels.view.parts.map((r) => (
               <Box component="li" key={r.rowId}>
-                <Button size="small" fullWidth disabled={!r.hasDrawing} onClick={() => levels.onGo(r.rowId)} data-testid="viewer-part" data-row={r.rowId}
+                <Button size="small" fullWidth disabled={!rowShows(r)} onClick={() => levels.onGo(r.rowId)} data-testid="viewer-part" data-row={r.rowId}
                   sx={{ justifyContent: 'space-between', textAlign: 'left', py: 0.5 }}>
                   <span>{rowLabel(r)}</span>
-                  <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{r.hasDrawing ? r.level : 'no drawing'}</Box>
+                  <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{rowShows(r) ? r.level : 'no drawing'}</Box>
                 </Button>
               </Box>
             ))}

@@ -14,7 +14,8 @@ export function RowDrawingCell({ name, state, why, onClick, onView }: {
   /** Opens the viewer. When the row has a file, a click does this INSTEAD of `onClick` — and looking needs no permission, so `why` does not block it. */
   onView?: () => void;
 }) {
-  const has = state.kind === 'file';
+  // A register sheet (a standard's kept file, an RDSO sheet's link) opens in the viewer like a file.
+  const has = state.kind === 'file' || state.kind === 'sheet';
   const viewing = has && !!onView;
   const title = viewing ? `${rowDrawingTitle(name, state, null)}${why ? ` (${why})` : ''}` : rowDrawingTitle(name, state, why);
   return (

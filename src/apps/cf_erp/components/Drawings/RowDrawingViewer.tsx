@@ -3,8 +3,9 @@ import { Box, Button, Dialog, DialogContent, IconButton, Tooltip, Typography } f
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DrawRounded from '@mui/icons-material/DrawRounded';
 import { CfApiError } from '../../api/client';
-import { getDrawingTree, type DrawingTree, type DrawingTreeRow } from '../../api/drawings';
-import { findRow, levelView } from '../../lib/drawingLevels';
+import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
+import { fetchRegisterBlob, getDrawingTree, type DrawingTree, type DrawingTreeRow } from '../../api/drawings';
+import { findRow, inheritedLabel, levelView, rowShows } from '../../lib/drawingLevels';
 import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 import { DrawingViewer, type ViewerDrawing } from './DrawingViewer';
 import { ErrorNotice } from '../ui';
@@ -20,10 +21,21 @@ import { ErrorNotice } from '../ui';
 
 export interface RowRef { orderId: number; lineId: number; rowId?: number | null; cutPlateId?: number | null; label?: string | null }
 
-const asDrawing = (r: DrawingTreeRow): ViewerDrawing => ({
+const asDrawing = (r: DrawingTreeRow): ViewerDrawing => (r.hasDrawing || !r.sheet ? {
   id: r.drawingId!, mark: r.mark ?? r.code ?? r.name, fileName: r.fileName ?? 'drawing', fileKind: r.fileKind ?? 'dxf',
   drawing: r.number ? { id: 0, code: null, number: r.number, revision: r.revision ?? 'A', status: r.status ?? 'issued', title: null, earlier: [] } : null,
+} : {
+  // A register drawing's kept file (a standard's sheet): a negative id, so it never collides with a line's file ids.
+  id: -r.sheet.id, mark: r.mark ?? r.code ?? r.name, fileName: r.sheet.fileName ?? r.sheet.number, fileKind: r.sheet.fileKind ?? 'pdf',
+  drawing: { id: r.sheet.id, code: null, number: r.sheet.number, revision: r.sheet.revision, status: r.sheet.status, title: r.sheet.title, earlier: [] },
 });
+
+async function saveRegisterFile(id: number, name: string) {
+  const blob = await fetchRegisterBlob(id);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function RowDrawingViewer({ target, onClose, large = false }: { target: RowRef; onClose: () => void; large?: boolean }) {
   const [tree, setTree] = useState<DrawingTree | null>(null);
@@ -42,10 +54,19 @@ export function RowDrawingViewer({ target, onClose, large = false }: { target: R
   }, [target.orderId, target.lineId, target.rowId, target.cutPlateId, attempt]);
 
   const view = useMemo(() => (tree && at != null ? levelView(tree, at) : null), [tree, at]);
-  const drawing = useMemo(() => (view?.shown ? asDrawing(view.shown) : null), [view?.shown]);
+  const shown = view?.shown ?? null;
+  // A file to draw: the line's own, or the kept file of the register drawing that covers the row. A sheet kept only at
+  // its issuer's site (an RDSO series PDF) is opened there, from the note below.
+  const sheet = shown && !shown.hasDrawing ? shown.sheet ?? null : null;
+  const drawing = useMemo(() => (shown && (shown.hasDrawing || shown.sheet?.hasFile) ? asDrawing(shown) : null), [shown]);
   const levels = useMemo(() => (view ? { view, onGo: setAt } : undefined), [view]);
 
-  if (view && drawing) return <DrawingViewer orderId={target.orderId} lineId={target.lineId} drawing={drawing} levels={levels} large={large} onClose={onClose} />;
+  if (view && drawing) {
+    const reg = sheet?.hasFile ? sheet : null;
+    return <DrawingViewer orderId={target.orderId} lineId={target.lineId} drawing={drawing} levels={levels} large={large} onClose={onClose}
+      fetchFile={reg ? () => fetchRegisterBlob(reg.id) : undefined}
+      downloadFile={reg ? () => saveRegisterFile(reg.id, reg.fileName ?? reg.number) : undefined} />;
+  }
 
   // Not there yet, or nothing to show: one small dialog says which.
   return (
@@ -56,6 +77,33 @@ export function RowDrawingViewer({ target, onClose, large = false }: { target: R
         {!error && !tree && <Typography role="status" sx={{ fontSize: 14, color: 'var(--c-text-2)' }}>Looking for the drawing…</Typography>}
         {tree && !view && (
           <Typography data-testid="row-viewer-unknown" sx={{ fontSize: 14 }}>This piece is not a row of the line’s structure, so it has no drawing to show.</Typography>
+        )}
+        {tree && view && sheet && (
+          <Box data-testid="row-viewer-sheet" sx={{ display: 'grid', gap: 1 }}>
+            <Typography sx={{ fontSize: 15, fontWeight: 600 }}>{sheet.number} · rev {sheet.revision}</Typography>
+            {sheet.title && <Typography sx={{ fontSize: 13.5 }}>{sheet.title}</Typography>}
+            {inheritedLabel(view) && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{inheritedLabel(view)} — {view.at.name} has none of its own.</Typography>}
+            <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
+              {sheet.url ? 'This sheet is kept at its issuer’s site, not as a file here. It opens in a new tab.' : 'This drawing is in the register but has no file yet. Attach one on the order’s Structure tab.'}
+            </Typography>
+            {sheet.url && (
+              <Box><Button variant="contained" size={large ? 'large' : 'medium'} startIcon={<OpenInNewRounded />} href={sheet.url} target="_blank" rel="noreferrer" data-testid="row-viewer-open-sheet">Open the sheet</Button></Box>
+            )}
+            {view.crumbs.length > 1 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center', fontSize: 12.5 }} aria-label="Levels">
+                {view.crumbs.map((c) => (
+                  <Button key={c.rowId} size="small" disabled={c.current || !c.hasDrawing} onClick={() => setAt(c.rowId)} data-testid="row-viewer-crumb" sx={{ minWidth: 0, px: 0.75 }}>{c.name}</Button>
+                ))}
+              </Box>
+            )}
+            {view.parts.some(rowShows) && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }} aria-label="Parts in this assembly">
+                {view.parts.filter(rowShows).map((r) => (
+                  <Button key={r.rowId} size="small" variant="outlined" onClick={() => setAt(r.rowId)} data-testid="row-viewer-part">{r.code ?? r.name}</Button>
+                ))}
+              </Box>
+            )}
+          </Box>
         )}
         {tree && view && !view.shown && (
           <Box data-testid="row-viewer-none" sx={{ display: 'grid', gap: 1 }}>
