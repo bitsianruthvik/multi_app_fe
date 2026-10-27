@@ -27,7 +27,7 @@ import TableViewRounded from '@mui/icons-material/TableViewRounded';
 import { nudgeIfRefused, useFreshKeys } from '../salesMotion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
-const NO_MANAGE = 'You can see the material request. Raising it needs the inventory manage permission.';
+const NO_MANAGE = 'You can see the material request. Raising it needs the orders manage or the inventory manage permission.';
 
 type Refusal = { message: string; problems: string[] };
 const refusalOf = (e: unknown): Refusal => (e instanceof CfApiError ? { message: e.message, problems: e.problems } : { message: (e as Error).message, problems: [] });
@@ -43,10 +43,14 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
-  const canView = isPermitted('cf_erp_inventory_view');
-  const canManage = isPermitted('cf_erp_inventory_manage');
+  // User 2026-10-27: the MR is the order's request TO Stores — Sales (orders manage) raises it, as Stores (inventory manage)
+  // always could; seeing it, orders view or inventory view (as GET / POST /orders/:id/requisitions). The MR inbox and its PR
+  // links are Stores' / Purchase's screens (inventory view, Stores or Purchase).
+  const canView = isPermitted('cf_erp_inventory_view') || isPermitted('cf_erp_orders_view');
+  const canManage = isPermitted('cf_erp_inventory_manage') || isPermitted('cf_erp_orders_manage');
+  const canSeeStores = isPermitted('cf_erp_inventory_view') || isPermitted('cf_erp_stores') || isPermitted('cf_erp_purchase');
   const reqs = useLoad(() => (canView ? getOrderRequisitions(order.id) : Promise.resolve(null)), [order.id, canView]);
-  const mrs = useLoad(() => (canView ? listMaterialRequests({ orderId: order.id, open: false }) : Promise.resolve(null)), [order.id, canView]);
+  const mrs = useLoad(() => (canSeeStores ? listMaterialRequests({ orderId: order.id, open: false }) : Promise.resolve(null)), [order.id, canSeeStores]);
   const data = reqs.data;
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -96,7 +100,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             <Button size="small" variant="outlined" startIcon={<PictureAsPdfRounded />} onClick={() => void share('pdf')} data-testid="mr-share-pdf">Share as PDF</Button>
             <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => void share('xlsx')} data-testid="mr-share-xlsx">Share as Excel</Button>
           </>}
-          {canView && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Stores</Button>}
+          {canSeeStores && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Stores</Button>}
         </Box>
       )}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
@@ -111,7 +115,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             : ' — raising the MR sends it to Stores, where stock is taken and the rest goes to Purchase.'}
           {" A line can say otherwise until the customer's acceptance is approved."}
         </Typography>
-        {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the material request needs the inventory view permission.</Typography>}
+        {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the material request needs the orders view or the inventory view permission.</Typography>}
         {canView && !canManage && <Typography data-testid="buying-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{NO_MANAGE}</Typography>}
         {refusal && (
           <Alert severity="warning" className="cfm-fade-in" data-testid="buying-refusal" action={<Button color="inherit" size="small" onClick={() => { setRefusal(null); reload(); }}>Reload</Button>}>

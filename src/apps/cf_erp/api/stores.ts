@@ -4,7 +4,9 @@ import type { MrFor, MrScreen, PrSummary } from './purchaseRequests';
 /**
  * THE STORES CHAIN (BE routes/stores.js, init.sql §79; TM/CF_ERP_ORDER_FLOW_PLAN.md "2026-10-18 — Stores chain").
  * Need → MR → STORES (take from stock, raise the PR) → Purchase (quotes → PO) → Management → Stores GRN → stock.
- *   createRequisition   the general MR ("New MR"): For = sales order | maintenance order | stock | general
+ *   createRequisition   the general MR ("New MR") — a REQUEST TO STORES: For = sales order | maintenance order | stock | general
+ *   raiseStoresPr       Stores' own purchase ("New PR", user 2026-10-27): straight to a PR for Purchase (the MR underneath
+ *                       is internal — not in the MR inbox)
  *   reorder             Stores › To reorder (by AI): min / max and periodic items that need buying now
  *   procurement         how an item / definition is procured (the "Procurement" card)
  */
@@ -14,6 +16,9 @@ export interface NewMr { forType: MrFor; orderId?: number | null; maintenanceOrd
 
 /** POST /requisitions → { id, code }. The MR goes to Stores' inbox. */
 export const createRequisition = (body: NewMr) => cfApi.post<{ id: number; code: string }>('/requisitions', body);
+/** POST /stores/purchase-requests → the PR made at once (and the internal MR under it). Stores only. */
+export const raiseStoresPr = (body: NewMr) =>
+  cfApi.post<{ requisition: { id: number; code: string }; materialRequest: MrScreen; purchaseRequest: PrSummary | null }>('/stores/purchase-requests', body);
 
 export type ProcurementMethod = 'make' | 'buy_on_requirement' | 'buy_min_max' | 'buy_periodic' | 'customer_supplies' | 'subcontract';
 export const PROCUREMENT_LABEL: Record<ProcurementMethod, string> = {
@@ -46,7 +51,7 @@ export interface ReorderRow {
 
 export const getReorder = (search?: string) =>
   cfApi.get<{ today: string; rows: ReorderRow[]; counts: { all: number; buy_min_max: number; buy_periodic: number } }>(`/stores/reorder${qs({ search: search?.trim() || undefined })}`);
-/** Ticked rows → ONE MR for stock, saved at once → its PR. */
+/** To reorder › "Raise PR": the ticked rows → ONE PR for stock (an internal MR for stock underneath, saved at once). */
 export const raiseReorder = (rows: { itemId: number; qty: number }[], note?: string | null) =>
   cfApi.post<{ requisition: { id: number; code: string }; materialRequest: MrScreen; purchaseRequest: PrSummary | null }>('/stores/reorder/raise', { rows, ...(note ? { note } : {}) });
 

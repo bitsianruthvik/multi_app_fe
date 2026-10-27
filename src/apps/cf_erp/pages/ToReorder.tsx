@@ -26,8 +26,9 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
  * Stores › TO REORDER (§79, user 2026-10-18). The reorder engine (by AI) lists every catalog item bought to MIN / MAX whose
  * free stock (+ what is already coming for stock) is below its minimum — suggesting up to the maximum — and every item
  * bought PERIODICALLY whose period is over — suggesting what was used since it began. Every row starts ticked with the
- * suggestion filled in; change a quantity, untick a row, then "Raise MR" makes ONE MR for stock, which goes straight on
- * its purchase request for Purchase. How an item is procured is set on the item (or its definition) — the Procurement card.
+ * suggestion filled in; change a quantity, untick a row, then "Raise PR" puts them on ONE purchase request for Purchase (user
+ * 2026-10-27: an MR is a request TO Stores, a PR is what Stores raises TO Purchase — the MR for stock kept underneath is
+ * internal, not in the MR inbox). How an item is procured is set on the item (or its definition) — the Procurement card.
  */
 export default function ToReorder() {
   const company = useCompanySlug();
@@ -58,8 +59,8 @@ export default function ToReorder() {
     try {
       const out = await raiseReorder(reorderBody(rows, ticked, qty));
       invalidateNavCounts();
-      toast.success(`${out.requisition.code} raised for stock${out.purchaseRequest ? ` — on ${out.purchaseRequest.code} for Purchase` : ''}.`);
-      navigate(appPath(company, `material-requests/${out.requisition.id}`));
+      toast.success(out.purchaseRequest ? `${out.purchaseRequest.code} raised for stock — with Purchase.` : 'Nothing to buy.');
+      navigate(appPath(company, out.purchaseRequest ? `purchase-requests/${out.purchaseRequest.id}` : `material-requests/${out.requisition.id}`));
     } catch (e) { setRefusal(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e))); nudge(raiseRef.current); } finally { setBusy(false); }
   };
 
@@ -100,10 +101,10 @@ export default function ToReorder() {
     <FullScreenFrame on={full.on} onExit={() => full.set(false)}>
       <Box>
         <PageHeader title="To reorder"
-          subtitle="Suggested by AI from each item's procurement method: min / max items below their minimum, periodic items whose period is over. Tick, adjust, raise ONE MR for stock — it goes straight to Purchase."
+          subtitle="Suggested by AI from each item's procurement method: min / max items below their minimum, periodic items whose period is over. Tick, adjust, raise ONE purchase request for stock — it goes straight to Purchase."
           actions={<>
             {canRaise && <Button ref={raiseRef} variant="contained" startIcon={<PlaylistAddRounded />} disabled={busy || !rows.length || problems.length > 0} onClick={() => void raise()} data-testid="reorder-raise">
-              Raise MR{ticked.size ? ` for ${ticked.size} item${ticked.size === 1 ? '' : 's'}` : ''}
+              Raise PR{ticked.size ? ` for ${ticked.size} item${ticked.size === 1 ? '' : 's'}` : ''}
             </Button>}
             <FullScreenToggle on={full.on} onToggle={full.toggle} />
           </>} />

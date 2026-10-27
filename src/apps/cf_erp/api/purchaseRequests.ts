@@ -46,7 +46,11 @@ export interface PrSummary { id: number; code: string; status: PrStatus; statusL
 export type MrFor = 'sales_order' | 'maintenance_order' | 'stock' | 'general';
 export const MR_FOR_LABEL: Record<MrFor, string> = { sales_order: 'Sales order', maintenance_order: 'Maintenance order', stock: 'Stock', general: 'General' };
 /** §79: the 'For' of an MR, and whether it was raised by hand (no order line; may have no order). */
-export interface MrForFields { forType: MrFor; forLabel: string; manual: boolean; maintenanceOrderId: number | null; notes: string | null }
+export interface MrForFields {
+  forType: MrFor; forLabel: string; manual: boolean; maintenanceOrderId: number | null; notes: string | null;
+  /** §93 (user 2026-10-27): the MR under Stores' own PR (To reorder › Raise PR, New PR) — not a request to Stores, not in the MR inbox. */
+  internal?: boolean;
+}
 
 export interface MrScreen extends MrForFields {
   id: number;

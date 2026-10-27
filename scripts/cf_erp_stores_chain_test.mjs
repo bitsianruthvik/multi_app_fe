@@ -194,7 +194,7 @@ await check('a stock MR screen: For badge, no order facts, its note, "Locked for
 });
 
 // ── 4: To reorder ──────────────────────────────────────────────────────────────
-await check('To reorder (by AI): every row ticked, the suggestion prefilled; untick one, change a quantity → ONE MR for stock', async () => {
+await check('To reorder (by AI): every row ticked, the suggestion prefilled; untick one, change a quantity → "Raise PR": ONE PR for stock, opened', async () => {
   reset(); asUser(['cf_erp_stores']);
   globalThis.__routes['GET /stores/reorder'] = () => ({ today: '2026-10-18', rows: [reorderRow(ITEM_D), reorderRow(ITEM_E, { method: 'buy_periodic', methodLabel: 'Buy periodically', suggest: 6, why: 'Every 7 days: 6 nos used since 2026-10-08.' })], counts: { all: 2, buy_min_max: 1, buy_periodic: 1 } });
   globalThis.__routes['POST /stores/reorder/raise'] = (b) => { globalThis.__raised = typeof b === 'string' ? JSON.parse(b) : b; return { requisition: { id: 2084, code: 'MR-002084' }, materialRequest: {}, purchaseRequest: { id: 71, code: 'PR-000071', status: 'open', statusLabel: 'Open' } }; };
@@ -205,14 +205,88 @@ await check('To reorder (by AI): every row ticked, the suggestion prefilled; unt
   const ticks = qa('reorder-tick').map((t) => t.querySelector('input'));
   assert.equal(ticks.length, 2); assert.ok(ticks.every((t) => t.checked), 'all ticked');
   assert.deepEqual(qa('reorder-qty').map((x) => x.value), ['50', '6']);
-  assert.match(text(q1('reorder-raise')), /Raise MR for 2 items/);
+  assert.match(text(q1('reorder-raise')), /^Raise PR for 2 items$/);
+  assert.doesNotMatch(text(document.body), /Raise MR/, 'no "Raise MR" on To reorder (user 2026-10-27)');
   await click(ticks[1]); await settle(40);
   await setValue(qa('reorder-qty')[0], '45');
-  assert.match(text(q1('reorder-raise')), /Raise MR for 1 item$/);
+  assert.match(text(q1('reorder-raise')), /Raise PR for 1 item$/);
   assert.ok(document.querySelector('[data-testid="full-screen-toggle"]'), 'full screen');
   await click(q1('reorder-raise')); await settle(80);
   assert.deepEqual(globalThis.__raised, { rows: [{ itemId: 601, qty: 45 }] });
+  assert.match(src('pages/ToReorder.tsx'), /raised for stock — with Purchase/);
+  assert.match(src('pages/ToReorder.tsx'), /purchase-requests\/\$\{out\.purchaseRequest\.id\}/, 'it opens the PR, not the MR');
 });
+
+// ── 4b: MR vs PR (user 2026-10-27) ──────────────────────────────────────────────
+await check('MR inbox: Stores get "New PR" (straight to Purchase) beside "New MR"; departments get New MR only', async () => {
+  reset(); asUser(['cf_erp_stores']);
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [mrRow()] });
+  await page(m.MaterialRequests, '/:company/cf_erp/material-requests', '/testco/cf_erp/material-requests');
+  await settle(120);
+  assert.ok(q1('new-pr') && q1('new-mr'), 'Stores: both');
+  assert.equal(text(q1('new-pr')), 'New PR'); assert.equal(text(q1('new-mr')), 'New MR');
+  assert.match(text(document.body), /Requests to Stores/);
+  for (const [perms, label] of [[['cf_erp_orders_manage', 'cf_erp_inventory_view'], 'orders manage'], [['cf_erp_maintenance', 'cf_erp_inventory_view'], 'maintenance']]) {
+    reset(); asUser(perms);
+    globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
+    await page(m.MaterialRequests, '/:company/cf_erp/material-requests', '/testco/cf_erp/material-requests');
+    await settle(100);
+    assert.ok(q1('new-mr'), `${label}: New MR (a request to Stores)`);
+    assert.ok(!q1('new-pr'), `${label}: no New PR`);
+  }
+  reset(); asUser(['cf_erp_inventory_view']);
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
+  await page(m.MaterialRequests, '/:company/cf_erp/material-requests', '/testco/cf_erp/material-requests');
+  await settle(100);
+  assert.ok(!q1('new-mr') && !q1('new-pr'), 'a viewer raises nothing');
+});
+await check('MR inbox shows what the server sends (it leaves internal MRs out); the page never asks for internal ones', async () => {
+  reset(); asUser(['cf_erp_stores']);
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [mrRow()] });
+  await page(m.MaterialRequests, '/:company/cf_erp/material-requests', '/testco/cf_erp/material-requests');
+  await settle(120);
+  assert.doesNotMatch(lastCall('GET', '/material-requests').url, /internal/);
+  assert.match(text(document.body), /MR-002082/);
+});
+await check('New PR: full screen, For Stock / General (no Sales order toggle), Raise PR → nothing sent while there are problems; the PR opens', async () => {
+  reset(); asUser(['cf_erp_stores']);
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
+  await page(m.MaterialRequests, '/:company/cf_erp/material-requests', '/testco/cf_erp/material-requests');
+  await settle(100);
+  await click(q1('new-pr')); await settle(80);
+  const dlg = document.querySelector('.MuiDialog-root');
+  assert.ok(dlg && dlg.querySelector('.MuiDialog-paperFullScreen'), 'full screen');
+  assert.match(text(dlg), /New purchase request/); assert.match(text(dlg), /straight to Purchase/);
+  assert.ok(q1('newpr-for-stock', dlg) && q1('newpr-for-general', dlg));
+  assert.ok(!q1('newpr-for-sales_order', dlg) && !q1('newpr-for-maintenance_order', dlg), 'For is Stock or General');
+  assert.equal(text(q1('newpr-raise', dlg)), 'Raise PR');
+  assert.ok(!q1('newpr-maintenance', dlg), 'Stock: no order to charge');
+  await click(q1('newpr-raise', dlg)); await settle(60);
+  assert.match(text(q1('newpr-problems', dlg)), /Add at least one item/);
+  assert.equal(calls('POST', '/stores/purchase-requests').length, 0);
+  assert.equal(calls('POST', '/requisitions').length, 0);
+  assert.match(src('pages/MaterialRequests.tsx'), /purchase-requests\/\$\{p\.id\}/, 'the PR opens');
+  assert.match(src('components/Stores/NewMrDialog.tsx'), /raiseStoresPr\(newPrBody/);
+});
+await check('helpers: New PR body — Stock names no order; General may name a sales order and / or a maintenance order (→ For maintenance order)', () => {
+  const rows = [{ item: { id: 1, code: 'A', name: 'A' }, qty: '3' }, { item: null, qty: '' }];
+  assert.deepEqual(m.newPrBody('stock', 9, 4, '', rows), { forType: 'stock', lines: [{ itemId: 1, qty: 3 }] });
+  assert.deepEqual(m.newPrBody('general', 9, null, 'gas', rows), { forType: 'general', orderId: 9, note: 'gas', lines: [{ itemId: 1, qty: 3 }] });
+  assert.deepEqual(m.newPrBody('general', null, 4, '', rows), { forType: 'maintenance_order', maintenanceOrderId: 4, lines: [{ itemId: 1, qty: 3 }] });
+  assert.deepEqual(m.NEW_PR_FOR.map((f) => f.value), ['stock', 'general']);
+});
+await check("an internal MR (under Stores' own PR) says so on its screen", async () => {
+  reset(); asUser(['cf_erp_stores']);
+  const line = { id: 111, item: ITEM_D, required: 50, inStock: 3, takeFromStock: 0, takeChosen: false, proposedTake: null, heldFromStock: 0, takeMax: 0, toBuy: 50, poRaised: 0, received: 0, onOrder: 0, locked: 0, open: 50, status: 'open', statusLabel: 'Open', sentence: '', purchase: [] };
+  globalThis.__routes['GET /material-requests/2091'] = () => ({ id: 2091, code: 'MR-002091', supply: 'we_buy', supplyLabel: 'We buy', forType: 'stock', forLabel: 'Stock', manual: true, internal: true, maintenanceOrderId: null, notes: 'Reorder (by AI)',
+    order: null, line: null, status: 'open', statusLabel: 'Open', stale: false, needKnown: false, needComplete: false, canEdit: true, reason: null, lines: [line], purchaseRequest: { id: 76, code: 'PR-000076', status: 'open', statusLabel: 'Open' }, purchaseOrders: [],
+    sentence: "Stores' own purchase — raised straight to PR-000076 for Purchase. Not a request waiting for Stores, so it is not in the MR inbox.", raisedBy: { id: 1, name: 'Test' } });
+  await page(m.MaterialRequestDetail, '/:company/cf_erp/material-requests/:id', '/testco/cf_erp/material-requests/2091');
+  await settle(120);
+  const body = text(document.body);
+  assert.match(body, /Stores' own purchase/); assert.match(body, /PR-000076/);
+});
+
 
 // ── 5: the Procurement card ──────────────────────────────────────────────────────
 const sub = { method: 'subcontract', methodLabel: 'Subcontract', minQty: null, maxQty: null, periodDays: null, periodicFrom: null, leadTimeDays: 12, orderMultiple: null, minOrderQty: null, preferredVendorIds: [], preferredVendors: [] };

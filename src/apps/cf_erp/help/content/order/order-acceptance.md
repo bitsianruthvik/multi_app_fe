@@ -36,6 +36,7 @@ The customer acceptance is the customer's yes: the charges, the payment mileston
 
 ## Good to know
 - Raise and share the MR first: the stage waits for it.
+- Changing **Material** needs the orders manage permission (a line's **Material** also takes the inventory manage permission).
 - Approval needs the Management acceptance approval permission. It is done in Management › Approvals.
 - **Save as template** keeps this order's rows for the next one.
 - A material cost shown as *not costed* means the plates have no rate yet.

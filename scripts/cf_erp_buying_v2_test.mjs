@@ -194,7 +194,7 @@ await check('without the manage permission the screen is read-only and says why'
   globalThis.__user = { uiPermissions: ['cf_erp_inventory_view'] };
   await mount(orderReqs([openReq()]));
   assert.ok(qa('mr-status-row').length === 1);
-  assert.match(text(q1('buying-readonly')), /Raising it needs the inventory manage permission/);
+  assert.match(text(q1('buying-readonly')), /Raising it needs the orders manage or the inventory manage permission/);
   assert.equal(q1('buying-header-actions'), null);
   assert.equal([...document.querySelectorAll('button')].filter((b) => /Check stock|Skip|Buy|Release excess/.test(text(b))).length, 0);
 });
@@ -202,7 +202,7 @@ await check('without the view permission nothing is read from the server', async
   reset();
   globalThis.__user = { uiPermissions: [] };
   await mount(orderReqs([openReq()]));
-  assert.match(text(app), /needs the inventory view permission/);
+  assert.match(text(app), /needs the orders view or the inventory view permission/);
   assert.equal(calls('GET', '/orders/22552/requisitions').length, 0);
 });
 await check('loading shows a skeleton, an error shows the server sentence with Retry, an empty order says why', async () => {

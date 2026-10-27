@@ -276,6 +276,37 @@ await check('"Raise MR" sends the order to Purchase and the answer is shown at o
   assert.match(text(q1('mr-status-row')), /MR-TEST-MR-1-WEBUY-2/);
 });
 
+await check('Raise MR gating (user 2026-10-27): orders manage OR inventory manage raises; orders view alone only looks; the Stores links need a Stores screen', async () => {
+  const without = [{ line: { id: 801, lineNo: 2, name: 'Girder' }, supply: 'we_buy', ownSupply: null, canRaise: true, reason: null, materials: [{ item: A, need: 4 }], materialReady: null }];
+  // Sales: orders view + orders manage, no inventory grant.
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_orders_view', 'cf_erp_orders_manage'] };
+  await mount(orderReqs([], { linesWithout: without })); await settle();
+  assert.ok(q1('raise-mr'), 'orders manage alone: the header Raise MR');
+  assert.ok(buttonIn(q1('line-without'), 'Raise MR'), "…and the line's Raise MR");
+  assert.ok(q1('line-supply'), "…and the line's supply picker");
+  assert.ok(!q1('buying-readonly'));
+  assert.equal(calls('GET', '/material-requests').length, 0, 'no MR inbox read without a Stores screen');
+  assert.ok(!buttonIn(document, 'Open in Stores'), 'no link into Stores');
+  globalThis.__routes['POST /orders/30001/requisitions'] = () => orderReqs([weBuy()], { raised: 1, earmarked: [] });
+  await click(q1('raise-mr')); await settle();
+  assert.equal(calls('POST', '/orders/30001/requisitions').length, 1, 'Sales raised it');
+  // Orders view alone: sees the stage, raises nothing.
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_orders_view'] };
+  await mount(orderReqs([], { linesWithout: without })); await settle();
+  assert.ok(!q1('raise-mr') && !buttonIn(q1('line-without'), 'Raise MR'), 'orders view alone: no Raise MR');
+  assert.match(text(q1('buying-readonly')), /orders manage or the inventory manage permission/);
+  // Stores (inventory view + manage): raises, and links into Stores.
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_inventory_view', 'cf_erp_inventory_manage'] };
+  await mount(orderReqs([], { linesWithout: without })); await settle();
+  assert.ok(q1('raise-mr'));
+  assert.ok(buttonIn(document, 'Open in Stores'));
+  // Neither: Purchase only — nothing is read or raised.
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_purchase'] };
+  await mount(orderReqs([], { linesWithout: without })); await settle();
+  assert.ok(!q1('raise-mr'));
+  assert.equal(calls('GET', '/orders/30001/requisitions').length, 0);
+});
+
 // ── 4: the order form asks who supplies the material ───────────────────────────
 await check('the material supply field: We buy / Customer supplies, with what each means', async () => {
   reset();

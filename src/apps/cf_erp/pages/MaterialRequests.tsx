@@ -3,6 +3,7 @@ import { Box, Button, Typography } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
+import ShoppingCartCheckoutRounded from '@mui/icons-material/ShoppingCartCheckoutRounded';
 import { listMaterialRequests, MR_FOR_LABEL, type MrFor, type MrRow } from '../api/purchaseRequests';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useDebounced } from '../hooks/usePagedList';
@@ -15,27 +16,35 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { NewMrDialog } from '../components/Stores/NewMrDialog';
+import { useToast } from '../components/toastContext';
 import { FadeIn, FlashOnChange } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const FOR_CHIPS: (MrFor | 'all')[] = ['all', 'sales_order', 'maintenance_order', 'stock', 'general'];
 
 /**
- * Stores › MR INBOX (§79, user 2026-10-18 — was Purchase › Material requests): every MR comes to Stores — a sales order's
- * (raised from its Material request step), a maintenance order's, one for stock (Stores › To reorder) or general. Filter by
- * "For". Open one to take what is in stock; the rest goes on its purchase request for Purchase. "New MR" raises one with no
- * order line.
+ * Stores › MR INBOX (§79, user 2026-10-18 — was Purchase › Material requests). An MR is a REQUEST TO STORES (user
+ * 2026-10-27): a sales order's (raised from its Material request step), a maintenance order's, or a department's "New MR".
+ * Filter by "For". Open one to take what is in stock; the rest goes on its purchase request for Purchase.
+ * Stores' OWN purchases are no requests to Stores: "New PR" (and To reorder › Raise PR) go straight to a PR — the MR under
+ * them is internal and the server leaves it out of this list (it stays reachable from its PR).
  */
 export default function MaterialRequests() {
   const company = useCompanySlug();
   const navigate = useNavigate();
+  const toast = useToast();
   const permitted = useIsPermitted();
-  const canRaise = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage');
+  // New MR: whoever asks Stores (as POST /requisitions: Stores, inventory manage, maintenance, orders manage).
+  const canRaise = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage') || permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage');
+  // New PR: Stores' own purchase (as POST /stores/purchase-requests: Stores or inventory manage).
+  const canRaisePr = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage');
+  const canPickMaintenance = permitted('cf_erp_maintenance') || permitted('cf_erp_production_view');
   const [scope, setScope] = useUrlParam('scope', 'open');
   const [forType, setForType] = useUrlParam('for', 'all');
   const [orderParam] = useUrlParam('order', '');
   const [search, setSearch] = useState('');
   const [raising, setRaising] = useState(false);
+  const [raisingPr, setRaisingPr] = useState(false);
   const term = useDebounced(search.trim());
   const load = useLoad(() => listMaterialRequests({
     search: term, open: scope !== 'all', forType: forType === 'all' ? null : (forType as MrFor), orderId: orderParam ? Number(orderParam) : null,
@@ -65,8 +74,11 @@ export default function MaterialRequests() {
   return (
     <Box>
       <PageHeader title="MR inbox"
-        subtitle="Every material request comes to Stores. Open one, take what is in stock, and the rest goes on its purchase request for Purchase."
-        actions={canRaise && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRaising(true)} data-testid="new-mr">New MR</Button>} />
+        subtitle="Requests to Stores — from sales orders, maintenance orders and departments. Open one, take what is in stock, and the rest goes on its purchase request for Purchase. Stores' own purchases go straight to a PR with New PR."
+        actions={(canRaise || canRaisePr) && <>
+          {canRaisePr && <Button variant="outlined" startIcon={<ShoppingCartCheckoutRounded />} onClick={() => setRaisingPr(true)} data-testid="new-pr">New PR</Button>}
+          {canRaise && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRaising(true)} data-testid="new-mr">New MR</Button>}
+        </>} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search MR, order, customer or note">
         {FOR_CHIPS.map((f) => <FacetChip key={f} label={f === 'all' ? 'All' : MR_FOR_LABEL[f]} active={forType === f} onClick={() => setForType(f)} />)}
         <Box sx={{ width: 12 }} />
@@ -81,10 +93,12 @@ export default function MaterialRequests() {
         <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} storageKey="material-requests" exportName="material-requests"
           onRowClick={(r) => navigate(appPath(company, `material-requests/${r.id}`))}
           empty={<EmptyState icon={<PlaylistAddCheckRounded />} title={term ? 'No MR matches' : 'No material requests here'}
-            hint={term ? 'Clear the search.' : 'A sales order raises its MR in its Material request step; "New MR" raises one for stock or general use.'} />} />
+            hint={term ? 'Clear the search.' : 'A sales order raises its MR in its Material request step, a maintenance order from its own screen; "New MR" asks Stores for anything else.'} />} />
         </FadeIn>
       )}
       <NewMrDialog open={raising} onClose={() => setRaising(false)} onRaised={(mr) => navigate(appPath(company, `material-requests/${mr.id}`))} />
+      <NewMrDialog kind="pr" defaultFor="stock" canPickMaintenance={canPickMaintenance} open={raisingPr} onClose={() => setRaisingPr(false)}
+        onRaised={(p) => { toast.success(`${p.code} raised for Purchase.`); navigate(appPath(company, `purchase-requests/${p.id}`)); }} />
     </Box>
   );
 }

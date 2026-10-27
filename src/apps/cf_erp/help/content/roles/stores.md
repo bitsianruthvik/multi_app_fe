@@ -6,7 +6,7 @@ roles: [stores]
 routes: ["/:company/cf_erp/material-requests"]
 order: 50
 ---
-Stores is the hinge of the material chain. Every material request comes to you. You give what is in stock, send the rest to Purchase, book deliveries in, keep stock in the right areas, and hand material to the floor.
+Stores is the hinge of the material chain. Every material request (MR) is a request to you; every purchase request (PR) is yours to Purchase. You give what is in stock, send the rest to Purchase, book deliveries in, keep stock in the right areas, and hand material to the floor.
 
 ## The chain
 **Need → MR → Stores (take from stock, raise the PR) → Purchase (quotes → PO) → Management approval → Stores GRN → stock**
@@ -21,10 +21,10 @@ Open each MR ([a material request](help:purchase-material-request)):
 3. If you see "The line's need changed since the MR was raised", just **Save** again.
 4. For customer-supplied material, saving asks the customer for the rest on a ₹0 PO.
 
-Raise your own MRs with **New MR** — for **Stock**, **General** (overhead, or charged to a sales order) or a **Sales order**.
+When Stores itself needs something bought, click **New PR** — for **Stock** or **General** (overhead, or charged to a sales or maintenance order). It goes straight to Purchase and is not listed in the inbox. **New MR** is for departments asking you for material.
 
 ### 2. Refill stock
-Open [To reorder](help:purchase-to-reorder). Items bought to min / max or periodically appear when they need buying. Untick what you do not want, adjust **Order**, and click **Raise MR**. It goes straight to Purchase. An item gets onto this list from its **Procurement** card in the catalog.
+Open [To reorder](help:purchase-to-reorder). Items bought to min / max or periodically appear when they need buying. Untick what you do not want, adjust **Order**, and click **Raise PR**. It goes straight to Purchase. An item gets onto this list from its **Procurement** card in the catalog.
 
 ### 3. Book deliveries
 Open [Receive against PO](help:purchase-receive). Only Management-approved POs are listed.
@@ -52,4 +52,4 @@ Open [Receive against PO](help:purchase-receive). Only Management-approved POs a
 [Stocking areas](help:stores-areas): at least one **Storage** area for raw material (for example RM-STORE), a **Work in process** area beside each cutting machine, a **Quarantine** area for doubtful stock, a **Dispatch** yard and a **Scrap** area. Without a storage area a GRN has nowhere to go.
 
 ## Permissions
-The Stores permission (or the older inventory manage permission) raises and saves MRs. Posting movements, booking GRNs, reserving and issuing need inventory manage. Quotes and purchase orders are Purchase's (the Purchase permission) — except the customer's own PO that an MR raises: Stores may move its dates, close it short or cancel it. In the testing phase the Test login holds all of these.
+The Stores permission (or the older inventory manage permission) saves MRs and raises **New PR** and **Raise PR**. **New MR** is also open to maintenance and to whoever manages orders; a sales order's **Raise MR** needs orders manage or inventory manage. Posting movements, booking GRNs, reserving and issuing need inventory manage. Quotes and purchase orders are Purchase's (the Purchase permission) — except the customer's own PO that an MR raises: Stores may move its dates, close it short or cancel it. In the testing phase the Test login holds all of these.

@@ -51,7 +51,7 @@ Stores books each delivery as a GRN on [Receive against PO](help:purchase-receiv
 - Under reverse charge you pay the GST yourself, so it is not in the supplier's total.
 
 ## Other screens you will use
-- [To reorder](help:purchase-to-reorder) — Stores raises stock MRs from it; the PR lands with you.
+- [To reorder](help:purchase-to-reorder) — Stores clicks **Raise PR** there; the PR lands with you. Stores' **New PR** lands with you the same way.
 - [Plate changes](help:purchase-plate-changes) — after the MD approves a plate change on a line that is already on a PO, you change the POs and tick each line off.
 - **Purchase › Suppliers** — who you buy from.
 - [Management approvals](help:management-approvals) — where your POs are approved.

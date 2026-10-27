@@ -12,6 +12,7 @@ One MR, line by line. Stores decides how much of each material comes from stock;
 - The header: the MR number, what it is for (for example "SO260014 · line 1", "For stock", "Maintenance order #12"), badges **For: …**, **We buy** or **Customer supplies**, and the facts **Sales order**, **Line**, **Customer**, **Purchase request**.
 - The **Lines** table: **Material**, **Required**, **In stock (free)**, **Take from stock**, **To buy**, **PO raised**, **Received** (hidden at first) and **Locked for this order** (or **Locked for this MR**).
 - A **Purchase orders** card once POs serve this MR.
+- **Stores' own purchase**: the MR under a PR Stores raised itself (**Raise PR** on To reorder, or **New PR**). It is not a request to Stores and is not in the MR inbox; you reach it from its PR.
 
 ## How to take stock and send the rest to Purchase
 1. Look at **In stock (free)** for each line. When nothing has been chosen yet, **Take from stock** is filled in with a suggestion (the smaller of required and free) and says "Suggested — save to earmark".

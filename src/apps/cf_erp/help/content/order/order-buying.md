@@ -28,7 +28,7 @@ The material request (MR) is the material the order uses but does not make: plat
 - With **Customer supplies**, raising the MR makes a purchase order to the customer at ₹0, and what arrives is kept as their stock.
 - Who supplies the material can change until the MR is raised. After the acceptance is approved it is part of the accepted terms.
 - If the line's need changes after the MR was raised (for example after a new nesting), saving the MR in Stores brings it up to date.
-- Raising the MR needs the inventory manage permission; seeing it needs inventory view.
+- Raising the MR, and changing a line's **Material**, need the orders manage permission (Sales) or the inventory manage permission (Stores); seeing it needs orders view or inventory view. **Open in Stores** shows only to people who can open the MR inbox.
 
 ## Related
 - [Nesting](help:order-nesting)

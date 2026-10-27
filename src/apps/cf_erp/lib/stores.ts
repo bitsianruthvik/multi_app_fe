@@ -15,6 +15,22 @@ export const NEW_MR_FOR: { value: MrFor; label: string; hint: string }[] = [
   { value: 'sales_order', label: 'Sales order', hint: "Charged to the order's cost sheet." },
 ];
 
+/**
+ * Stores' own "New PR" (user 2026-10-27): what Stores buys for itself goes straight to a PR for Purchase. For is Stock or
+ * General; General may be charged to a sales order or a maintenance order (a maintenance order makes it For maintenance).
+ */
+export const NEW_PR_FOR: { value: 'stock' | 'general'; label: string; hint: string }[] = [
+  { value: 'stock', label: 'Stock', hint: 'Refill stock — everything on it is bought.' },
+  { value: 'general', label: 'General', hint: "Stores' own needs — consumables, the office (overhead) — or charge it to a sales or maintenance order." },
+];
+
+/** The body of POST /stores/purchase-requests (blank rows dropped). A maintenance order named → For maintenance order. */
+export function newPrBody(forType: 'stock' | 'general', orderId: number | null, maintenanceOrderId: number | null, note: string, rows: DraftRow[]): NewMr {
+  const base = newMrBody(forType, forType === 'stock' ? null : orderId, note, rows);
+  if (forType === 'general' && maintenanceOrderId != null) return { ...base, forType: 'maintenance_order', maintenanceOrderId };
+  return base;
+}
+
 export interface DraftRow { item: { id: number; code: string | null; name: string; uom?: string | null } | null; qty: string }
 
 /** Every problem of the New MR form at once — the same rules createRequisition says. */
