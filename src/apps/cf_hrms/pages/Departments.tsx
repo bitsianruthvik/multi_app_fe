@@ -42,6 +42,7 @@ import { OrgCode } from '../components/OrgTree';
 import { OrgUnitTree, type UnitDrop } from '../components/OrgUnitTree';
 import { OrgUnitDialog } from '../components/OrgUnitDialog';
 import { MoveConfirm, MoveToDialog, UndoBar, type PendingMove } from '../components/OrgUnitMove';
+import { planDrop } from '../components/orgMove';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { matchesQuery, multiValues, useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
@@ -227,7 +228,6 @@ export default function Departments() {
   };
 
   /** The siblings of a parent (null = the top level), in the order the list shows them. */
-  const siblingsOf = useCallback((parentId: number | null) => rows.filter((r) => (r.parentId ?? null) === parentId), [rows]);
 
   // A move to another parent, confirmed (MoveConfirm). Undo puts it back at its old place.
   const doMove = async (m: PendingMove) => {
@@ -261,40 +261,32 @@ export default function Departments() {
   };
 
   // A drop from the tree: onto a unit = under it (asks first); between siblings = a reorder (no question, Undo).
-  const onDrop = async ({ unitId, targetId, zone }: UnitDrop) => {
-    const unit = byId.get(unitId);
-    const target = byId.get(targetId);
+  // planDrop (components/orgMove.ts) decides; a drop while a move is being confirmed does nothing.
+  const onDrop = async (drop: UnitDrop) => {
+    const plan = planDrop(drop, rows, { busy: pending != null });
+    if (plan.kind === 'none') return;
+    if (plan.kind === 'confirm') {
+      setPending(plan.move);
+      return;
+    }
+    const unit = byId.get(drop.unitId);
+    const target = byId.get(drop.targetId);
     if (!unit || !target) return;
-    if (zone === 'inside') {
-      if (target.id === unit.parentId) return;
-      setPending({ unitId, parentId: target.id });
+    const { parentId, before, after } = plan;
+    try {
+      await orgApi.departments.reorder(parentId, after);
+    } catch (e) {
+      toastError((e as Error)?.message || 'The order could not be saved.');
       return;
     }
-    const parentId = target.parentId ?? null;
-    if (parentId === (unit.parentId ?? null)) {
-      const before = siblingsOf(parentId).map((r) => r.id);
-      const ids = before.filter((id) => id !== unitId);
-      ids.splice(ids.indexOf(targetId) + (zone === 'after' ? 1 : 0), 0, unitId);
-      if (ids.join() === before.join()) return;
-      try {
-        await orgApi.departments.reorder(parentId, ids);
-      } catch (e) {
-        toastError((e as Error)?.message || 'The order could not be saved.');
-        return;
-      }
-      await reload();
-      setUndo({
-        text: `${unit.name} moved ${zone} ${target.name}.`,
-        run: async () => {
-          try { await orgApi.departments.reorder(parentId, before); } catch (e) { toastError((e as Error)?.message || 'The old order could not be put back.'); }
-          await reload();
-        },
-      });
-      return;
-    }
-    // Between two units of ANOTHER parent: a move to that parent, at that place.
-    const place = (target.sortOrder || 0) + (zone === 'after' ? 1 : 0);
-    setPending({ unitId, parentId, sortOrder: place > 0 ? place : undefined });
+    await reload();
+    setUndo({
+      text: `${unit.name} moved ${drop.zone} ${target.name}.`,
+      run: async () => {
+        try { await orgApi.departments.reorder(parentId, before); } catch (e) { toastError((e as Error)?.message || 'The old order could not be put back.'); }
+        await reload();
+      },
+    });
   };
 
   const draggable = can.org.edit && !filters.isFiltered;
@@ -401,6 +393,9 @@ export default function Departments() {
               collapsed={collapsed}
               onToggle={toggle}
               draggable={draggable}
+              // No dragging while a move is being confirmed: a drop must never replace the move the dialog names.
+              paused={pending != null}
+              onKeyboardMove={setMoveTo}
               onDrop={(d) => void onDrop(d)}
               onAddBefore={can.org.edit ? openBefore : undefined}
               renderCode={(row) => <OrgCode code={row.code} />}

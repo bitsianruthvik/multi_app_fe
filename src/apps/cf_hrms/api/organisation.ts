@@ -176,9 +176,17 @@ export interface MoveCheck {
   sentence: string;
   /**
    * Spec §40.4: what the move does to its Reports into. DEFAULT follows the new parent's head by itself;
-   * CHOSEN asks (`ask`): keep the chosen position, or switch to the new parent's head (`afterMove`).
+   * CHOSEN asks (`ask`): keep the chosen position, or switch to the default (`afterMove`: the new parent's head, or the nearest head above it).
    */
-  reportsInto?: { mode: ReportsIntoMode; current: PosRef | null; afterMove: PosRef | null; ask: boolean };
+  reportsInto?: {
+    mode: ReportsIntoMode;
+    current: PosRef | null;
+    afterMove: PosRef | null;
+    ask: boolean;
+    /** The unit whose head `afterMove` is: the new parent, or (it has no head) the nearest unit above with one. */
+    afterMoveFrom?: { id: number; name: string; type: string | null } | null;
+    newParent?: { id: number; name: string; type: string | null; hasHead: boolean } | null;
+  };
 }
 
 export interface Address {

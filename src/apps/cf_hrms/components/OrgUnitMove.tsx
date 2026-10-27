@@ -5,6 +5,7 @@ import { orgApi, type Department, type MoveCheck } from '../api/organisation';
 import { descendantIds } from './OrgData';
 import { unitLabel } from './orgUnits';
 import { posLine } from './unitReportingText';
+import { switchChoiceText, type PendingMove } from './orgMove';
 
 /**
  * Moving an org unit (CF_HRMS_HIRING_SPEC.md §34.3), the pieces a screen puts together:
@@ -74,38 +75,38 @@ export function MoveToDialog({ unit, rows, onClose, onPick }: {
   );
 }
 
-/** A move the screen is asking about: the unit, where to, and (between siblings) the place. */
-export interface PendingMove {
-  unitId: number;
-  parentId: number | null;
-  sortOrder?: number;
-  /**
-   * Spec §40.4: a unit whose Reports into was CHOSEN — keep that position, or switch to the new
-   * parent's head. Set by the confirm; a DEFAULT Reports into follows the new parent by itself.
-   */
-  reportsInto?: 'KEEP' | 'SWITCH';
-}
+export type { PendingMove };
 
+/**
+ * The confirm. The move it SHOWS is the move it MAKES: the server's check is kept together with
+ * the exact move it was made for (`checked`), the words come from that pair, and "Move" sends
+ * that pair's move — never whatever `move` the page holds by the time the button is pressed
+ * (browser check 2026-10-27: the dialog said "to BFL" and the unit landed under Slitting, a later
+ * drop having replaced the pending move under the open dialog).
+ */
 export function MoveConfirm({ move, onClose, onConfirm }: {
   move: PendingMove | null;
   onClose: () => void;
   onConfirm: (move: PendingMove) => Promise<void>;
 }) {
-  const [check, setCheck] = useState<MoveCheck | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [checked, setChecked] = useState<{ move: PendingMove; check: MoveCheck } | null>(null);
+  const [problem, setProblem] = useState<{ move: PendingMove; text: string } | null>(null);
   const [choice, setChoice] = useState<'KEEP' | 'SWITCH' | null>(null);
   useEffect(() => {
-    setCheck(null);
+    setChecked(null);
     setProblem(null);
     setChoice(null);
     if (!move) return undefined;
     let live = true;
     orgApi.departments.moveCheck(move.unitId, move.parentId)
-      .then((c) => { if (live) setCheck(c); })
-      .catch((e: { message?: string; problems?: string[] }) => { if (live) setProblem(e?.problems?.[0] || e?.message || 'Could not check that move.'); });
+      .then((c) => { if (live) setChecked({ move, check: c }); })
+      .catch((e: { message?: string; problems?: string[] }) => { if (live) setProblem({ move, text: e?.problems?.[0] || e?.message || 'Could not check that move.' }); });
     return () => { live = false; };
   }, [move]);
-  const refused = check && !check.allowed ? check.problem : problem;
+  // Only a check made for THIS move counts (a stale one from an earlier move is never shown or used).
+  const check = checked && checked.move === move ? checked.check : null;
+  const failed = problem && problem.move === move ? problem.text : null;
+  const refused = check && !check.allowed ? check.problem : failed;
   const ri = check?.allowed ? check.reportsInto : undefined;
   const ask = !!ri?.ask;
   return (
@@ -113,7 +114,7 @@ export function MoveConfirm({ move, onClose, onConfirm }: {
       open={!!move}
       title="Move this org unit?"
       body={
-        <Box data-move-confirm="">
+        <Box data-move-confirm="" data-move-unit={check ? checked?.move.unitId : undefined} data-move-to={check ? checked?.move.parentId ?? 'top' : undefined}>
           {check ? (
             <Typography sx={{ fontSize: 14, color: 'var(--c-text)' }}>
               {/[.?!]$/.test(check.sentence.trim()) ? check.sentence : `${check.sentence}.`}
@@ -134,11 +135,7 @@ export function MoveConfirm({ move, onClose, onConfirm }: {
                 <FormControlLabel
                   value="SWITCH"
                   control={<Radio size="small" />}
-                  label={
-                    <Typography sx={{ fontSize: 13.5 }}>
-                      Switch to {ri.afterMove ? `${posLine(ri.afterMove)} (the new parent’s head)` : 'the new parent’s head'}
-                    </Typography>
-                  }
+                  label={<Typography sx={{ fontSize: 13.5 }}>{switchChoiceText(ri)}</Typography>}
                 />
               </RadioGroup>
             </Box>
@@ -148,9 +145,10 @@ export function MoveConfirm({ move, onClose, onConfirm }: {
       }
       confirmLabel="Move"
       onConfirm={async () => {
-        if (!move || !check?.allowed) throw new Error(refused || 'This move cannot be made.');
-        if (ask && !choice) throw new Error('Choose whether it keeps its Reports into or switches to the new parent’s head.');
-        await onConfirm(ask && choice ? { ...move, reportsInto: choice } : move);
+        if (!checked || !check?.allowed) throw new Error(refused || 'This move cannot be made.');
+        if (ask && !choice) throw new Error('Choose whether it keeps its Reports into or switches to the default.');
+        // Exactly the move the words above were written for.
+        await onConfirm(ask && choice ? { ...checked.move, reportsInto: choice } : checked.move);
       }}
       onClose={onClose}
     />

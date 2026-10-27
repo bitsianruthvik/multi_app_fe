@@ -170,12 +170,25 @@ export function UnitReportingFields({ state, canEdit = true }: { state: UnitRepo
               </Box>
             }
           />
-          <FormControlLabel
-            value="CHOSEN"
-            disabled={!canEdit || !above.length}
-            control={<Radio size="small" />}
-            label={<Typography sx={{ fontSize: 14, py: 0.5 }}>Choose from the units above</Typography>}
-          />
+          {/* A unit at the top has no unit above it: no such choice (a hint says so). One whose units
+              above have no position yet: the choice shows, switched off, with the reason. */}
+          {data.unit.parentId != null && (
+            <FormControlLabel
+              value="CHOSEN"
+              disabled={!canEdit || !above.length}
+              control={<Radio size="small" />}
+              label={
+                <Box sx={{ py: 0.5 }}>
+                  <Typography sx={{ fontSize: 14 }}>Choose from the units above</Typography>
+                  {!above.length && (
+                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }} data-no-above="">
+                      The units above it have no position yet.
+                    </Typography>
+                  )}
+                </Box>
+              }
+            />
+          )}
           <FormControlLabel
             value="ELSEWHERE"
             disabled={!canEdit}
@@ -183,6 +196,11 @@ export function UnitReportingFields({ state, canEdit = true }: { state: UnitRepo
             label={<Typography sx={{ fontSize: 14, py: 0.5 }}>Somewhere else (needs a reason)</Typography>}
           />
         </RadioGroup>
+        {data.unit.parentId == null && (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.25 }} data-top-hint="">
+            {data.unit.name} is at the top: there is no unit above it to choose from. To have its head report to someone, use Somewhere else.
+          </Typography>
+        )}
         {draft.ri === 'CHOSEN' && (
           <Box sx={{ mt: 1 }}>
             <PositionPicker
