@@ -108,5 +108,23 @@ await check('B3 menu: Maintenance › Machines, Maintenance orders, Planned down
   assert.match(src('pages/MaintenanceOrderDetail.tsx'), /const canManage = useIsPermitted\(\)\(MAINTENANCE\);/);
 });
 
+// ── C (2026-10-27): the two gaps closed ──────────────────────────────────────────────────────────────────
+await check('C1 Accounts alone raise dispatch invoices from Accounts › Invoices — no sales order needed', () => {
+  assert.ok(sees('accounts', 'accounts/invoices'), 'Accounts see Invoices');
+  assert.ok(!sees('accounts', 'sales/orders'), 'and still no sales orders (the reason for the card)');
+  assert.match(src('pages/Invoices.tsx'), /<ShippedNotInvoicedCard \/>/);
+  const card = src('components/ShippedNotInvoicedCard.tsx');
+  assert.match(card, /const canManage = useIsPermitted\(\)\('cf_erp_accounts_manage'\);/);
+  assert.match(card, /uninvoicedOrders\(\)/);
+  assert.match(card, /makeInvoice\(orderId, movementIds\)/);
+  assert.match(src('api/gst.ts'), /cfApi\.get<\{ rows: UninvoicedOrder\[\] \}>\('\/invoices\/uninvoiced'\)/);
+});
+await check('C2 the order-level material supply saves through its own route (Stores may), not PUT /orders/:id', () => {
+  const a = src('components/Acceptance/AcceptanceStep.tsx');
+  assert.match(a, /\/orders\/\$\{order\.id\}\/material-supply`, \{ supply: v \}/);
+  assert.doesNotMatch(a, /\{ materialSupply: v \}/);
+  assert.match(a, /const canSupply = isPermitted\('cf_erp_inventory_manage'\) \|\| canManage;/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

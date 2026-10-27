@@ -140,7 +140,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
   }, button);
   const takeBack = () => run(async () => { loaded.setData(await withdrawAcceptance(order.id)); invalidateNavCounts(); toast.success('Taken back. Change it and send again.'); onChanged?.(); });
   const download = (format: 'pdf' | 'xlsx') => run(async () => { saveBlob(await mrDocument(order.id, format), `MR-${order.code.replace(/[^A-Za-z0-9._-]+/g, '-')}.${format}`); });
-  const changeOrderSupply = (v: MaterialSupply) => run(async () => { await cfApi.put<SalesOrder>(`/orders/${order.id}`, { materialSupply: v }); toast.success('Material supply saved.'); loaded.reload(); onChanged?.(); });
+  const changeOrderSupply = (v: MaterialSupply) => run(async () => { await cfApi.put<SalesOrder>(`/orders/${order.id}/material-supply`, { supply: v }); toast.success('Material supply saved.'); loaded.reload(); onChanged?.(); });
   const changeLineSupply = (lineId: number, v: string) => run(async () => { await setLineSupply(lineId, v === '' ? null : (v as MaterialSupply)); toast.success('Material supply saved.'); loaded.reload(); onChanged?.(); });
   const saveAsTemplate = () => run(async () => {
     if (!saveTpl || !tplName.trim()) return;

@@ -164,7 +164,9 @@ export const removeAddress = (partyId: number, id: number) => cfApi.del<unknown>
 export const listInvoices = (q: { status?: string; orderId?: number; customerId?: number; q?: string }) => cfApi.get<{ rows: InvoiceSummary[] }>(`/invoices${qs(q)}`);
 export const getInvoice = (id: number) => cfApi.get<Invoice>(`/invoices/${id}`);
 export const orderInvoices = (orderId: number) => cfApi.get<OrderInvoices>(`/orders/${orderId}/invoices`);
-export const makeInvoice = (orderId: number, movementIds?: number[]) => cfApi.post<Invoice>(`/orders/${orderId}/invoices`, movementIds?.length ? { movementIds } : {});
+export interface UninvoicedOrder { orderId: number; orderCode: string; customer: string | null; shipments: Uninvoiced[] }
+export const uninvoicedOrders = () => cfApi.get<{ rows: UninvoicedOrder[] }>('/invoices/uninvoiced');
+export const makeInvoice =(orderId: number, movementIds?: number[]) => cfApi.post<Invoice>(`/orders/${orderId}/invoices`, movementIds?.length ? { movementIds } : {});
 export const saveInvoice = (id: number, body: Record<string, unknown>) => cfApi.put<Invoice>(`/invoices/${id}`, body);
 export const removeInvoiceLine = (id: number, lineId: number) => cfApi.del<Invoice>(`/invoices/${id}/lines/${lineId}`);
 export const deleteInvoice = (id: number) => cfApi.del<unknown>(`/invoices/${id}`);

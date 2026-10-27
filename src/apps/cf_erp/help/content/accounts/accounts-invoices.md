@@ -10,7 +10,7 @@ order: 20
 
 ## Where invoices come from
 - **Milestone invoices**: raised from [Billing](help:accounts-billing) by ticking due cards, such as the advance, dispatch or retention. They are numbered and issued at once.
-- **Dispatch drafts**: when someone with the accounts manage permission ships a line with **Make the tax invoice** ticked, a draft appears here. A dispatch by Stores or Production waits on the order's **Invoices** card until Accounts raise it. A draft has no number until someone issues it.
+- **Dispatch drafts**: when someone with the accounts manage permission ships a line with **Make the tax invoice** ticked, a draft appears here. A dispatch by Stores or Production waits under **Shipped, not invoiced** at the top of this page (and on the order's **Invoices** card) until Accounts click **Make invoice**. A draft has no number until someone issues it.
 
 ## What you see
 - Figures: **Drafts to issue** (shipped, not yet numbered), **Issued, no IRN** (waiting for the e-invoice portal) and **Issued**. Click a figure to filter.
