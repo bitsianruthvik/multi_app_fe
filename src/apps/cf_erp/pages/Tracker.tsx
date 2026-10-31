@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Tooltip, Typography } from '@mui/material';
+import { Box, Button, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import { Link } from 'react-router-dom';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
@@ -25,6 +25,7 @@ import { useToast } from '../components/toastContext';
 import { FlashOnChange } from '../motion';
 import { TrackerTree } from '../components/Tracker/TrackerTree';
 import { FinishStepsDialog } from '../components/Tracker/FinishStepsDialog';
+import { TimingSheetButtons } from '../components/TimingSheetButtons';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
@@ -81,6 +82,14 @@ export default function Tracker() {
   const count = (st: string) => base.filter(statusTest(st)).length;
   // What the current filter and search show that can be finished now (search a piece or an operation to narrow it).
   const readyRows = useMemo(() => rows.filter((s) => s.status === 'ready' || s.status === 'in_progress'), [rows]);
+  // Floor progress as Excel, one order at a time (piece code + operation code -> good, scrap, done).
+  const sheetOrders = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const s of steps.data ?? []) if (!m.has(s.order.id)) m.set(s.order.id, s.order.code);
+    return [...m.entries()].map(([id, code]) => ({ id, code })).sort((a, b) => a.code.localeCompare(b.code));
+  }, [steps.data]);
+  const [sheetOrderId, setSheetOrderId] = useState<number | null>(null);
+  const sheetOrder = sheetOrders.find((o) => o.id === sheetOrderId) ?? (sheetOrders.length === 1 ? sheetOrders[0] : null);
   const resume = async (s: TrackerStepRow) => {
     try { await cfApi.post(`/production-steps/${s.id}/resume?view=none`, {}); done('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
   };
@@ -151,6 +160,15 @@ export default function Tracker() {
         <>
           <FilterBar search={search} onSearch={setSearch} placeholder="Search step, piece, order or machine">
             {STEP_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={count(f.value)} onClick={() => setStatus(f.value)} />)}
+            {sheetOrders.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                <TextField select size="small" label="Floor sheet for" value={sheetOrder?.id ?? ''} onChange={(e) => setSheetOrderId(Number(e.target.value))}
+                  sx={{ minWidth: 170 }} slotProps={{ htmlInput: { 'data-testid': 'floor-sheet-order' } }}>
+                  {sheetOrders.map((o) => <MenuItem key={o.id} value={o.id}>{o.code}</MenuItem>)}
+                </TextField>
+                <TimingSheetButtons source={sheetOrder ? { kind: 'floor', orderId: sheetOrder.id, orderCode: sheetOrder.code } : null} canUpload={canProduce} onApplied={reload} />
+              </Box>
+            )}
             {canProduce && readyRows.length > 0 && (
               <Tooltip title="Starts and finishes every ready or running step this filter and search show, with what is left of each good — for catching up. Search a piece or an operation to narrow it. Steps waiting on them can be added by ticking them.">
                 <Button size="small" variant="outlined" startIcon={<DoneAllRounded fontSize="small" />} onClick={() => setFinishing(readyRows)} data-testid="finish-all-ready">

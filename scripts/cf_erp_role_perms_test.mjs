@@ -79,12 +79,13 @@ await check('B1 screens: Dispatch (order step and production order page), Reserv
   assert.match(src('pages/Stock.tsx'), /const canManage = useIsPermitted\(\)\('cf_erp_inventory_manage'\);/);
   assert.match(src('pages/OrderDetail.tsx'), /const canReserve = isPermitted\('cf_erp_inventory_manage'\);/);
 });
-await check('B2 menu: Production › Plan health (the management-overview page) for production view; Management keeps its own', () => {
+await check('B2 menu: Production › Plan health (the management-overview page) for production manage (2026-10-31); Management keeps its own', () => {
   const prod = SECTIONS.find((s) => s.key === 'production');
   const ph = prod.screens.find((x) => x.key === 'plan-health');
   assert.equal(ph.path, 'management-overview');
-  assert.equal(ph.permission, 'cf_erp_production_view');
-  for (const role of ['ppc', 'ordersOnly', 'md']) assert.ok(sees(role, 'production/management-overview'), role);
+  assert.equal(ph.permission, 'cf_erp_production_manage');
+  for (const role of ['ppc', 'md']) assert.ok(sees(role, 'production/management-overview'), role);
+  assert.ok(!sees('ordersOnly', 'production/management-overview'), 'production view alone: no Production tab (2026-10-31)');
   assert.ok(!sees('accounts', 'production/management-overview'));
   assert.ok(!sees('ppc', 'mgmt/management-overview') && !sees('ppc', 'mgmt/approvals'), 'PPC has no Management tab');
   assert.ok(sees('md', 'mgmt/management-overview'));
@@ -94,8 +95,9 @@ await check('B2 menu: Production › Plan health (the management-overview page) 
   assert.match(body, /<PlanHealthCard \/>/);
   assert.doesNotMatch(body, /onClick/);
 });
-await check('B3 menu: Maintenance › Machines, Maintenance orders, Planned downtime for production view; Preventive plans stay Maintenance\'s', () => {
-  for (const role of ['ppc', 'ordersOnly']) {
+await check('B3 menu: Maintenance › Machines, Maintenance orders, Planned downtime for production manage (PPC, 2026-10-31); Preventive plans stay Maintenance\'s', () => {
+  assert.ok(!sees('ordersOnly', 'maintenance/maintenance'), 'production view alone: no Maintenance tab (2026-10-31)');
+  for (const role of ['ppc']) {
     assert.ok(sees(role, 'maintenance/maintenance'), `${role} board`);
     assert.ok(sees(role, 'maintenance/maintenance-orders'), `${role} orders`);
     assert.ok(sees(role, 'maintenance/planned-downtime'), `${role} downtime`);

@@ -39,6 +39,7 @@ import { DateCell } from '../components/Purchase/DateCell';
 import type { PlannedUnits } from '../api/requisitions';
 import { FlashOnChange, SuccessCheck, nudge } from '../motion';
 import { useSavedCheck } from '../hooks/useSavedCheck';
+import { BuyingSheetButtons } from '../components/Purchase/BuyingSheetButtons';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -218,6 +219,7 @@ export default function PurchaseOrderDetail() {
             {canManage && (stage === 'waiting' || stage === 'part_received') && !closeAsked && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO short</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
             {canManage && open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
+            <BuyingSheetButtons kind="po" id={p.id} code={p.code} canUpload={editable} disabled={busy} onApplied={() => { po.reload(); invalidateNavCounts(); }} />
             <FullScreenToggle on={full.on} onToggle={full.toggle} />
           </>}
           facts={<>

@@ -158,13 +158,13 @@ await check('standardLabel and the line sentence for each state', () => {
   assert.equal(m.lineStandardSentence(base), "Made from RDSO/B-11751R3 version 1. Its BOM is the standard's.");
   assert.equal(m.lineStandardSentence({ ...base, standard: null, canCreate: true }), 'This line is not tied to a standard drawing.');
 });
-await check('Standard drawings sits in the Catalog menu, for the orders or the catalog view grant', () => {
+await check('Standard drawings sits in the Catalog menu, for the orders or the catalog manage grant (2026-10-31: menus follow working access)', () => {
   const cat = m.SECTIONS.find((s) => s.key === 'catalog');
   const sc = cat.screens.find((s) => s.key === 'standard-drawings');
   assert.ok(sc, 'the screen is in Catalog');
   assert.equal(sc.path, 'standard-drawings');
   assert.equal(sc.hasDetail, true);
-  assert.equal(sc.permission, 'cf_erp_orders_view|cf_erp_catalog_view');
+  assert.equal(sc.permission, 'cf_erp_orders_manage|cf_erp_catalog_manage');
 });
 
 // ── 2. the list ──────────────────────────────────────────────────────────────

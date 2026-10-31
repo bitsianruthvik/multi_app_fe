@@ -34,10 +34,7 @@ export interface NavSection {
   screens: NavScreen[];
 }
 
-const VIEW = 'cf_erp_catalog_view';
-const ORDERS = 'cf_erp_orders_view';
 const PRODUCTION = 'cf_erp_production_view';
-const INVENTORY = 'cf_erp_inventory_view';
 const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
 /** §74: the Accounts section (Billing, Invoices, Receipts, Order costing). */
@@ -56,25 +53,32 @@ const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_ord
  * Accounts › Order costing — neither gets a Management tab for it.
  */
 const bothOf = (tag: string, anyOf: string) => anyOf.split('|').map((t) => `${tag}&${t}`).join('|');
-const PURCHASE_ORDERS = `cf_erp_inventory_view|cf_erp_purchase|cf_erp_plate_change_approve|${APPROVE_ANY}`;
-/**
- * §79 STORES CHAIN (user 2026-10-18): Need → MR → STORES (take from stock, raise the PR) → Purchase (quotes → PO) →
- * Management → Stores GRN → stock. Stores has its own tag; Purchase sees PRs and POs only. The older inventory tag still
- * opens both, so nobody loses a screen.
- */
-const STORES = 'cf_erp_inventory_view|cf_erp_stores';
-const PURCHASE = 'cf_erp_inventory_view|cf_erp_purchase';
+const PURCHASE_ORDERS = `cf_erp_purchase|cf_erp_plate_change_approve|${APPROVE_ANY}`;
 /**
  * THE NESTING PLATE-CHANGE GATE IS OFF (§71, user 2026-10-18: "remove nesting approval from MD for now, will add back
  * later if required") — the backend's plateChangeService gate, default off. While it is off the "Plate changes" screen is
  * not in the menu (its page stays: a customer's substitute still goes to the MD there, linked from the MR screen and
  * Stores › To return to customers). Turn both on together.
  */
-/** §82: the Maintenance tab (also on every role that manages production). */
+/** §82: the Maintenance tab. */
 const MAINTENANCE = 'cf_erp_maintenance';
-/** 2026-10-27: the maintenance schedule read-only for production view (backend routes/maintenance.js reads the same). */
-const MAINTENANCE_READ = `${MAINTENANCE}|${PRODUCTION}`;
+/** 2026-10-27: PPC reads the maintenance schedule (board, orders, planned downtime) — production MANAGE since 2026-10-31. */
+const MAINTENANCE_READ = `${MAINTENANCE}|${PRODUCTION_MANAGE}`;
 export const PLATE_CHANGE_GATE = false;
+/**
+ * WHAT A ROLE WORKS IN (user 2026-10-31: "every login sees all the tabs — they should see only their tabs of access").
+ * The menus follow the tags a person WORKS with, not every read grant: read access (orders view, stock view, production
+ * view, catalog view) still opens a page reached by a link — the backend guards each page as before — but no longer puts
+ * a whole section in the menu. So Stores sees Stores, Procurement Purchase, Accounts Accounts, the floor its Machine log.
+ */
+const ORDERS_WORK = 'cf_erp_orders_manage';
+const CATALOG_WORK = 'cf_erp_catalog_manage';
+const SETUP_WORK = 'cf_erp_setup_manage|cf_erp_catalog_manage';
+const CODEGEN_WORK = 'cf_erp_codegen_manage';
+/** §79 stores chain: Stores has its own tag; inventory manage (the older tag) still opens it. */
+const STORES_WORK = 'cf_erp_stores|cf_erp_inventory_manage';
+const PURCHASE_WORK = 'cf_erp_purchase';
+const ACCOUNTS_MANAGE = 'cf_erp_accounts_manage';
 
 export const SECTIONS: NavSection[] = [
   { key: 'home', label: 'Home', screens: [{ key: 'home', label: 'Home', path: 'home', keywords: ['cockpit', 'today', 'dashboard'] }] },
@@ -82,10 +86,10 @@ export const SECTIONS: NavSection[] = [
     key: 'sales',
     label: 'Sales',
     screens: [
-      { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
+      { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS_WORK, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
       // §73: every customer order in its lane (inquiry → pending approval → material → production → dispatched → post-production → closed).
-      { key: 'orders-board', label: 'Orders board', path: 'orders-board', permission: ORDERS, keywords: ['board', 'kanban', 'lanes', 'pipeline', 'post-production', 'inspection', 'erection', 'handover', 'checklist'] },
-      { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
+      { key: 'orders-board', label: 'Orders board', path: 'orders-board', permission: ORDERS_WORK, keywords: ['board', 'kanban', 'lanes', 'pipeline', 'post-production', 'inspection', 'erection', 'handover', 'checklist'] },
+      { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS_WORK, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
     ],
   },
   {
@@ -108,7 +112,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Accounts',
     screens: [
       { key: 'billing', label: 'Billing', path: 'billing', permission: ACCOUNTS, countKey: 'billingDue', keywords: ['billing', 'milestones', 'payment terms', 'due', 'raise invoice', 'advance', 'retention', 'pro-rata', 'bill'] },
-      { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch', 'pdf'] },
+      { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: `${ORDERS_WORK}|${ACCOUNTS}`, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch', 'pdf'] },
       { key: 'receipts', label: 'Receipts', path: 'receipts', permission: ACCOUNTS, keywords: ['payment', 'receipt', 'received', 'outstanding', 'part payment', 'cheque', 'neft', 'upi', 'on account'] },
       { key: 'order-costing', label: 'Order costing', path: 'order-costing', permission: ACCOUNTS, keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
       { key: 'contractor-work-orders', label: 'Work orders', path: 'contractor-work-orders', hasDetail: true, permission: ACCOUNTS, keywords: ['contractor', 'subcontract', 'job work', 'outsource', 'weekly payment', 'contractor po', 'tonnes'] },
@@ -120,22 +124,22 @@ export const SECTIONS: NavSection[] = [
     screens: [
       // Purchase flow v3 (§71): PR (the RFQ, vendor columns) → PO (Management approval) → GRN. §79: MRs moved to Stores —
       // Purchase sees PRs only.
-      { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: PURCHASE, keywords: ['purchase request', 'pr', 'rfq', 'quotation', 'quote', 'vendor', 'supplier', 'compare', 'rate', 'raise po'] },
+      { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: PURCHASE_WORK, keywords: ['purchase request', 'pr', 'rfq', 'quotation', 'quote', 'vendor', 'supplier', 'compare', 'rate', 'raise po'] },
       { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: PURCHASE_ORDERS, countKey: 'openPurchases', keywords: ['po', 'supplier', 'vendor', 'md approval', 'approve', 'close short', 'delivery', 'goods receipt', 'grn', 'contractor', 'material'] },
       // Plate changes asked after a PO covers a line (init.sql §62): hidden while the gate is off (§71).
       ...(PLATE_CHANGE_GATE ? [{ key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] }] : []),
       // Who we buy from — the parties screen pinned to suppliers (RFQs and POs pick from them).
-      { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: PURCHASE, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
+      { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: PURCHASE_WORK, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
     ],
   },
   {
     key: 'catalog',
     label: 'Catalog',
     screens: [
-      { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: VIEW, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
-      { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: VIEW, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
+      { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: CATALOG_WORK, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
+      { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: CATALOG_WORK, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
       // Standard drawings (init.sql §69): a drawing number with its BOM and values, copied onto order lines.
-      { key: 'standard-drawings', label: 'Standard drawings', path: 'standard-drawings', hasDetail: true, permission: `${ORDERS}|${VIEW}`, keywords: ['standard', 'rdso', 'drawing number', 'girder', 'bom', 'library', 'template drawing'] },
+      { key: 'standard-drawings', label: 'Standard drawings', path: 'standard-drawings', hasDetail: true, permission: `${ORDERS_WORK}|${CATALOG_WORK}`, keywords: ['standard', 'rdso', 'drawing number', 'girder', 'bom', 'library', 'template drawing'] },
     ],
   },
   {
@@ -144,22 +148,22 @@ export const SECTIONS: NavSection[] = [
     screens: [
       // Management's glance: by machine and by order — also Management › Dashboard (2026-10-24); production people read it
       // here. Not 'dashboard' — that path is the login landing (redirects to Home).
-      { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
+      { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION_MANAGE, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
       // Step 5 (§84): the planner per production order, step by step — auto (AI) / manual (Management), baseline, plan health.
-      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
-      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
+      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
+      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
       // Plan health (the page at management-overview, also Management › Plan health): read-only for production view too
       // (user 2026-10-27) — PPC sees what is slipping; approving a re-baseline stays Management's.
-      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview'] },
+      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION_MANAGE, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview'] },
       // Every released line, by sales order (2026-10-17). A production order = a release; work orders stay the contractors'.
-      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION, keywords: ['released', 'release', 'yet to plan', 'planned', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
-      { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
+      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION_MANAGE, keywords: ['released', 'release', 'yet to plan', 'planned', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
+      { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION_MANAGE, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
-      { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types', 'classification'] },
-      { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
+      { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types', 'classification'] },
+      { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
       // Work orders moved to Accounts (Step 6, §85); they are raised from a production order (Contractor work).
-      { key: 'contractors', label: 'Contractors', path: 'contractors', permission: ORDERS, keywords: ['subcontractor', 'job work', 'outsource', 'vendor', 'party'] },
-      { key: 'flows', label: 'Flows', path: 'flows', hasDetail: true, permission: PRODUCTION, countKey: 'draftFlows', keywords: ['routing', 'steps', 'wait for'] },
+      { key: 'contractors', label: 'Contractors', path: 'contractors', permission: PRODUCTION_MANAGE, keywords: ['subcontractor', 'job work', 'outsource', 'vendor', 'party'] },
+      { key: 'flows', label: 'Flows', path: 'flows', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'draftFlows', keywords: ['routing', 'steps', 'wait for'] },
     ],
   },
   {
@@ -169,20 +173,20 @@ export const SECTIONS: NavSection[] = [
     key: 'inventory',
     label: 'Stores',
     screens: [
-      { key: 'material-requests', label: 'MR inbox', path: 'material-requests', hasDetail: true, permission: STORES, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock', 'earmark', 'locked', 'new mr', 'for', 'maintenance', 'general', 'stores'] },
-      { key: 'to-reorder', label: 'To reorder', path: 'to-reorder', permission: STORES, keywords: ['reorder', 'min max', 'minimum', 'maximum', 'periodic', 'replenish', 'refill', 'stock mr', 'by ai', 'procurement method'] },
-      { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
+      { key: 'material-requests', label: 'MR inbox', path: 'material-requests', hasDetail: true, permission: STORES_WORK, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock', 'earmark', 'locked', 'new mr', 'for', 'maintenance', 'general', 'stores'] },
+      { key: 'to-reorder', label: 'To reorder', path: 'to-reorder', permission: STORES_WORK, keywords: ['reorder', 'min max', 'minimum', 'maximum', 'periodic', 'replenish', 'refill', 'stock mr', 'by ai', 'procurement method'] },
+      { key: 'stock', label: 'Stock', path: 'stock', permission: `${STORES_WORK}|${PURCHASE_WORK}`, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
       // §71: GRNs against purchase orders waiting for goods — several per PO; what arrives is locked for its order.
-      { key: 'receive', label: 'Receive against PO', path: 'receive', permission: INVENTORY, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
-      { key: 'wip', label: 'Work in progress', path: 'wip', permission: INVENTORY, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
-      { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: INVENTORY, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
+      { key: 'receive', label: 'Receive against PO', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
+      { key: 'wip', label: 'Work in progress', path: 'wip', permission: STORES_WORK, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
+      { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: STORES_WORK, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
       // §81: tools are stock items; their life, per piece issued.
-      { key: 'tools', label: 'Tools', path: 'tools', permission: INVENTORY, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'spares', 'consumables'] },
+      { key: 'tools', label: 'Tools', path: 'tools', permission: STORES_WORK, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'spares', 'consumables'] },
       // Customer material not needed or not accepted (§68) — worked out on the read; a return movement clears it.
-      { key: 'customer-returns', label: 'To return to customers', path: 'customer-returns', permission: INVENTORY, keywords: ['customer material', 'return', 'extra', 'substitute', 'send back', 'free issue'] },
-      { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: INVENTORY, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
-      { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: INVENTORY, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
-      { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: INVENTORY, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
+      { key: 'customer-returns', label: 'To return to customers', path: 'customer-returns', permission: STORES_WORK, keywords: ['customer material', 'return', 'extra', 'substitute', 'send back', 'free issue'] },
+      { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: STORES_WORK, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
+      { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: STORES_WORK, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
+      { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: STORES_WORK, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
     ],
   },
   {
@@ -198,27 +202,27 @@ export const SECTIONS: NavSection[] = [
       { key: 'maintenance-plans', label: 'Preventive plans', path: 'maintenance-plans', permission: MAINTENANCE, keywords: ['preventive', 'pm', 'service', 'lubrication', 'run hours', 'tonnes', 'every n days'] },
       { key: 'planned-downtime', label: 'Planned downtime', path: 'planned-downtime', permission: MAINTENANCE_READ, keywords: ['downtime', 'shutdown', 'calendar', 'every sunday', 'holiday', 'machine off'] },
       // 2026-10-24: the machines register and Tools, as in Production / Stores (same routes, same permissions as there).
-      { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: PRODUCTION, keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types'] },
-      { key: 'maint-tools', label: 'Tools', path: 'tools', permission: INVENTORY, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
+      { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: MAINTENANCE, keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types'] },
+      { key: 'maint-tools', label: 'Tools', path: 'tools', permission: STORES_WORK, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
     ],
   },
   {
     key: 'setup',
     label: 'Setup',
     screens: [
-      { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
-      { key: 'formulas', label: 'Value formulas', path: 'formulas', permission: VIEW, keywords: ['formulas', 'calculation', 'roll-up', 'weight', 'area'] },
-      { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
-      { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
-      { key: 'cutting', label: 'Cutting', path: 'cutting', permission: VIEW, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
+      { key: 'specifications', label: 'Specifications', path: 'specifications', permission: SETUP_WORK, keywords: ['attributes', 'fields'] },
+      { key: 'formulas', label: 'Value formulas', path: 'formulas', permission: SETUP_WORK, keywords: ['formulas', 'calculation', 'roll-up', 'weight', 'area'] },
+      { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: CODEGEN_WORK, keywords: ['codes', 'numbering', 'names'] },
+      { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: `${ORDERS_WORK}|${ACCOUNTS_MANAGE}`, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
+      { key: 'cutting', label: 'Cutting', path: 'cutting', permission: CATALOG_WORK, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,
       // which is how a girder is made and lives under Production.
-      { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },
+      { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS_WORK, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },
       // §73: what a customer acceptance starts from — charges, payment milestones, post-production stages.
       // Templates: read by Sales, kept by Accounts (accounts manage only, 2026-10-27).
-      { key: 'term-templates', label: 'Templates', path: 'term-templates', permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['templates', 'charges', 'rates', 'milestones', 'payment terms', 'post-production', 'stages', 'acceptance'] },
+      { key: 'term-templates', label: 'Templates', path: 'term-templates', permission: `${ORDERS_WORK}|${ACCOUNTS_MANAGE}`, keywords: ['templates', 'charges', 'rates', 'milestones', 'payment terms', 'post-production', 'stages', 'acceptance'] },
     ],
   },
 ];

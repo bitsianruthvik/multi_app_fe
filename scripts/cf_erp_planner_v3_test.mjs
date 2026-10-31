@@ -160,11 +160,11 @@ await check('the API helpers call the §84 routes', async () => {
 });
 
 // ── 2: the menu ─────────────────────────────────────────────────────────────────────────────────
-await check('the menu: Production › Planner (production view), the monthly plan kept as "Plan by month"', () => {
+await check('the menu: Production › Planner (production manage, 2026-10-31), the monthly plan kept as "Plan by month"', () => {
   const sec = m.SECTIONS.find((s) => s.key === 'production');
   const p = sec.screens.find((s) => s.key === 'planner');
   assert.ok(p, 'planner screen');
-  assert.equal(p.path, 'planner'); assert.equal(p.label, 'Planner'); assert.equal(p.permission, 'cf_erp_production_view');
+  assert.equal(p.path, 'planner'); assert.equal(p.label, 'Planner'); assert.equal(p.permission, 'cf_erp_production_manage');
   assert.ok(sec.screens.findIndex((s) => s.key === 'planner') < sec.screens.findIndex((s) => s.key === 'plan'));
   assert.equal(sec.screens.find((s) => s.key === 'plan').label, 'Plan by month');
   assert.match(src('routes.tsx'), /cf_erp\/planner'/);

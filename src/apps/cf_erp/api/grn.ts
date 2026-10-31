@@ -1,4 +1,4 @@
-import { cfApi, qs } from './client';
+import { cfApi, qs, LONG_WRITE_MS } from './client';
 import type { HeldReceipt } from './procurement';
 import type { PurchaseOrder } from './types';
 
@@ -54,3 +54,30 @@ export const listGrnBills = (q: { supplierId?: number; purchaseOrderId?: number;
   cfApi.get<{ rows: GrnBill[]; summary: { count: number; total: number; invoicePending: number; noMoney: number } }>(`/grn-bills${qs(q)}`);
 export const getGrnBill = (id: number) => cfApi.get<GrnBill>(`/grn-bills/${id}`);
 export const completeGrnInvoice = (id: number, body: { no: string; date: string }) => cfApi.put<GrnBill>(`/grn-bills/${id}/invoice`, body);
+
+/** GRN by Excel (backend services/grnSheetService.js): rows matched to the PO's pending lines by ITEM CODE. */
+export interface GrnSheetChange {
+  action: 'receive'; lineId: number; lineNo: number; itemCode: string | null; itemName: string; uom: string | null;
+  quantity: number; pending: number; rows: number[]; unitPrice: number | null; batch: string | null; detail: string;
+}
+export interface GrnSheetResult {
+  dryRun: boolean; applied: boolean; ok: boolean; problems: string[]; notes: string[]; warnings: string[];
+  changes: GrnSheetChange[]; purchaseOrder: { id: number; code: string };
+  summary: { sentence: string; lines: number; quantity: number; total: number | null };
+  bill?: GrnBill; movements?: { id: number; code: string }[]; held?: HeldReceipt[]; order?: PurchaseOrder;
+}
+export async function downloadGrnSheet(poId: number, poCode: string): Promise<void> {
+  const blob = await cfApi.getBlob(`/purchase-orders/${poId}/grn-sheet`, { timeoutMs: LONG_WRITE_MS });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `GRN_${poCode.replace(/[^A-Za-z0-9._-]+/g, '_')}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+export const previewGrnSheet = (poId: number, fileBase64: string) =>
+  cfApi.post<GrnSheetResult>(`/purchase-orders/${poId}/grn-sheet`, { fileBase64, dryRun: true }, { timeoutMs: LONG_WRITE_MS });
+export const applyGrnSheet = (poId: number, fileBase64: string) =>
+  cfApi.post<GrnSheetResult>(`/purchase-orders/${poId}/grn-sheet`, { fileBase64 }, { timeoutMs: LONG_WRITE_MS });

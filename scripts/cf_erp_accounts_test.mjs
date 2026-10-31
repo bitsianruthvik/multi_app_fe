@@ -190,7 +190,7 @@ await check('the menu: a top-level Accounts with Billing (its due badge), Invoic
   assert.deepEqual(m.COUNT_TONE.billingDue, { tone: 'warning', suffix: 'due' }, 'the badge reads "Billing 3 due"');
   const sales = m.SECTIONS.find((s) => s.key === 'sales');
   assert.ok(!sales.screens.some((s) => s.key === 'invoices'), 'Invoices moved to Accounts');
-  assert.match(acc.screens[1].permission, /cf_erp_orders_view\|cf_erp_accounts_view/);
+  assert.equal(acc.screens[1].permission, 'cf_erp_orders_manage|cf_erp_accounts_view', 'Invoices: Accounts, and whoever manages orders (2026-10-31)');
 });
 
 // ── 3: the Billing board ────────────────────────────────────────────────────────────────────────

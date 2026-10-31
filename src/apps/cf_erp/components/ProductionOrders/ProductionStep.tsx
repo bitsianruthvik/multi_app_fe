@@ -24,6 +24,7 @@ import { TimesPanel } from '../Production/TimesPanel';
 import { linesToCheck } from '../../lib/releaseFlow';
 import { ReleaseFlowGaps } from './ReleaseFlowGaps';
 import { useToast } from '../toastContext';
+import { TimingSheetButtons } from '../TimingSheetButtons';
 
 const ROW_COLS = { xs: '1fr auto', md: '120px minmax(200px, 2fr) 120px 150px auto' };
 
@@ -97,6 +98,9 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveOverride(); } }}
                   disabled={!canProduce || busy === 'override'} sx={{ width: 190 }} inputProps={{ inputMode: 'decimal', 'data-testid': 'time-override' }} />
               </Tooltip>
+              {/* This order's time per operation as Excel (operation code -> setup and time per quantity); steps not done are re-timed. */}
+              <TimingSheetButtons source={{ kind: 'order', orderId: order.id, orderCode: order.code }} canUpload={canProduce}
+                onApplied={() => { setTimesKey((k) => k + 1); load.reload(); onChanged?.(); }} />
               {lines.length > 1 && (
                 <TextField select size="small" label="Line" value={shownLine?.id ?? ''} onChange={(e) => setLineId(Number(e.target.value))} sx={{ minWidth: 200 }}>
                   {lines.map((l) => <MenuItem key={l.id} value={l.id}>{l.lineNo} · {l.item?.name ?? l.item?.code ?? 'Line'}</MenuItem>)}

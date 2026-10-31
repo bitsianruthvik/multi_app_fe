@@ -6,6 +6,7 @@ import {
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
+import TableViewRounded from '@mui/icons-material/TableViewRounded';
 import { cfApi, CfApiError } from '../api/client';
 import type { Batch, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
 import { bookGrn, getGrnContext, type GrnBody, type GrnContext, type GrnResult } from '../api/grn';
@@ -19,6 +20,7 @@ import { rupeeText } from '../lib/money';
 import { gstRateText } from '../lib/gst';
 import { computeGrn, grnBlockers, supplyKind, type DiscountMode, type GrnLineIn } from '../lib/grnMoney';
 import { SpecValueInput } from './SpecValueInput';
+import { GrnSheetDialog } from './GrnSheetDialog';
 import { ErrorNotice, Mono } from './ui';
 import { nudge } from '../motion';
 
@@ -104,6 +106,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const [pickSupplier, setPickSupplier] = useState('');
   const [missing, setMissing] = useState<Record<number, string | null>>({});
   const [busy, setBusy] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
@@ -189,7 +192,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
 
   // Enter moves to the next field (a grid is typed across); Ctrl+Enter books.
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' || e.defaultPrevented) return;
+    // React bubbles keys from the Excel dialog (a portal) through this one: never book from there.
+    if (e.key !== 'Enter' || e.defaultPrevented || sheetOpen) return;
     const t = e.target as HTMLElement;
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); void save(); return; }
     if (t.tagName !== 'INPUT' || t.getAttribute('aria-expanded') === 'true' || (t as HTMLInputElement).type === 'checkbox') return;
@@ -218,6 +222,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
           </Box>
         </Box>
         <Box sx={{ flex: 1 }} />
+        {/* 2026-10-31: the same GRN from a filled (or prepared) Excel sheet — rows matched by item code (grnSheetService). */}
+        <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => setSheetOpen(true)} disabled={busy || !po} data-testid="grn-excel" sx={{ whiteSpace: 'nowrap' }}>Receive from Excel</Button>
         <Tooltip title={full.on ? 'Exit full screen' : 'Full screen'}>
           <IconButton size="small" onClick={full.toggle} aria-label={full.on ? 'Exit full screen' : 'Full screen'} data-testid="grn-full-screen">
             {full.on ? <FullscreenExitRounded fontSize="small" /> : <FullscreenRounded fontSize="small" />}
@@ -342,6 +348,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
         <Button ref={receiveRef} variant="contained" onClick={() => void save()} disabled={busy || blockers.length > 0} data-testid="grn-receive"
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Booking…' : 'Receive'}</Button>
       </DialogActions>
+      <GrnSheetDialog po={sheetOpen && po ? { id: po.id, code: po.code } : null} onClose={() => setSheetOpen(false)}
+        onBooked={(res) => { setSheetOpen(false); onReceived(res); }} />
     </Dialog>
   );
 }

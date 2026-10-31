@@ -28,6 +28,7 @@ import { useFullScreen } from '../hooks/useFullScreen';
 import { PoStageBadge, PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { draftOf, parseRate, rateText, reconcile, settle, toSend, type CellDraft } from '../lib/quoteCells';
 import { FlashOnChange, duration, nudge, transition } from '../motion';
+import { BuyingSheetButtons } from '../components/Purchase/BuyingSheetButtons';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 /** A new PR shows this many vendor columns, empty, ready for a vendor to be picked. */
@@ -101,7 +102,7 @@ export default function PurchaseRequestDetail() {
           code={p.code}
           title={p.order && p.line ? `${p.order.code} · line ${p.line.lineNo}` : `For: ${p.requisition.forLabel ?? 'general'}${p.order ? ` · ${p.order.code}` : ''}`}
           badges={<FlashOnChange value={p.status}><PrStatusBadge status={p.status} /></FlashOnChange>}
-          actions={<FullScreenToggle on={full.on} onToggle={full.toggle} />}
+          actions={<><BuyingSheetButtons kind="pr" id={p.id} code={p.code} canUpload={editable} onApplied={() => pr.reload()} /><FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
             <Fact label="Material request"><Mono chip><Box component={Link} to={appPath(company, `material-requests/${p.requisition.id}`)} sx={linkSx}>{p.requisition.code}</Box></Mono></Fact>
             {p.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${p.order.id}`)} sx={linkSx}>{p.order.code}</Box></Mono></Fact>}

@@ -25,6 +25,7 @@ import { CustomerMaterialStatus, PromisedDateDialog } from '../components/Purcha
 import { FlashOnChange, SuccessCheck, nudge } from '../motion';
 import { useSavedCheck } from '../hooks/useSavedCheck';
 import { IssueNowDialog } from '../components/Purchase/IssueNowDialog';
+import { BuyingSheetButtons } from '../components/Purchase/BuyingSheetButtons';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const EPS = 1e-6;
@@ -172,7 +173,7 @@ export default function MaterialRequestDetail() {
               title={dirty ? 'Save the MR first — then issue what is earmarked.' : 'Issue what is earmarked for this MR and still in the store — one stock issue.'}>
               Issue now
             </Button>
-          )}{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
+          )}{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<BuyingSheetButtons kind="mr" id={m.id} code={m.code} canUpload={takeEditable} disabled={busy || dirty} disabledWhy="Save or undo what you typed first — then upload." onApplied={() => { reload(); invalidateNavCounts(); }} /><FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
             {m.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
             {m.line && <Fact label="Line">{m.line.name}</Fact>}

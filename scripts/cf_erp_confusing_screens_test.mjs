@@ -139,7 +139,8 @@ await check('(2) Management holds Dashboard (/management), Plan health, Approval
   assert.deepEqual(mg.screens.map((s) => [s.label, s.path]), [['Dashboard', 'management'], ['Plan health', 'management-overview'], ['Approvals', 'approvals'], ['Order costing', 'order-costing']]);
   assert.equal(new Set(mg.screens.map((s) => s.key)).size, 4, 'keys unique in the section');
   const prodDash = sec('production').screens.find((s) => s.path === 'management');
-  assert.equal(prodDash.label, 'Dashboard'); assert.equal(prodDash.permission, 'cf_erp_production_view');
+  // 2026-10-31: the menus follow what a role WORKS with — Production's own Dashboard is production manage.
+  assert.equal(prodDash.label, 'Dashboard'); assert.equal(prodDash.permission, 'cf_erp_production_manage');
   assert.ok(sec('accounts').screens.some((s) => s.path === 'order-costing' && s.permission === 'cf_erp_accounts_view'));
   // Shared screens in Management need what the page needs AND an approval tag.
   const dash = mg.screens[0].permission.split('|');
@@ -174,8 +175,8 @@ await check('(2)+(3) resolveNav: a path in two sections stays in the one it was 
   const allow = (tags) => (t) => !t || t.split('|').some((alt) => alt.split('&').every((x) => tags.includes(x)));
   assert.equal(m.resolveNav('/c/cf_erp/management').section.key, 'mgmt', 'no preference: first section listing it');
   assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'production' }).section.key, 'production');
-  assert.equal(m.resolveNav('/c/cf_erp/management', { isPermitted: allow(['cf_erp_production_view']) }).section.key, 'production', 'production people land in Production');
-  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'mgmt', isPermitted: allow(['cf_erp_production_view']) }).section.key, 'production', 'a preference the user may not see is ignored');
+  assert.equal(m.resolveNav('/c/cf_erp/management', { isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'production', 'production people land in Production');
+  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'mgmt', isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'production', 'a preference the user may not see is ignored');
   assert.equal(m.resolveNav('/c/cf_erp/machines/5', { prefer: 'maintenance' }).section.key, 'maintenance');
   assert.equal(m.resolveNav('/c/cf_erp/machines/5', { prefer: 'maintenance' }).detailId, '5');
   assert.equal(m.resolveNav('/c/cf_erp/machines/5').section.key, 'production');
@@ -202,12 +203,12 @@ await check('(2) the Overview page is Plan health now (title), same path', async
 });
 
 // ── (3) Maintenance menu ─────────────────────────────────────────────────────────────
-await check('(3) Maintenance lists the Machine register and Tools — the same routes and permissions as in Production and Stores', () => {
+await check('(3) Maintenance lists the Machine register (on the maintenance tag, 2026-10-31) and Tools (as in Stores) — the same routes as in Production and Stores', () => {
   const mt = sec('maintenance');
   const reg = mt.screens.find((s) => s.path === 'machines');
   const tools = mt.screens.find((s) => s.path === 'tools');
   assert.equal(reg.label, 'Machine register'); assert.ok(reg.hasDetail);
-  assert.equal(reg.permission, sec('production').screens.find((s) => s.path === 'machines').permission);
+  assert.equal(reg.permission, 'cf_erp_maintenance');
   assert.equal(tools.permission, sec('inventory').screens.find((s) => s.path === 'tools').permission);
   assert.equal(new Set(mt.screens.map((s) => s.label)).size, mt.screens.length, 'no two "Machines" labels');
 });
@@ -244,8 +245,8 @@ for (const [label, perms, canEdit, canFamily] of [
     assert.equal(/Setting a family needs the catalog manage or accounts manage permission/.test(t), !canFamily, 'family card');
   });
 }
-await check('(5) the Company tax details menu entry: orders view OR accounts view', () => {
-  assert.equal(sec('setup').screens.find((s) => s.key === 'company-tax').permission, 'cf_erp_orders_view|cf_erp_accounts_view');
+await check('(5) the Company tax details menu entry: orders OR accounts manage (2026-10-31, the menus follow working access)', () => {
+  assert.equal(sec('setup').screens.find((s) => s.key === 'company-tax').permission, 'cf_erp_orders_manage|cf_erp_accounts_manage');
 });
 for (const [label, perms, ok] of [['catalog manage', ['cf_erp_catalog_view', 'cf_erp_catalog_manage'], true], ['inventory manage', ['cf_erp_inventory_manage'], true], ['catalog view only', ['cf_erp_catalog_view'], false]]) {
   await check(`(5) Setup › Cutting scrap rate with ${label}: ${ok ? 'Save scrap rate shown' : 'read only'}`, async () => {

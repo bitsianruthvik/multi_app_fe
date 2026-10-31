@@ -172,8 +172,9 @@ await check('the menu: a Maintenance tab — Machines, Maintenance orders, Preve
   assert.equal(sec.label, 'Maintenance');
   // 2026-10-24: the machine register and Tools are in the Maintenance menu too, with their own (Production / Stores) permissions.
   assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime', 'machines', 'tools']);
-  // 2026-10-27: the board, the orders and planned downtime are READ with production view too (PPC); the plans stay Maintenance's.
-  assert.deepEqual(sec.screens.slice(0, 4).map((s) => s.permission), ['cf_erp_maintenance|cf_erp_production_view', 'cf_erp_maintenance|cf_erp_production_view', 'cf_erp_maintenance', 'cf_erp_maintenance|cf_erp_production_view']);
+  // 2026-10-31: the menu follows working access — the Maintenance tab is the maintenance tag's (production view still READS
+  // the pages, reached by a link; the backend is unchanged).
+  assert.deepEqual(sec.screens.slice(0, 4).map((s) => s.permission), ['cf_erp_maintenance|cf_erp_production_manage', 'cf_erp_maintenance|cf_erp_production_manage', 'cf_erp_maintenance', 'cf_erp_maintenance|cf_erp_production_manage']);
   assert.equal(sec.screens[1].hasDetail, true);
   assert.ok(src('routes.tsx').includes("'/:company/cf_erp/maintenance-orders/:id'"));
 });
