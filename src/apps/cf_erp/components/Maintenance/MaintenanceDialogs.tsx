@@ -108,7 +108,11 @@ export function CloseOrderDialog({ order, onClose, onDone }: { order: Maintenanc
         <TextField size="small" label={cost > 0 ? 'What it was for (needed)' : 'What it was for'} value={costNote} onChange={(e) => setCostNote(e.target.value)} sx={{ flex: 1 }}
           placeholder="e.g. outside rewinding" inputProps={{ 'data-testid': 'close-cost-note' }} />
       </Box>
-      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Parts issued against this order are added to its cost by the stores.</Typography>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }} data-testid="close-parts">
+        {order?.partsCost != null
+          ? `Parts issued against this order so far: ₹${order.partsCost.toLocaleString('en-IN', { maximumFractionDigits: 2 })} — added to its cost. Type only labour or outside work here.`
+          : 'Parts issued against this order (Stores › its MR › Issue now) are added to its cost by themselves. Type only labour or outside work here.'}
+      </Typography>
     </FormDialog>
   );
 }

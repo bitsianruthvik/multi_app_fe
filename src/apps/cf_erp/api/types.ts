@@ -1827,6 +1827,18 @@ export interface NestingPlan {
   notes?: string[];
   /** §90: one entry per steel whose plates moved to a custom size (a proposal). */
   customPlates?: NestCustomProposal[];
+  /** 2026-10-31: the steels no catalog plate is (a proposal) — each can be added from here ("Add this plate to the catalog"). */
+  missingPlates?: NestPlanMissingSteel[];
+}
+
+/** A steel a plan found no catalog plate for. `problem` is the sentence of `problems` it belongs to. */
+export interface NestPlanMissingSteel {
+  key: string;
+  thickness: number; material: string | null; grade: string | null; impactClass: string | null;
+  cutPlates: number; pieces: number;
+  /** no_plate: no plate of the steel at all; impact_class: plates of it, none of the impact class asked. */
+  reason: 'no_plate' | 'impact_class';
+  problem: string;
 }
 
 /** "n pieces · x kg cut from untracked offcuts" (GET …/nesting `untracked`). */

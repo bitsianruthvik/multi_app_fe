@@ -130,6 +130,8 @@ export interface TermTemplate {
   updatedAt?: string;
 }
 
+export interface SuggestedOperation { operationId: number; lineNo: number; why: string; code: string | null; name: string | null }
+
 export interface AcceptanceView {
   order: {
     id: number; code: string; status: string; orderType: 'customer' | 'stock'; title: string | null;
@@ -145,6 +147,10 @@ export interface AcceptanceView {
   supplyEditable: boolean;
   terms: Terms;
   fromTemplates: boolean;
+  /** The operation a pro-rata charge with none starts at: the last operation of the order's top-level flow (null when no line has one). */
+  suggestedOperation?: SuggestedOperation | null;
+  /** The keys of the charges the server prefilled with it (a new acceptance only). */
+  prefilledCharges?: string[];
   estimate: Estimate;
   approved: AcceptanceVersion | null;
   pending: AcceptanceVersion | null;

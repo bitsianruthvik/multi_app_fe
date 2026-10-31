@@ -66,11 +66,25 @@ export function termsBody(t: Terms): Terms {
 }
 
 /** A template's rows put into the terms (its own kind only; the other grids stay). */
-export function applyTemplate(t: Terms, tpl: Pick<TermTemplate, 'kind' | 'rows'>): Terms {
+export function applyTemplate(t: Terms, tpl: Pick<TermTemplate, 'kind' | 'rows'>, suggestedOperationId: number | null = null): Terms {
   const r = JSON.parse(JSON.stringify(tpl.rows ?? {})) as Partial<Terms>;
-  if (tpl.kind === 'charges') return { ...t, charges: r.charges ?? [], material: r.material ?? null, lumpSums: r.lumpSums ?? [] };
+  if (tpl.kind === 'charges') return { ...t, charges: prefillOperations(r.charges ?? [], suggestedOperationId).charges, material: r.material ?? null, lumpSums: r.lumpSums ?? [] };
   if (tpl.kind === 'milestones') return { ...t, milestones: r.milestones ?? [] };
   return { ...t, stages: r.stages ?? [] };
+}
+
+/**
+ * A pro-rata charge with no operation starts at the suggested one (the last operation of the order's top-level flow,
+ * from the server) — the twin of the server's prefillChargeOperations. Returns the keys it filled.
+ */
+export function prefillOperations(charges: ChargeRow[], suggestedOperationId: number | null): { charges: ChargeRow[]; keys: string[] } {
+  if (suggestedOperationId == null) return { charges, keys: [] };
+  const keys: string[] = [];
+  const out = charges.map((c) => {
+    if (c.billing === 'pro_rata' && c.operationId == null) { keys.push(c.key); return { ...c, operationId: suggestedOperationId }; }
+    return c;
+  });
+  return { charges: out, keys };
 }
 
 /** The part of the terms a template of that kind holds — "Save as template". */

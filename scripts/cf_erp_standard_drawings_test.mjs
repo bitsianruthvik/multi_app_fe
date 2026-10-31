@@ -273,6 +273,88 @@ await check('Add line › From a standard drawing: pick by number, and what it s
   assert.deepEqual(lastCall('POST', '/orders/3/lines/from-standard').body, { standardId: 7, quantity: '2', committedDate: null, description: null });
   assert.ok(saved, 'the order that came back is shown');
 });
+// 2026-10-31: the standard's gaps are said right after the line is ADDED — the Freeze checklist read once after the add
+// (GET /order-lines/:id/lock, outside the add's transaction), not first at freeze.
+const NEEDS = {
+  checks: [
+    { key: 'line', ok: true, applies: true, title: 'A line built from a template, on an open order', detail: 'Line 1.', problems: [] },
+    { key: 'execution_plan', ok: false, applies: true, title: 'The execution plan is saved', detail: 'Not saved yet.', stageKey: 'execution_plan', problems: ['x'] },
+    { key: 'values', title: 'Every required value is filled', detail: '9 required values are still empty — TF1 · GRADE.', todo: 'Fill them on the Values stage.', stageKey: 'values', warning: false },
+    { key: 'section_parts', title: 'Every section part has its bar and length', detail: '5 section parts cannot be cut yet — ST1 (no section chosen).', todo: 'Choose the section each is cut from.', stageKey: 'structure', warning: false },
+    { key: 'flows', title: 'Every made part says how it is made', detail: '14 made rows have no flow yet — Girder segment.', todo: null, stageKey: 'structure', warning: true, rows: [{ recordId: 5, lineId: 9, name: 'Girder segment' }] },
+    { key: 'codes', title: 'Every piece gets a code of its own', detail: '1 code is given to more than one piece — SO-1-GS-01-1.', todo: 'Change the coding rule under Setup › Coding rules, then look again.', warning: false },
+  ].map((ch) => ({ ok: ch.ok ?? false, applies: true, problems: [], ...ch })),
+  locked: null,
+};
+await check('a line from a standard says at once what it needs before the freeze — with jump buttons and the standard reminder', async () => {
+  reset();
+  const tied = line(41, 1, { standard: { id: 7, number: RDSO.number, name: 'n', versionId: 11, versionNo: 1 } });
+  globalThis.__routes['GET /standard-drawings'] = () => ({ rows: [RDSO] });
+  globalThis.__routes['POST /orders/3/lines/from-standard'] = () => ({ ...order([tied]), fromStandard: { lineId: 41, standardId: 7, number: RDSO.number, versionNo: 1, rows: 56, cutPieces: { made: true, reason: null, message: null } } });
+  globalThis.__routes['GET /order-lines/41/standard'] = () => ({ line: { id: 41, lineNo: 1, orderId: 3, orderCode: 'SO-1', hasBom: true, locked: false }, standard: RDSO, version: V1, latest: V1, edited: false, kept: false, offer: null, canCreate: false });
+  let lockReads = 0;
+  const AFTER_FIXES = { checks: [{ key: 'values', ok: true, applies: true, title: 'Every required value is filled', detail: 'All filled.', problems: [] }, { key: 'flows', ok: false, warning: true, applies: true, title: 'Every made part says how it is made', detail: '2 made rows have no flow yet.', stageKey: 'structure', problems: [] }], locked: null };
+  globalThis.__routes['GET /order-lines/41/lock'] = () => (++lockReads === 1 ? NEEDS : AFTER_FIXES);
+  const went = [];
+  const view = { stages: [{ stageKey: 'structure', label: 'Structure & values' }, { stageKey: 'lock', label: 'Freeze design' }], lines: [] };
+  function Host() {
+    const [o, setO] = React.useState(order([]));
+    return React.createElement(m.OrderStructureStep, { view, onChanged: () => {}, order: o, onOrderSaved: setO, onGoStage: (k) => went.push(k) });
+  }
+  await render(React.createElement(Host), '/testco/cf_erp/orders/3');
+  await click(buttonIn(app, 'Add line'));
+  const dlg = document.querySelector('[role="dialog"]');
+  await click(buttonIn(dlg, 'From a standard drawing'));
+  const input = inputLabelled(dlg, 'Drawing number');
+  await setValue(input, '11751'); await fire(input, 'mousedown'); await settle(420);
+  await click([...document.querySelectorAll('[role="option"]')].find((o) => text(o).includes('RDSO/B-11751R3'))); await settle();
+  await click(buttonIn(dlg, 'Add line')); await settle(150);
+  const banner = q1('line-readiness');
+  assert.ok(banner, 'the line says what it needs right after it is added');
+  assert.equal(lockReads, 1, 'read once, by a GET after the add (the add answer carries none)');
+  assert.equal(calls('GET', '/order-lines/41/lock')[0].url.includes('nodes'), false, '…without the piece tree');
+  assert.equal(q1('readiness-need-execution_plan'), null, 'the execution plan is not a gap of the drawing');
+  assert.equal(q1('readiness-need-line'), null, 'a passing check is not listed');
+  assert.match(text(q1('readiness-headline')), /^This line needs 3 things settled before it can be frozen \(and one more before release\):/);
+  assert.deepEqual(qa('readiness-need-values').length + qa('readiness-need-section_parts').length + qa('readiness-need-codes').length + qa('readiness-need-flows').length, 4);
+  assert.match(text(banner), /9 required values are still empty/); assert.match(text(banner), /5 section parts cannot be cut yet/); assert.match(text(banner), /14 made rows have no flow yet/); assert.match(text(banner), /more than one piece/);
+  assert.match(text(banner), /Before release/);
+  assert.ok(buttonIn(q1('readiness-need-codes'), 'Coding rules'), 'a code clash goes to the coding rules');
+  assert.equal(qa('readiness-go').length, 3, 'the others jump to the Structure stage');
+  assert.match(text(q1('readiness-standard-note')), /save the fixes back to the standard/);
+  assert.ok(q1('line-grid-1'), 'the line\'s grid is there to jump to');
+  await click(qa('readiness-go')[0]); await settle();
+  await click(q1('readiness-freeze')); await settle();
+  assert.deepEqual(went, ['lock'], 'Open the Freeze checklist goes to the Freeze design step');
+  await click(q1('readiness-recheck')); await settle(80);
+  assert.match(text(q1('readiness-headline')), /^Line 1 can be frozen — release will ask for one more thing:/, 'Check again reads the checklist afresh');
+  await click(q1('line-readiness').querySelector('[aria-label="Hide what the line needs"]')); await settle();
+  assert.equal(q1('line-readiness'), null, 'and it can be hidden');
+});
+await check('a line laid out from a template reads what it needs right after it is added', async () => {
+  reset();
+  const tpl = { id: 6095, code: 'SPAN', name: 'Bridge span', kind: 'template', status: 'active', recordKind: 'definition' };
+  globalThis.__routes['GET /records'] = () => ({ rows: [tpl], total: 1 });
+  globalThis.__routes['GET /pickers/records'] = () => ({ rows: [tpl], total: 1 });
+  globalThis.__routes['POST /orders/3/lines'] = () => order([line(45, 1)]);
+  globalThis.__routes['GET /order-lines/45/lock'] = () => ({ checks: [{ key: 'values', ok: false, applies: true, title: 'Every required value is filled', detail: '2 required values are still empty.', stageKey: 'values', problems: ['x'] }], locked: null });
+  function Host() {
+    const [o, setO] = React.useState(order([]));
+    return React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: o, onOrderSaved: setO });
+  }
+  await render(React.createElement(Host), '/testco/cf_erp/orders/3');
+  await click(buttonIn(app, 'Add line'));
+  await click(q1('add-choice-parts'));
+  const dlg = document.querySelector('[role="dialog"]');
+  const what = inputLabelled(dlg, 'What it sells');
+  await setValue(what, 'span'); await fire(what, 'mousedown'); await settle(450);
+  await click([...document.querySelectorAll('[role="option"]')].find((o) => text(o).includes('Bridge span'))); await settle();
+  await click(buttonIn(dlg, 'Add line')); await settle(150);
+  assert.equal(calls('GET', '/order-lines/45/lock').length, 1, 'the checklist is read once, after the add');
+  assert.match(text(q1('readiness-headline')), /^This line needs 1 thing settled before it can be frozen:/);
+  assert.equal(q1('readiness-standard-note'), null, 'no standard to save back to');
+  assert.equal(q1('readiness-freeze'), null, 'no Freeze step to go to without a process');
+});
 await check('a standard with no BOM yet cannot make a line: the button waits and the reason is said', async () => {
   reset();
   globalThis.__routes['GET /standard-drawings'] = () => ({ rows: [EMPTY] });

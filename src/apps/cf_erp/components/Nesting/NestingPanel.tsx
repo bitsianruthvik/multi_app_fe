@@ -62,6 +62,8 @@ import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 import { PlateChangeProvider, PlateChangesPanel } from './PlateChange';
 import { usePlateChange } from './plateChangeContext';
 import { NestCompareTab } from './NestCompareTab';
+import { NestMissingSteel, NO_CATALOG } from './NestMissingSteel';
+import { addedWords } from '../../lib/nestMissingSteel';
 import { getNestAlternative } from '../../api/nesting';
 import { nudgeIfRefused } from '../salesMotion';
 import { celebrate } from '../../motion';
@@ -1109,7 +1111,16 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
         <Alert severity="warning">
           <Box sx={{ fontWeight: 600, mb: 0.5 }}>{showPlan ? 'Some cut pieces were left out of the pack.' : 'Some cut pieces cannot be nested as they are.'}</Box>
           <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, minWidth: 0, overflowWrap: 'anywhere' }}>
-            {plan.problems.map((p) => <li key={p}>{p}</li>)}
+            {plan.problems.map((p) => (
+              <li key={p}>
+                {p}
+                {/* 2026-10-31: a steel no catalog plate is — added from here, then the plan runs again. */}
+                <NestMissingSteel orderId={orderId} lineId={lineId} missing={(plan.missingPlates ?? []).filter((m) => m.problem === p)}
+                  canAdd={canManage && canEditCatalog && !locked} why={!canManage ? NO_MANAGE : !canEditCatalog ? NO_CATALOG : locked ? 'Wait for nesting to finish.' : null}
+                  onAdded={(out) => { toast.success(addedWords(out)); void propose(replaceAll); }}
+                  onError={(e) => setActionError(e as CfApiError)} />
+              </li>
+            ))}
           </Box>
         </Alert>
       )}

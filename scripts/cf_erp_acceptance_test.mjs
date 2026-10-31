@@ -239,6 +239,28 @@ await check('the step: prefilled grids, the estimate, the MR to share, a change 
   assert.ok(q1('acc-take-back'), 'the pending terms can be taken back');
 });
 
+// 2026-10-31: a pro-rata charge with no operation starts at the last operation of the order's top-level flow.
+await check('a new acceptance: the pro-rata charge comes with the suggested operation, said where it comes from; a template filled here gets it too', async () => {
+  reset(); asUser(['cf_erp_orders_view', 'cf_erp_orders_manage']);
+  const lists = { ...LISTS, operations: [...LISTS.operations, { id: 13, code: 'DSP', name: 'Dispatch' }] };
+  const suggested = { operationId: 13, lineNo: 1, why: 'The last operation of line 1 (Girder)’s flow SPAN.', code: 'DSP', name: 'Dispatch' };
+  const terms = JSON.parse(JSON.stringify(TERMS)); terms.charges[0].operationId = 13;
+  const noOp = { id: 4, kind: 'charges', name: 'No operation', isDefault: false, rows: { charges: [{ ...TERMS.charges[0], operationId: null }, { ...TERMS.charges[1], operationId: null }], material: null, lumpSums: [] }, notes: null };
+  const view = viewOf({ lists, terms, suggestedOperation: suggested, prefilledCharges: ['fab'], templates: [...viewOf().templates, noOp] });
+  globalThis.__routes['GET /orders/9001/acceptance'] = () => view;
+  globalThis.__routes['PUT /orders/9001/acceptance'] = (b) => { const x = typeof b === 'string' ? JSON.parse(b) : b; return { dryRun: true, terms: x, estimate: EST(), problems: [], changes: [] }; };
+  await mount(React.createElement(m.AcceptanceStep, { order }));
+  await settle(450);
+  const sug = qa('charge-op-suggested');
+  assert.equal(sug.length, 1, 'only the prefilled charge says so');
+  assert.match(text(sug[0]), /Suggested: The last operation of line 1 \(Girder\)’s flow SPAN\. Change it if the work is billed at another step\./);
+  assert.match(text(qa('acc-charge-row')[0]), /Dispatch/, 'the chosen operation is shown by its name');
+  assert.match(text(qa('acc-charge-row')[0]), /DSP/, '…and its code');
+  const t = m.applyTemplate(JSON.parse(JSON.stringify(TERMS)), noOp, 13);
+  assert.deepEqual(t.charges.map((c) => c.operationId), [13, null], 'a template filled in here: only the pro-rata charge gets it');
+  assert.deepEqual(m.prefillOperations(noOp.rows.charges, null).keys, [], 'no suggestion, nothing filled');
+});
+
 await check('accepted: the terms are locked, a change is a rate change; sent back shows the reason', async () => {
   reset(); asUser(['cf_erp_orders_view', 'cf_erp_orders_manage']);
   const approved = { id: 2, version: 2, kind: 'acceptance', status: 'approved', note: null, savedBy: null, savedAt: '2026-10-17T09:00:00Z', decidedBy: { id: 9, name: 'MD' }, decidedAt: '2026-10-18T09:00:00Z', decisionNote: null, approvalId: 6 };

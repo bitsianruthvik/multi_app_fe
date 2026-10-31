@@ -27,6 +27,7 @@ import { useToast } from '../toastContext';
 import { codeOrName } from '../../lib/displayCode';
 import { addLineFromDrawing, saveLineAsStandard } from '../../api/addLine';
 import { addChoices, choiceForKey, drawingFileKind, moveChoice, type AddChoice } from '../../lib/addLine';
+import type { LineReadiness } from '../../lib/lineReadiness';
 
 /**
  * The dialogs of a sales order's LINES, used by the Structure & values step (OrderStructureStep): add a line (three
@@ -45,7 +46,10 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
  *      screen; rows AI was unsure of carry an amber "AI" chip with the reason. Scanned PDFs: not yet.
  * All three end in the same editable grid on the Structure & values step.
  */
-export function AddLineDialog({ order, open, initialMode = null, onClose, onDone }: { order: SalesOrder; open: boolean; initialMode?: AddChoice | null; onClose: () => void; onDone: (o: SalesOrder, message?: string) => void }) {
+/** The line just added; what it needs before it can be frozen is read right after (readiness null until then). */
+export interface AddedLine { lineId: number; lineNo: number; fromStandard: boolean; readiness: LineReadiness | null }
+
+export function AddLineDialog({ order, open, initialMode = null, onClose, onDone }: { order: SalesOrder; open: boolean; initialMode?: AddChoice | null; onClose: () => void; onDone: (o: SalesOrder, message?: string, added?: AddedLine) => void }) {
   const stock = order.orderType === 'stock';
   const cards = addChoices(stock ? 'stock' : 'customer');
   const [mode, setMode] = useState<AddChoice | null>(initialMode);
@@ -84,7 +88,11 @@ export function AddLineDialog({ order, open, initialMode = null, onClose, onDone
     if (mode === 'standard') {
       if (!std) return;
       const out = await addLineFromStandard(order.id, { standardId: std.id, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null, ...price });
-      onDone(out, out.fromStandard ? `Line added from ${standardLabel({ number: out.fromStandard.number, versionNo: out.fromStandard.versionNo })}: ${out.fromStandard.rows} rows copied.` : undefined);
+      const fs = out.fromStandard;
+      if (!fs) { onDone(out); return; }
+      const lineNo = (out.lines ?? []).find((l) => l.id === fs.lineId)?.lineNo ?? 0;
+      // What it needs before the freeze is read right after, outside the add (the order screen does it).
+      onDone(out, `Line added from ${standardLabel({ number: fs.number, versionNo: fs.versionNo })}: ${fs.rows} rows copied.`, { lineId: fs.lineId, lineNo, fromStandard: true, readiness: null });
       return;
     }
     // A template line copies its whole Template BOM beneath it — long on production, so wait for it.
@@ -101,10 +109,11 @@ export function AddLineDialog({ order, open, initialMode = null, onClose, onDone
         await uploadDrawings(order.id, added.id, [{ name: file.name, content, rowId: added.item.id }], false);
       }
       saved = await cfApi.get<SalesOrder>(`/orders/${order.id}`);
-      onDone(saved, isStandard ? `Line added. ${stdForm.number.trim()} is saved to Standard drawings — save the BOM onto it once it is filled.` : 'Line added with its drawing.');
+      onDone(saved, isStandard ? `Line added. ${stdForm.number.trim()} is saved to Standard drawings — save the BOM onto it once it is filled.` : 'Line added with its drawing.', added.lineType === 'custom' ? { lineId: added.id, lineNo: added.lineNo, fromStandard: false, readiness: null } : undefined);
       return;
     }
-    onDone(saved);
+    // A line laid out from a template: what it needs before the freeze is read right after (the order screen does it).
+    onDone(saved, undefined, added && added.lineType === 'custom' && added.item ? { lineId: added.id, lineNo: added.lineNo, fromStandard: false, readiness: null } : undefined);
   };
   const hint = rec?.kind === 'template'
     ? `Lays ${codeOrName(rec)} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the design is frozen.`

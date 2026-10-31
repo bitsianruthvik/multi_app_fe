@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { GradeCheck, NestCustomProposal, NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
+import type { GradeCheck, NestCustomProposal, NestPlanMissingSteel, NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
 import { isRequested, type PlateChangeDirect, type PlateChangeFields, type PlateChangeRequested } from './plateChanges';
 
 /**
@@ -482,7 +482,7 @@ export async function sendNestFiles(orderId: number, lineId: number, req: NestFi
 /** One missing plate to add: `code` only when the user changed the suggested one. */
 export interface NestPlateToAdd { key: string; kind: 'custom' | 'standard'; code?: string; name?: string }
 export interface NestPlatesAdded {
-  created: { key: string; itemId: number; code: string; name: string; kind: 'custom' | 'standard' }[];
+  created: { key: string; itemId: number; code: string; name: string; kind: 'custom' | 'standard'; sizedFrom?: 'thickness' | 'catalog'; length?: number; width?: number }[];
   skipped: { key: string; why: string; itemId?: number; code?: string }[];
   message: string;
 }
@@ -490,6 +490,16 @@ export interface NestPlatesAdded {
 /** Add plate sizes the files use to the catalog. A bad code or grade is a 422 with `problems`. */
 export function addNestPlates(orderId: number, lineId: number, plates: NestPlateToAdd[]): Promise<NestPlatesAdded> {
   return cfApi.post<Partial<NestPlatesAdded>>(`${base(orderId, lineId)}/plates`, { plates }, { timeoutMs: LONG_WRITE_MS })
+    .then((o) => ({ created: arr(o.created), skipped: arr(o.skipped), message: o.message ?? '' }));
+}
+
+/**
+ * A plan's missing steel added to the catalog (2026-10-31): the server gives it the size the company's plates of that
+ * thickness use most (else the size most plates are), its code and name by the company's rules. Catalog manage.
+ */
+export function addMissingSteel(orderId: number, lineId: number, steel: NestPlanMissingSteel): Promise<NestPlatesAdded> {
+  const plate = { thickness: steel.thickness, material: steel.material, grade: steel.grade, impactClass: steel.impactClass };
+  return cfApi.post<Partial<NestPlatesAdded>>(`${base(orderId, lineId)}/plates`, { plates: [plate] }, { timeoutMs: LONG_WRITE_MS })
     .then((o) => ({ created: arr(o.created), skipped: arr(o.skipped), message: o.message ?? '' }));
 }
 

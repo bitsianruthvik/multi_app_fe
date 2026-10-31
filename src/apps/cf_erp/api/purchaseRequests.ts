@@ -37,6 +37,10 @@ export interface MrScreenLine {
   status: string;
   statusLabel: string;
   sentence: string;
+  /** §95: issued so far — "Issue now" on an MR raised by hand; an order's own MR: issued to its production order. */
+  issued: number;
+  /** §95: earmarked for the MR and still in the store (held from stock or received on its POs) — what "Issue now" takes. */
+  toIssue: number;
   purchase: ReqPurchase[];
 }
 
@@ -72,6 +76,12 @@ export interface MrScreen extends MrForFields {
   heldForAcceptance?: boolean;
   canEdit: boolean;
   reason: string | null;
+  /** §95: "Issue now" — offered when something is earmarked and still in the store (and the MR is issued from here). */
+  canIssue?: boolean;
+  /** §95: why an MR is not issued from here (an order's own MR, a stock MR, waiting for acceptance); null = it is. */
+  issueReason?: string | null;
+  /** §95: what an issue from this MR is used for: its sales order, or General. */
+  issueUsedFor?: 'order' | 'general';
   lines: MrScreenLine[];
   purchaseRequest: PrSummary | null;
   purchaseOrders: { id: number; code: string; status: string; suppliedByCustomer?: boolean; supplier: { id: number; name: string } | null }[];
@@ -166,6 +176,21 @@ export const getMaterialRequest = (id: number) => cfApi.get<MrScreen>(`/material
 /** Saves "take from stock" per line: earmarks it, and makes / updates the PR (or asks the customer for the rest). */
 export const saveMaterialRequest = (id: number, body: { lines: { lineId: number; takeFromStock: number }[]; customerDate?: string }) =>
   cfApi.put<MrScreen>(`/material-requests/${id}`, body);
+
+/** §95: what "Issue now" will do (dry run) or did. */
+export interface MrIssueResult {
+  dryRun?: boolean;
+  usedFor: 'order' | 'general';
+  order: { id: number; code: string } | null;
+  maintenanceOrderId: number | null;
+  lines: { lineId: number; item: ReqItem; quantity: number; from: { area: string; batch: string | null; quantity: number }[] }[];
+  movement?: { id: number; code: string };
+  materialRequest?: MrScreen;
+  message?: string;
+}
+/** §95: ISSUE NOW — one issue for what is earmarked for the MR and still in the store (lines: none = all of it). */
+export const issueMaterialRequest = (id: number, body: { lines?: { lineId: number; quantity?: number }[]; movementDate?: string; notes?: string; dryRun?: boolean } = {}) =>
+  cfApi.post<MrIssueResult>(`/material-requests/${id}/issue`, body);
 
 // ---- the PR ------------------------------------------------------------------------------
 export const listPurchaseRequests = (q: { status?: string; search?: string; orderId?: number | null } = {}) =>

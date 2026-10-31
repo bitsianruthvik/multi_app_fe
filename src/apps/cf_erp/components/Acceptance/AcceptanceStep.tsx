@@ -15,7 +15,7 @@ import { useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useFullScreen } from '../../hooks/useFullScreen';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
-import { applyTemplate, percentTotal, saveBlob, saveLabel, stateWords, templateRows, termsBody, termsOf, termInputSx as inputSx } from '../../lib/acceptance';
+import { applyTemplate, prefillOperations, percentTotal, saveBlob, saveLabel, stateWords, templateRows, termsBody, termsOf, termInputSx as inputSx } from '../../lib/acceptance';
 import { rupeeText } from '../../lib/money';
 import { Link } from 'react-router-dom';
 import { useCompanySlug } from '../../hooks/useLoad';
@@ -96,10 +96,13 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
   const seq = useRef(0);
   const original = useRef<string>('');
 
+  // The charges the server started at the suggested operation (a new acceptance), or a charges template filled in here.
+  const [suggestedKeys, setSuggestedKeys] = useState<string[]>([]);
   useEffect(() => {
     if (!view) return;
     const t = termsOf(view);
     setTerms(t);
+    setSuggestedKeys(view.prefilledCharges ?? []);
     original.current = JSON.stringify(t);
     setCheck(null);
   }, [view]);
@@ -152,7 +155,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
     return editable && (
       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
         {list.length > 0 && (
-          <TextField select size="small" value="" label="Fill from template" sx={{ minWidth: 190, ...inputSx }} onChange={(e) => { const tpl = list.find((t) => t.id === Number(e.target.value)); if (tpl) setTerms(applyTemplate(terms, tpl)); }}
+          <TextField select size="small" value="" label="Fill from template" sx={{ minWidth: 190, ...inputSx }} onChange={(e) => { const tpl = list.find((t) => t.id === Number(e.target.value)); if (tpl) { const sug = view.suggestedOperation?.operationId ?? null; if (kind === 'charges') setSuggestedKeys(prefillOperations((tpl.rows.charges ?? []) as Terms['charges'], sug).keys); setTerms(applyTemplate(terms, tpl, sug)); } }}
             inputProps={{ 'data-testid': `tpl-${kind}` }}>
             {list.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</MenuItem>)}
           </TextField>
@@ -232,7 +235,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
         </SectionCard>
 
         <SectionCard title="Charges" subtitle="One row per operation. By weight or by a formula of the BOM's values, at a rate per unit." actions={templatePicker('charges')}>
-          <ChargesGrid terms={terms} onChange={up} lists={view.lists} editable={editable} estimate={estimate} showMaterial={anyWeBuy} materialTonnes={estimate.ourTonnes} />
+          <ChargesGrid terms={terms} onChange={up} lists={view.lists} editable={editable} estimate={estimate} showMaterial={anyWeBuy} materialTonnes={estimate.ourTonnes} suggested={view.suggestedOperation ?? null} suggestedKeys={suggestedKeys} />
         </SectionCard>
 
         <SectionCard title="Payment milestones" subtitle={`Billed on things the app tracks. They add up to ${percentTotal(terms.milestones)} %.`} actions={templatePicker('milestones')}>

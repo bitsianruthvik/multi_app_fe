@@ -3,8 +3,9 @@ import { Alert, Box, Button, TextField, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
+import OutputRounded from '@mui/icons-material/OutputRounded';
 import { CfApiError } from '../api/client';
-import { getMaterialRequest, saveMaterialRequest, type MrScreenLine } from '../api/purchaseRequests';
+import { getMaterialRequest, saveMaterialRequest, type MrScreen, type MrScreenLine } from '../api/purchaseRequests';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -23,6 +24,7 @@ import { PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { CustomerMaterialStatus, PromisedDateDialog } from '../components/Purchase/CustomerMaterialStatus';
 import { FlashOnChange, SuccessCheck, nudge } from '../motion';
 import { useSavedCheck } from '../hooks/useSavedCheck';
+import { IssueNowDialog } from '../components/Purchase/IssueNowDialog';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const EPS = 1e-6;
@@ -54,6 +56,8 @@ export default function MaterialRequestDetail() {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<CfApiError | null>(null);
   const [asking, setAsking] = useState(false);
+  // §95: the "Issue now" dialog.
+  const [issuing, setIssuing] = useState(false);
   // Motion: a tick beside Save once it saved; a nudge on Save when the server refuses (the reason shows above the lines).
   const [savedTick, markSaved] = useSavedCheck();
   const saveRef = useRef<HTMLButtonElement>(null);
@@ -80,6 +84,14 @@ export default function MaterialRequestDetail() {
   const forStock = m.manual && m.forType === 'stock';
   const takeEditable = editable && !forStock;
   const lockedHeader = m.line ? 'Locked for this order' : 'Locked for this MR';
+  // §95: Issue now — what is earmarked and still in the store leaves it as one issue. Save first if a take is being typed.
+  const issuable = canManage && !!m.canIssue;
+  const showIssued = !m.issueReason || m.lines.some((l) => (l.issued ?? 0) > EPS);
+  const afterIssue = (next: MrScreen, message: string) => {
+    mr.setData(next);
+    invalidateNavCounts();
+    toast.success(message);
+  };
 
   const save = async (customerDate?: string) => {
     setBusy(true); setRefusal(null);
@@ -134,6 +146,17 @@ export default function MaterialRequestDetail() {
         </Box>
       ),
     },
+    // §95: what has left the store for this MR, and what is earmarked and still there (what Issue now takes).
+    ...(showIssued ? [
+      {
+        key: 'issued', header: 'Issued', numeric: true, alwaysVisible: true, sortValue: (l: MrScreenLine) => l.issued ?? 0,
+        render: (l: MrScreenLine) => <span data-testid="mr-issued"><FlashOnChange value={l.issued ?? 0}><Mono muted={!l.issued}>{qtyText(l.issued ?? 0)}</Mono></FlashOnChange></span>,
+      },
+      ...(!m.issueReason ? [{
+        key: 'toIssue', header: 'In store, to issue', numeric: true, sortValue: (l: MrScreenLine) => l.toIssue ?? 0,
+        render: (l: MrScreenLine) => <span data-testid="mr-to-issue"><Mono muted={!l.toIssue}>{qtyText(l.toIssue ?? 0)}</Mono></span>,
+      }] : []),
+    ] : []),
   ];
 
   return (
@@ -144,7 +167,12 @@ export default function MaterialRequestDetail() {
           code={m.code}
           title={mrForWords(m)}
           badges={<><Badge family={m.forType === 'sales_order' ? 'info' : m.forType === 'stock' ? 'success' : 'neutral'} noIcon label={`For: ${m.forLabel}`} />{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}{m.internal && <Badge family="neutral" noIcon label="Stores' own purchase" title="Raised by Stores straight to a purchase request (To reorder › Raise PR or New PR). Not a request to Stores — it is not in the MR inbox." />}</>}
-          actions={<>{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
+          actions={<>{issuable && (
+            <Button variant="outlined" startIcon={<OutputRounded />} disabled={busy || dirty} onClick={() => setIssuing(true)} data-testid="mr-issue-now"
+              title={dirty ? 'Save the MR first — then issue what is earmarked.' : 'Issue what is earmarked for this MR and still in the store — one stock issue.'}>
+              Issue now
+            </Button>
+          )}{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
             {m.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
             {m.line && <Fact label="Line">{m.line.name}</Fact>}
@@ -174,6 +202,9 @@ export default function MaterialRequestDetail() {
         ? "Take the customer's own stock that is here; the rest is asked of them. Locked = earmarked for this order — nobody else can use it."
         : 'Take what you can from stock; the rest goes on the purchase request. Locked = earmarked for this order — nobody else can use it.'}>
         <DataTable rows={m.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="mr-lines" exportName={`${m.code}-lines`} />
+        {m.issueReason && !m.heldForAcceptance && !forStock && (
+          <Typography data-testid="mr-issue-reason" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 1 }}>{m.issueReason}</Typography>
+        )}
       </SectionCard>
       {m.purchaseOrders.length > 0 && (
         <SectionCard title="Purchase orders" subtitle="The purchase orders that serve this MR.">
@@ -189,6 +220,7 @@ export default function MaterialRequestDetail() {
         </SectionCard>
       )}
       {customer && m.order && <CustomerMaterialStatus orderId={m.order.id} />}
+      <IssueNowDialog mr={issuing ? m : null} onClose={() => setIssuing(false)} onDone={afterIssue} />
       <PromisedDateDialog open={asking} proposed={null} submitLabel="Save" onClose={() => setAsking(false)} onConfirm={async (date) => { setAsking(false); await save(date); }} />
     </DetailLayout>
     </FullScreenFrame>

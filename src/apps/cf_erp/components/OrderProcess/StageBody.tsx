@@ -194,7 +194,7 @@ export function StageBody({
     // ONE step for the whole order (user, 2026-10-18): every line is a group of one view, with its parts and its
     // values beside them. Values is a check on this tab, not a tab — it reaches here only for a process that has a
     // Values stage but no Structure stage to fold it into.
-    body = <OrderStructureStep order={order} view={view} onOrderSaved={onOrderSaved} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />;
+    body = <OrderStructureStep order={order} view={view} onOrderSaved={onOrderSaved} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} onGoStage={onGoStage} />;
   } else if (stage.stageKey === 'execution_plan') {
     // How the order is made and shipped, before the freeze (§72) — for the whole order, a line may differ.
     body = <ExecutionPlanPanel orderId={order.id} onChanged={onReloadAll} />;

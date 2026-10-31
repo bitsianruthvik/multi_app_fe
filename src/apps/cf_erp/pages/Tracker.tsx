@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Tooltip, Typography } from '@mui/material';
+import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import { Link } from 'react-router-dom';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
@@ -23,6 +24,7 @@ import { PromptDialog } from '../components/PromptDialog';
 import { useToast } from '../components/toastContext';
 import { FlashOnChange } from '../motion';
 import { TrackerTree } from '../components/Tracker/TrackerTree';
+import { FinishStepsDialog } from '../components/Tracker/FinishStepsDialog';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
@@ -63,6 +65,8 @@ export default function Tracker() {
   const [starting, setStarting] = useState<ProductionStep | null>(null);
   const [recording, setRecording] = useState<ProductionStep | null>(null);
   const [holding, setHolding] = useState<ProductionStep | null>(null);
+  // "Finish selected" / "Finish all ready" (2026-10-31): catching up, go-live data entry.
+  const [finishing, setFinishing] = useState<TrackerStepRow[] | null>(null);
   const steps = useLoad(() => (flat ? cfApi.get<TrackerStepRow[]>('/tracker/steps?status=all') : Promise.resolve(null)), [flat]);
   const mats = useLoad(() => (flat ? cfApi.get<TrackerMaterialRow[]>('/tracker/materials?show=all') : Promise.resolve(null)), [flat]);
   const term = search.trim().toLowerCase();
@@ -75,6 +79,8 @@ export default function Tracker() {
   const reload = () => { steps.reload(); mats.reload(); invalidateNavCounts(); };
   const done = (msg: string) => () => { toast.success(msg); reload(); };
   const count = (st: string) => base.filter(statusTest(st)).length;
+  // What the current filter and search show that can be finished now (search a piece or an operation to narrow it).
+  const readyRows = useMemo(() => rows.filter((s) => s.status === 'ready' || s.status === 'in_progress'), [rows]);
   const resume = async (s: TrackerStepRow) => {
     try { await cfApi.post(`/production-steps/${s.id}/resume?view=none`, {}); done('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
   };
@@ -145,9 +151,23 @@ export default function Tracker() {
         <>
           <FilterBar search={search} onSearch={setSearch} placeholder="Search step, piece, order or machine">
             {STEP_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={count(f.value)} onClick={() => setStatus(f.value)} />)}
+            {canProduce && readyRows.length > 0 && (
+              <Tooltip title="Starts and finishes every ready or running step this filter and search show, with what is left of each good — for catching up. Search a piece or an operation to narrow it. Steps waiting on them can be added by ticking them.">
+                <Button size="small" variant="outlined" startIcon={<DoneAllRounded fontSize="small" />} onClick={() => setFinishing(readyRows)} data-testid="finish-all-ready">
+                  {`Finish all ready (${readyRows.length})`}
+                </Button>
+              </Tooltip>
+            )}
           </FilterBar>
           <ErrorNotice error={steps.error} onRetry={steps.reload} />
           <DataTable rows={rows} columns={columns} getRowId={(s) => s.id} loading={steps.loading && !steps.data} storageKey="tracker-steps" exportName="tracker-steps"
+            selectable={canProduce}
+            bulkActions={(sel, clear) => (
+              <Button size="small" variant="contained" startIcon={<DoneAllRounded fontSize="small" />} data-testid="finish-selected"
+                onClick={() => { setFinishing(sel); clear(); }}>
+                {`Finish selected (${sel.length})`}
+              </Button>
+            )}
             empty={<EmptyState icon={<PrecisionManufacturingRounded />} title={(steps.data ?? []).length ? 'No step matches' : 'Nothing released yet'}
               hint={(steps.data ?? []).length ? 'Pick another status or clear the search.' : 'Release a line of a confirmed order — its steps appear here.'} />} />
         </>
@@ -173,6 +193,7 @@ export default function Tracker() {
       )}
       <StartStepDialog step={starting} onClose={() => setStarting(null)} onDone={done('Started.')} />
       <ProgressDialog step={recording} onClose={() => setRecording(null)} onDone={done('Recorded.')} />
+      <FinishStepsDialog steps={finishing} onClose={() => setFinishing(null)} onDone={reload} />
       <PromptDialog open={!!holding} title="Put this step on hold?" label="Why" confirmLabel="Hold" body={holding?.label}
         onClose={() => setHolding(null)}
         onConfirm={async (note) => { await cfApi.post(`/production-steps/${holding?.id}/hold?view=none`, { note }); done('On hold.')(); }} />

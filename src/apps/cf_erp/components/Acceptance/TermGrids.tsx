@@ -5,7 +5,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
 import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
 import FunctionsRounded from '@mui/icons-material/FunctionsRounded';
-import type { AcceptanceView, ChargeRow, Estimate, MilestoneRow, Terms, Trigger, TriggerType } from '../../api/acceptance';
+import type { AcceptanceView, ChargeRow, Estimate, MilestoneRow, SuggestedOperation, Terms, Trigger, TriggerType } from '../../api/acceptance';
 import {
   blankCharge, blankLumpSum, blankMilestone, blankScrapCharge, blankStage, chargeRateUnit, linkStage, milestoneOfStage, move, proRataAllowed, triggerWords, termInputSx as inputSx,
 } from '../../lib/acceptance';
@@ -70,9 +70,11 @@ function FormulaBasisDialog({ open, value, unit, fields, onClose, onSave }: {
 
 /** CHARGES: one row per operation (by weight or a formula, a rate, billed pro-rata or on completion), the material row
  *  when we supply material, and lump sums. */
-export function ChargesGrid({ terms, onChange, lists, editable, estimate = null, showMaterial = true, materialTonnes = null }: {
+export function ChargesGrid({ terms, onChange, lists, editable, estimate = null, showMaterial = true, materialTonnes = null, suggested = null, suggestedKeys = [] }: {
   terms: Terms; onChange: (patch: Partial<Terms>) => void; lists: TermLists; editable: boolean;
   estimate?: Estimate | null; showMaterial?: boolean; materialTonnes?: number | null;
+  /** The operation a pro-rata charge with none was started at, and which charges were — they say so under the pick. */
+  suggested?: SuggestedOperation | null; suggestedKeys?: string[];
 }) {
   const [formulaFor, setFormulaFor] = useState<string | null>(null);
   const opName = (id: number) => lists.operations.find((o) => o.id === id)?.name ?? null;
@@ -94,8 +96,13 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
                 <TextField select size="small" value={c.operationId ?? ''} disabled={!editable} sx={{ ...inputSx, minWidth: 170 }} SelectProps={{ displayEmpty: true }}
                   onChange={(e) => { const id = Number(e.target.value); setCharge(i, { operationId: id, ...(c.label.trim() ? {} : { label: opName(id) ?? '' }) }); }} inputProps={{ 'aria-label': 'Operation', 'data-testid': 'charge-op' }}>
                   <MenuItem value="" disabled>Choose…</MenuItem>
-                  {lists.operations.map((o) => <MenuItem key={o.id} value={o.id}>{o.name}</MenuItem>)}
+                  {lists.operations.map((o) => <MenuItem key={o.id} value={o.id}>{o.name}{o.code && o.code !== o.name ? <Mono muted>&nbsp;{o.code}</Mono> : null}</MenuItem>)}
                 </TextField>
+                {suggested && c.operationId === suggested.operationId && suggestedKeys.includes(c.key) && (
+                  <Typography data-testid="charge-op-suggested" sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 0.5, maxWidth: 260 }}>
+                    Suggested: {suggested.why}{editable ? ' Change it if the work is billed at another step.' : ''}
+                  </Typography>
+                )}
               </Td>
               <Td>
                 <Box sx={{ display: 'grid', gap: 0.5 }}>

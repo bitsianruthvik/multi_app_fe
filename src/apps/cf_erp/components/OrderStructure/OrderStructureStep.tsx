@@ -12,7 +12,7 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import { cfApi, CfApiError } from '../../api/client';
-import { lineLock } from '../../api/lock';
+import { lineLock, loadLock } from '../../api/lock';
 import { movedLine, reorderLines } from '../../api/orderStructure';
 import type { OrderProcessView, SalesOrder, SalesOrderLine } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
@@ -34,7 +34,9 @@ import { OrderTotalBar } from '../OrderTotalBar';
 import { OrderSpecValuesPanel } from '../OrderSpecValuesPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../toastContext';
-import { AddLineDialog, EditOrderLineDialog, StandardLineDialog, LineStructureText } from './LineDialogs';
+import { AddLineDialog, EditOrderLineDialog, StandardLineDialog, LineStructureText, type AddedLine } from './LineDialogs';
+import { LineReadinessBanner } from './LineReadinessBanner';
+import { readinessFromLock } from '../../lib/lineReadiness';
 import { AiLineBanner } from './AiLineBanner';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -50,7 +52,7 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
  * Each line's grid is the same BomPanel a line always had, so editing, Excel upload, drawings and linked copies all
  * work as before; a line's group can be folded away (remembered in this browser). Full screen fills the window.
  */
-export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoCutPieces }: {
+export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoCutPieces, onGoStage }: {
   order: SalesOrder;
   /** The order's process answer, for each line's Structure & values marks (null without a process). */
   view: OrderProcessView | null;
@@ -58,6 +60,8 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
   /** A grid saved: the order and its stages are read again. */
   onChanged: () => void;
   onGoCutPieces?: () => void;
+  /** Another step of the order — the Freeze checklist, from what a just-added line needs. */
+  onGoStage?: (stageKey: string) => void;
 }) {
   const company = useCompanySlug();
   const toast = useToast();
@@ -90,6 +94,23 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
     });
   }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { writeOpenGroups(order.id, open, lines.map((l) => l.id)); }, [open, order.id, ids]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // What a line added here still needs before its design can be frozen — said right after adding it (2026-10-31),
+  // read straight after the add (GET /order-lines/:id/lock, outside the add's transaction). Until hidden.
+  const [needsOf, setNeedsOf] = useState<Map<number, AddedLine>>(() => new Map());
+  const putNeeds = (a: AddedLine) => setNeedsOf((cur) => new Map(cur).set(a.lineId, a));
+  const hideNeeds = (lineId: number) => setNeedsOf((cur) => { const next = new Map(cur); next.delete(lineId); return next; });
+  const lineAdded = (a: AddedLine | undefined) => {
+    if (!a) return;
+    setOpen((cur) => new Set(cur).add(a.lineId)); // its group opens, so what it needs is seen
+    if (a.readiness) { putNeeds(a); return; }
+    loadLock(a.lineId).then((v) => putNeeds({ ...a, readiness: readinessFromLock(v) })).catch(() => { /* the Freeze checklist still says it */ });
+  };
+  const showGrid = (lineId: number, lineNo: number) => {
+    setOpen((cur) => new Set(cur).add(lineId));
+    window.setTimeout(() => document.querySelector(`[data-testid="line-grid-${lineNo}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+  const hasFreeze = !!view?.stages.some((s) => s.stageKey === 'lock');
 
   const toggle = (lineId: number) => setOpen((cur) => { const next = new Set(cur); if (next.has(lineId)) next.delete(lineId); else next.add(lineId); return next; });
   const fixedNumber = (l: SalesOrderLine) => !!fixedNumberWhy(l, !!lineLock(l));
@@ -208,8 +229,14 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                             <>
                               <AiLineBanner lineId={l.id} refreshKey={order} editable={editable && !l.release && !lineLock(l)} hasStandard={!!l.standard}
                                 onSaveStandard={() => setStandardOf(l)} onRemove={() => setRemoving(l)} onChanged={onChanged} />
+                              {needsOf.get(l.id)?.readiness && !lineLock(l) && (
+                                <LineReadinessBanner lineId={l.id} lineNo={l.lineNo} readiness={needsOf.get(l.id)!.readiness!} fromStandard={!!l.standard}
+                                  onShowGrid={() => showGrid(l.id, l.lineNo)} onGoFreeze={hasFreeze && onGoStage ? () => onGoStage('lock') : null} onDismiss={() => hideNeeds(l.id)} />
+                              )}
                               <StandardLineBanner lineId={l.id} hasStandard={!!l.standard} refreshKey={order} onChanged={onChanged} />
-                              <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
+                              <Box data-testid={`line-grid-${l.lineNo}`} sx={{ minWidth: 0, scrollMarginTop: 72 }}>
+                                <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
+                              </Box>
                             </>
                           )
                           : (
@@ -236,7 +263,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
       </Box>
 
       <AddLineDialog order={order} open={adding} onClose={() => setAdding(false)}
-        onDone={(saved, message) => { onOrderSaved(saved); toast.success(message ?? 'Line added.'); }} />
+        onDone={(saved, message, added) => { onOrderSaved(saved); toast.success(message ?? 'Line added.'); lineAdded(added); }} />
       <StandardLineDialog line={standardOf} order={order} onClose={() => setStandardOf(null)}
         onChanged={() => { void cfApi.get<SalesOrder>(`/orders/${order.id}`).then(onOrderSaved).catch(() => {}); }} />
       <EditOrderLineDialog line={editing} onClose={() => setEditing(null)} onDone={(saved) => { onOrderSaved(saved); toast.success('Line saved.'); }} />
