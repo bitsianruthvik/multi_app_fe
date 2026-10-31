@@ -13,7 +13,8 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
-import { blobAsText, downloadDrawing, fetchDrawingBlob, getLineModel3d, type Drawing, type Model3D } from '../../api/drawings';
+import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getLineModel3d, type Drawing, type Model3D } from '../../api/drawings';
+import { thicknessFromName, type Part3D } from '../../lib/model3d';
 
 // three.js only loads when someone opens the 3D view.
 const Model3DView = lazy(() => import('./Model3DView'));
@@ -223,6 +224,26 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // The line's 3D model, if its standard keeps one (read once per line); the 3D switch shows only then.
   const [model, setModel] = useState<Model3D | null>(null);
   const [mode3d, setMode3d] = useState(false);
+  // A plate part in 3D: its outline (from this drawing, else the line's drawings) and its thickness. Read once, on the
+  // first 3D click; a DXF that is not a plate part (a level's drawing) has none.
+  const [part, setPart] = useState<Part3D | null | 'loading' | 'none'>(null);
+  const canPart = drawing.fileKind === 'dxf' && drawing.id > 0;
+  useEffect(() => { setPart(null); }, [drawing.id]);
+  const loadPart = useCallback(async () => {
+    if (part !== null || !canPart) return;
+    const of = (d: Pick<Drawing, 'geometry' | 'rows' | 'mark' | 'fileName'> | undefined): Part3D | null => {
+      const g = d?.geometry; if (!g?.rings?.length) return null;
+      const t = d?.rows?.find((r) => r.thicknessMm)?.thicknessMm ?? thicknessFromName(d?.fileName) ?? 10;
+      return { label: d?.mark ?? drawing.mark, rings: g.rings, thicknessMm: Number(t), lengthMm: g.lengthMm, widthMm: g.widthMm };
+    };
+    const here = of(drawing as Drawing);
+    if (here) { setPart(here); return; }
+    setPart('loading');
+    try {
+      const v = await getDrawings(orderId, lineId);
+      setPart(of(v.drawings.find((d) => d.id === drawing.id)) ?? 'none');
+    } catch { setPart('none'); }
+  }, [part, canPart, drawing, orderId, lineId]);
   useEffect(() => {
     let live = true;
     setModel(null);
@@ -370,20 +391,30 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         )}
         {isPdf && !mode3d && <Typography data-testid="viewer-pdf-note" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>PDF — zoom and pan use your browser’s PDF viewer.</Typography>}
         <Box sx={{ flex: 1 }} />
-        {model && (
-          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => setMode3d((x) => !x)}
+        {(model || canPart) && (
+          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => { if (!mode3d) void loadPart(); setMode3d((x) => !x); }}
             data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? 'Back to 2D' : '3D'}</Button>
         )}
         {ib('Details', <ViewSidebarRounded fontSize={iconSize} />, () => setStrip((x) => !x), { testid: 'viewer-strip-toggle', pressed: strip, text: strip ? 'Hide the details' : 'Show the details', sx: { color: strip ? 'var(--c-primary-700)' : 'var(--c-text-2)' } })}
       </Box>
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, borderTop: '1px solid var(--c-border)' }}>
-        {mode3d && model && (
-          <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the 3D view…</Box>}>
-            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}><Model3DView model={model} marks={marks3d} /></Box>
-          </Suspense>
+        {mode3d && (
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}>
+            {part === 'loading' ? (
+              <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Reading the part’s shape…</Box>
+            ) : !model && (part === 'none' || part === null) ? (
+              <Typography data-testid="model3d-none" sx={{ m: 'auto', p: 3, maxWidth: 460, fontSize: 14, color: 'var(--c-text-2)', textAlign: 'center' }}>
+                No 3D for this drawing yet: it is not a plate part with a shape, and this line has no 3D model.
+              </Typography>
+            ) : (
+              <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the 3D view…</Box>}>
+                <Model3DView model={model} part={part && typeof part === 'object' ? part : null} marks={marks3d} />
+              </Suspense>
+            )}
+          </Box>
         )}
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d && model ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
           {loaded.state === 'loading' && (
             <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}>
               <CircularProgress size={18} /> Loading the drawing…

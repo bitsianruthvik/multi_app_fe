@@ -25,5 +25,16 @@ check('an assembly level lights up everything under it', () => {
   assert.deepEqual(model.elements.filter((e) => m.isLit(e, 'MTA')).map((e) => e.id), ['e1', 'e3']);
 });
 check('nothing known: nothing lit', () => { assert.equal(m.litMark(model, ['XX', null, undefined]), null); assert.equal(m.isLit(model.elements[0], null), false); });
+check('a member says its length and section; a shaped plate its outline size and thickness', () => {
+  assert.equal(m.sizeWords({ member: { a: [0, 0, 0], b: [0, 0, 6400], up: [0, 1, 0], section: { type: 'I', h: 1000, bTop: 700, tTop: 32, bBot: 700, tBot: 32, tw: 16 } } }), 'length 6,400 mm · I 1,000 deep · flanges 700×32 · web 16');
+  assert.equal(m.sizeWords({ plate: { pts: [[0, 0], [2995, 0], [2995, 2125], [0, 2125]], t: 32 } }), '2,995 × 2,125 × 32 mm (shaped)');
+  assert.equal(m.sizeWords({ member: { a: [0, 0, 0], b: [10800, 0, 0], up: [0, 0, 1], section: { type: 'pipe', d: 406, t: 12 } } }), 'length 10,800 mm · pipe Ø406 × 12');
+});
+check('a part in 3D says L × W × T; the thickness comes from the file name when the row has none', () => {
+  assert.equal(m.sizeWords({ rings: [[[0, 0]]], lengthMm: 10200, widthMm: 300, thicknessMm: 16, label: 'TP' }), '10,200 × 300 × 16 mm');
+  assert.equal(m.thicknessFromName('JL2A-GP_32mm_E350.dxf'), 32);
+  assert.equal(m.thicknessFromName('TP_16mm_IS2062GrB.dxf'), 16);
+  assert.equal(m.thicknessFromName('CG(1–3).dxf'), null);
+});
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
