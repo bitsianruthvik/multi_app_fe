@@ -14,11 +14,11 @@ export function RowDrawingCell({ name, state, why, onClick, onView }: {
   /** Opens the viewer. When the row has a file, a click does this INSTEAD of `onClick` — and looking needs no permission, so `why` does not block it. */
   onView?: () => void;
 }) {
-  // A register sheet (a standard's kept file, an RDSO sheet's link) shows like a file, but a click opens the Drawings
-  // tool for the row — the parts' files are there, and the sheet is offered from it. Looking needs no permission, so
-  // `why` does not block it.
+  // A register sheet shows like a file. One kept as a file (an RDSO sheet's page) opens in the viewer like the row's
+  // own; one that is only a link opens the Drawings tool for the row — the parts' files are there, and the link is
+  // offered from it. Looking needs no permission, so `why` does not block either.
   const has = state.kind === 'file' || state.kind === 'sheet';
-  const viewing = state.kind === 'file' && !!onView;
+  const viewing = !!onView && (state.kind === 'file' || (state.kind === 'sheet' && !!state.fileName));
   const seeing = viewing || state.kind === 'sheet';
   const title = seeing ? `${rowDrawingTitle(name, state, null)}${why ? ` (${why})` : ''}` : rowDrawingTitle(name, state, why);
   return (

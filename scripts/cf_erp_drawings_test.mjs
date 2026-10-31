@@ -475,6 +475,12 @@ await checkAsync('a row an RDSO sheet covers is seen, not "waiting for a file": 
   assert.equal(ro.disabled, false);
   await act(async () => { ro.click(); });
   assert.deepEqual([tool, viewed], [2, 0]);
+  // A sheet kept as a file (its page stored with the register) opens straight in the viewer.
+  const kept = d.rowDrawing(view({ waiting: [{ drawing: { ...rdsoSheet, hasFile: true, fileName: 'RDSO-B-11753-2_rev_R4.pdf', fileKind: 'pdf' }, rows: sheetView.waiting[0].rows }] }), 7);
+  assert.equal(kept.kind, 'sheet');
+  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: kept, onClick: () => { tool++; }, onView: () => { viewed++; } })));
+  await act(async () => { document.querySelector('[data-testid="row-drawing"]').click(); });
+  assert.deepEqual([tool, viewed], [2, 1]);
 });
 const treeRow = (rowId, parentId, name, level, more = {}) => ({ rowId, parentId, code: null, name, level, depth: parentId ? 1 : 0, seq: rowId, mark: null, hasDrawing: false, drawingId: null, fileKind: null, fileName: null, number: null, revision: null, status: null, isPlatePart: false, cutPlateIds: [], sheet: null, ...more });
 const sheetOf = (r) => ({ id: r.id, number: r.number, revision: r.revision, title: r.title, status: r.status, url: r.url, hasFile: r.hasFile, fileName: r.fileName, fileKind: r.fileKind });
