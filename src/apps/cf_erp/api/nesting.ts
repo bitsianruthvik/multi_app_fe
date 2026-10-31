@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { GradeCheck, NestCustomProposal, NestPlanMissingSteel, NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
+import type { GradeCheck, NestCustomProposal, NestPlanMissingSteel, NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice, FreeRange } from './types';
 import { isRequested, type PlateChangeDirect, type PlateChangeFields, type PlateChangeRequested } from './plateChanges';
 
 /**
@@ -93,9 +93,9 @@ export function saveNestingChoices(orderId: number, lineId: number, excludedCutP
   return cfApi.put<NestingChoices | PlateChangeRequested>(`${base(orderId, lineId)}/choices`, { excludedCutPlateIds, excludedPlateIds, ...fields });
 }
 
-/** Which plates nesting may use on this line: standard only, or standard and custom. Needed before the first run. */
-export function setNestPlates(orderId: number, lineId: number, plates: PlateChoice, fields: PlateChangeFields = {}): Promise<{ lineId: number; plateChoice: PlateChoice } | PlateChangeRequested> {
-  return cfApi.put<{ lineId: number; plateChoice: PlateChoice } | PlateChangeRequested>(`${base(orderId, lineId)}/plates`, { plates, ...fields });
+/** Which plates nesting may use on this line: standard sizes, standard and custom, or any size in a range. Needed before the first run. */
+export function setNestPlates(orderId: number, lineId: number, plates: PlateChoice, fields: PlateChangeFields = {}, range?: FreeRange | null): Promise<{ lineId: number; plateChoice: PlateChoice; freeRange?: FreeRange | null } | PlateChangeRequested> {
+  return cfApi.put<{ lineId: number; plateChoice: PlateChoice; freeRange?: FreeRange | null } | PlateChangeRequested>(`${base(orderId, lineId)}/plates`, { plates, ...(range !== undefined ? { range } : {}), ...fields });
 }
 
 /** Flip a catalog plate between STANDARD and CUSTOM (the generic values save; needs the catalog grant). */

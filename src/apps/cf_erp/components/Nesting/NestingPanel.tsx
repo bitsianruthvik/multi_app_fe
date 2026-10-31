@@ -27,7 +27,7 @@ import {
   type NestExtras, type NestFileCoverage, type NestFileUpload, type NestFilesInfo, type NestFilesResult,
 } from '../../api/nesting';
 import type {
-  Nest, NestCutPlate, NestGroup, NestRunSnapshot, NestingAccepted, NestingChoices, NestingPlan, PlateChoice,
+  Nest, NestCutPlate, NestGroup, NestRunSnapshot, NestingAccepted, NestingChoices, NestingPlan, PlateChoice, FreeRange,
 } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
@@ -188,7 +188,7 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
   const cnc = async () => {
     if (!onCnc) return;
     setCncBusy(true);
-    try { await onCnc(); } catch (e) { toast.error((e as Error).message || 'Could not get the CNC file.'); } finally { setCncBusy(false); }
+    try { await onCnc(); } catch (e) { toast.error((e as Error).message || 'Could not get the DXF for ProNest.'); } finally { setCncBusy(false); }
   };
   return (
     <Surface e={1} sx={{ p: { xs: 1.5, sm: 2 }, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5, minWidth: 0 }}>
@@ -212,13 +212,13 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
           <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
             {onCustomerFile && (
               <Button size="small" data-testid="plate-source-file" onClick={() => { void onCustomerFile().catch((e) => toast.error((e as Error).message || 'Could not get the file.')); }} startIcon={<FolderOpenRounded />}>
-                {isProNestPlate(nest) ? 'Download job file (.nif)' : 'Customer’s file'}
+                {isProNestPlate(nest) ? 'Download job file (.nif)' : 'Manual nesting file'}
               </Button>
             )}
             {onCnc && (
               <Button size="small" onClick={cnc} disabled={cncBusy}
                 startIcon={cncBusy ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}>
-                CNC file
+                DXF for ProNest
               </Button>
             )}
             {onRemove && (
@@ -671,10 +671,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     if (proposal) { setProposal(null); setRun(null); toast.info('Your choices changed, so the proposal was dropped. Nest again to use them.'); }
   };
 
-  const pickPlates = async (next: PlateChoice) => {
+  const pickPlates = async (next: PlateChoice, range?: FreeRange | null) => {
     setPlatesBusy(true); setActionError(null);
     try {
-      const out = await plateChange.submit('Change which plates nesting may use', (f) => setNestPlates(orderId, lineId, next, f), { impact: false });
+      const out = await plateChange.submit('Change which plates nesting may use', (f) => setNestPlates(orderId, lineId, next, f, range), { impact: false });
       if (!out) return;
       const fresh = await getNestingChoices(orderId, lineId);
       setChoicesSaved(fresh);
@@ -730,7 +730,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       // §90: the custom sizes now in the catalog, and a grade / impact class note (a plate that states no class).
       const made = (out as NestingAccepted).customPlates?.created ?? [];
       const graded = (out as NestingAccepted).gradeCheck;
-      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the customer’s plates.` : ''}${made.length ? ` Added to the catalog: ${made.map((m) => m.code).join(', ')}.` : ''}${graded && ((graded.mismatches?.length ?? 0) || graded.unknown.length) ? ` ${graded.sentence}` : ''}`);
+      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the manual nesting’s plates.` : ''}${made.length ? ` Added to the catalog: ${made.map((m) => m.code).join(', ')}.` : ''}${graded && ((graded.mismatches?.length ?? 0) || graded.unknown.length) ? ` ${graded.sentence}` : ''}`);
     } catch (e) { setActionError(e as CfApiError); nudgeIfRefused(e, anchor); } finally { setBusy(null); }
   };
 
@@ -857,8 +857,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       why: uploadWhy ?? waitWhy, onClick: pickFiles,
     }] : []),
     {
-      key: 'cnc', label: 'Download CNC files (zip)', icon: <PrecisionManufacturingRounded fontSize="small" />,
-      help: 'One DXF per plate, for the CNC nesting software, in a zip.',
+      key: 'cnc', label: 'Download DXFs for ProNest (zip)', icon: <PrecisionManufacturingRounded fontSize="small" />,
+      help: 'One DXF per plate, in a zip. Open them in ProNest, which makes the CNC program.',
       why: proposal ? 'Use or discard the proposal first.' : !(plan.saved && t.plates > 0) ? 'Nothing is nested yet.' : !cncKnown ? 'These plates have no layout to cut from.' : waitWhy,
       busy: fileBusy === 'cnc', onClick: downloadCnc,
     },
@@ -1278,7 +1278,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
         busy={busy === 'plan'} onClose={() => setStart(null)} onStart={() => { void startRun(); }}
         blocked={blocked} platesUnset={platesUnset} error={start ? actionError : null}
         plates={plateChoice !== undefined ? (
-          <PlatesToUse choice={plateChoice} kinds={choices?.plateKinds} editable={canManage && (choices?.canSave ?? true) && !running} busy={platesBusy} onPick={pickPlates} />
+          <PlatesToUse choice={plateChoice} kinds={choices?.plateKinds} range={choices?.freeRange} editable={canManage && (choices?.canSave ?? true) && !running} busy={platesBusy} onPick={pickPlates} />
         ) : undefined}
         choices={choices ? (
           <Box data-testid="nest-choices-wrap" sx={{ minWidth: 0 }}>
@@ -1299,7 +1299,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
         <DialogContent>
           <Typography sx={{ fontSize: 14 }} data-testid="remove-text">
             {removing
-              ? `The plate comes off the line. Its ${removing.pieces.length} ${removing.pieces.length === 1 ? 'piece goes' : 'pieces go'} back to left over (${pieceCounts(removing.pieces).map((c) => `${c.code} ×${c.qty}`).join(', ')}), ready to be nested again.${isProNestPlate(removing) ? ' The other plates of its ProNest job stay.' : ' The customer’s file stays on record.'}`
+              ? `The plate comes off the line. Its ${removing.pieces.length} ${removing.pieces.length === 1 ? 'piece goes' : 'pieces go'} back to left over (${pieceCounts(removing.pieces).map((c) => `${c.code} ×${c.qty}`).join(', ')}), ready to be nested again.${isProNestPlate(removing) ? ' The other plates of its ProNest job stay.' : ' The manual nesting file stays on record.'}`
               : ''}
           </Typography>
         </DialogContent>

@@ -420,7 +420,7 @@ await check('menu: Purchase requests, Purchase orders (MRs in Stores, §79); Sto
 });
 await check('the nesting words say "by AI" where our algorithm did it', () => {
   const tab = src('components/Nesting/NestCompareTab.tsx');
-  assert.match(tab, /The customer's nesting beside AI's/); assert.match(tab, />Run AI again</); assert.doesNotMatch(tab, /Running our nesting|Our nesting/);
+  assert.match(tab, /The manual nesting beside AI's/); assert.match(tab, />Run AI again</); assert.doesNotMatch(tab, /Running our nesting|Our nesting/);
   assert.match(src('components/Nesting/NestingPanel.tsx'), /label="Compare with AI"/);
   assert.match(src('components/Nesting/NestDoors.tsx'), /title="Nesting by AI" button="Nest by AI"/);
   assert.match(src('lib/nesting.ts'), /rest: 'Nest the rest by AI'/);

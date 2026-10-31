@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, ToggleButton, ToggleButtonGroup, Typography,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import type { CfApiError } from '../../api/client';
-import type { PlateChoice } from '../../api/types';
+import type { FreeRange, PlateChoice } from '../../api/types';
 import {
   EFFORTS, EFFORT_LINE, EFFORT_LONG_LINE, PLATES_NOT_CHOSEN, START_HEAD, STEEL_BLOCKED, startSentence, type Effort, type StartMode,
 } from '../../lib/nesting';
@@ -25,37 +25,78 @@ import { ErrorNotice } from '../ui';
  */
 
 /**
- * "PLATES TO USE" — chosen once per line before its first run (standard plates
- * only, or standard and custom). The run waits for it; it can change any time
- * and affects the NEXT run, not the saved layout.
+ * "PLATES TO USE" — chosen once per line before its first run. Three ways (user, 2026-11-01):
+ *   standard  the mill's standard sizes only
+ *   any       standard and custom sizes from the catalog
+ *   free      any size: each plate is ordered at the size its layout needs, inside a length × width range
+ * The run waits for a choice; it can change any time and affects the NEXT run, not the saved layout.
  */
-export function PlatesToUse({ choice, kinds, editable, busy, onPick }: {
+export function PlatesToUse({ choice, kinds, range, editable, busy, onPick }: {
   choice: PlateChoice | null;
   kinds: { standard: number; custom: number; unknown: number } | undefined;
+  range?: FreeRange | null;
   editable: boolean;
   busy: boolean;
-  onPick: (next: PlateChoice) => void;
+  onPick: (next: PlateChoice, range?: FreeRange | null) => void;
 }) {
   const counts = kinds
-    ? `${kinds.standard} standard · ${kinds.custom + kinds.unknown} custom plates in the catalog${kinds.unknown > 0 ? ` (${kinds.unknown} not marked)` : ''}`
+    ? `${kinds.standard} standard · ${kinds.custom + kinds.unknown} custom sizes in the catalog${kinds.unknown > 0 ? ` (${kinds.unknown} not marked)` : ''}`
     : null;
+  const [draft, setDraft] = useState<Record<keyof FreeRange, string>>(() => rangeText(range));
+  useEffect(() => { setDraft(rangeText(range)); }, [range?.minLength, range?.maxLength, range?.minWidth, range?.maxWidth]);
+  const typed = rangeOf(draft);
+  const changed = JSON.stringify(typed) !== JSON.stringify(rangeOf(rangeText(range)));
+  const field = (k: keyof FreeRange, label: string) => (
+    <TextField size="small" type="number" label={label} value={draft[k]} disabled={!editable || busy}
+      onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+      slotProps={{ htmlInput: { min: 0, step: 50, 'aria-label': `${label} (mm)` } }}
+      sx={{ width: 130 }} />
+  );
   return (
     <Box data-testid="plates-to-use" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0 }}>
       <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
         <Box component="h3" sx={{ m: 0, fontSize: 14, fontWeight: 600 }}>Plates to use</Box>
         <ToggleButtonGroup exclusive size="small" aria-label="Plates to use" value={choice}
           disabled={!editable || busy} onChange={(_, v) => { if (v) onPick(v as PlateChoice); }}>
-          <ToggleButton value="standard">Standard plates only</ToggleButton>
-          <ToggleButton value="any">Standard and custom</ToggleButton>
+          <ToggleButton value="standard">Standard sizes</ToggleButton>
+          <ToggleButton value="any">Standard + custom sizes</ToggleButton>
+          <ToggleButton value="free">Free size in a range</ToggleButton>
         </ToggleButtonGroup>
         {busy && <CircularProgress size={13} aria-label="Saving" />}
       </Box>
-      {counts && <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{counts}</Box>}
+      {choice !== 'free' && counts && <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{counts}</Box>}
+      {choice === 'free' && (
+        <Box data-testid="free-range" sx={{ display: 'grid', gap: 1 }}>
+          <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            Each plate is ordered at the size its layout needs (with the ordering margins, rounded up to the order step), never outside this range, in mm.
+            Leave a box empty to use the custom-plate limits in Setup › Cutting. New sizes are added to the catalog when the nesting is used.
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Box sx={{ fontSize: 13, minWidth: 52 }}>Length</Box>{field('minLength', 'Shortest')}<Box sx={{ fontSize: 13 }}>to</Box>{field('maxLength', 'Longest')}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Box sx={{ fontSize: 13, minWidth: 52 }}>Width</Box>{field('minWidth', 'Narrowest')}<Box sx={{ fontSize: 13 }}>to</Box>{field('maxWidth', 'Widest')}
+          </Box>
+          {editable && changed && (
+            <Box><Button size="small" variant="contained" disabled={busy} onClick={() => onPick('free', typed)}>Save the range</Button></Box>
+          )}
+        </Box>
+      )}
       {choice === null && (
         <Alert severity="warning" sx={{ py: 0 }}><Box data-testid="plates-not-chosen">{PLATES_NOT_CHOSEN}</Box></Alert>
       )}
     </Box>
   );
+}
+
+const RANGE_KEYS: (keyof FreeRange)[] = ['minLength', 'maxLength', 'minWidth', 'maxWidth'];
+function rangeText(r?: FreeRange | null): Record<keyof FreeRange, string> {
+  return Object.fromEntries(RANGE_KEYS.map((k) => [k, r?.[k] != null ? String(r[k]) : ''])) as Record<keyof FreeRange, string>;
+}
+function rangeOf(t: Record<keyof FreeRange, string>): FreeRange | null {
+  const out: FreeRange = {};
+  for (const k of RANGE_KEYS) { const n = Number(t[k]); if (t[k].trim() !== '' && Number.isFinite(n) && n > 0) out[k] = n; }
+  return Object.keys(out).length ? out : null;
 }
 
 export function NestStartDialog({

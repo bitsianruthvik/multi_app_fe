@@ -34,7 +34,7 @@ A yellow box *N cut pieces are not nested yet* offers **Upload more files**, **N
 
 ## Good to know
 - **Use this nesting** makes each plate a lot this line will draw from stock, writes every piece where it sits in cut order, and replaces the earlier automatic plates. Imported plates stay.
-- The **More** menu: **Upload nesting files**, **Download CNC files (zip)**, **Download AI DXFs for ProNest (zip)**, **Download nesting sheet**, **Start again**.
+- The **More** menu: **Upload nesting files**, **Download DXFs for ProNest (zip)**, **Download AI DXFs for ProNest (zip)**, **Download nesting sheet**, **Start again**.
 - A piece is nested only on a plate of its grade and impact class. By default this is exact: BO and BR do not stand in for each other. See [Compare with AI](help:order-nesting-compare).
 - **This layout is out of date** means the structure changed after the layout was saved. Use **More › Start again** so the plates bought match what is cut.
 - A part no catalog plate can hold is listed under *could not be placed*. Leave it out, or add a long enough plate to the catalog.

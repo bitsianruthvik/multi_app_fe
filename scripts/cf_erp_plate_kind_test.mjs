@@ -69,7 +69,7 @@ const choices = await readFile('src/apps/cf_erp/components/Nesting/NestChoices.t
 
 await check('the Plates to use control has both options and saves through setNestPlates', () => {
   assert.ok(panel.includes('Plates to use'));
-  assert.ok(panel.includes('Standard plates only') && panel.includes('Standard and custom'));
+  assert.ok(panel.includes('Standard sizes') && panel.includes('Standard + custom sizes') && panel.includes('Free size in a range'));
   assert.ok(panel.includes('setNestPlates('));
   assert.ok(/not marked/.test(panel), 'unknown plates are counted and named');
 });

@@ -287,7 +287,7 @@ export function NestCompareDialog({
             )}
             {decided && (
               <Alert severity="info" data-testid="compare-decided">
-                {auto?.decision === 'auto' ? 'Auto nesting was taken for this comparison.' : 'The customer’s nesting was kept for this comparison.'} Run again to decide again.
+                {auto?.decision === 'auto' ? 'Auto nesting was taken for this comparison.' : 'The manual nesting was kept for this comparison.'} Run again to decide again.
                 <Box sx={{ mt: 0.5 }}><Button size="small" onClick={() => start(true)} disabled={busy != null}>Run again</Button></Box>
               </Alert>
             )}
@@ -312,7 +312,7 @@ export function NestCompareDialog({
             </Box>
 
             <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, minWidth: 0 }}>
-              <PlateList title="Customer's nesting" plates={upPlates} nests={upNests} openKey={openPlate} onOpen={setOpenPlate} />
+              <PlateList title="Manual nesting" plates={upPlates} nests={upNests} openKey={openPlate} onOpen={setOpenPlate} />
               <PlateList title="Auto nesting" plates={hasRun ? autoPlates : []} nests={autoDrawn} openKey={openPlate} onOpen={setOpenPlate} />
             </Box>
 
@@ -322,7 +322,7 @@ export function NestCompareDialog({
       </DialogContent>
       <DialogActions sx={{ flexWrap: 'wrap', gap: 0.5 }}>
         <Button onClick={onClose} disabled={busy === 'accept'}>Close</Button>
-        <Tooltip title={canKeep ? 'The customer’s plates stay exactly as saved.' : (why ?? '')}>
+        <Tooltip title={canKeep ? 'The manual nesting’s plates stay exactly as saved.' : (why ?? '')}>
           <span>
             <Button variant="outlined" disabled={!canKeep || busy != null} onClick={() => take('uploaded')}>Keep the customer&rsquo;s nesting</Button>
           </span>

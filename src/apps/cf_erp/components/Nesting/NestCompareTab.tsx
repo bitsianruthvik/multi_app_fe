@@ -204,7 +204,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
   return (
     <Box data-testid="compare-tab" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
       <SectionCard
-        title="The customer's nesting beside AI's"
+        title="The manual nesting beside AI's"
         subtitle={`AI nests the same ${data.likeForLike?.uploadedPieces ?? data.demand?.pieces ?? ''} pieces the upload holds, at Standard effort, and keeps the result.`}
         actions={hasRun && !running ? (
           <Button size="small" onClick={() => { void start(true); }} disabled={busy != null}
@@ -271,7 +271,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
             '& td.n': { fontVariantNumeric: 'tabular-nums' },
           }}>
             <thead>
-              <tr><th style={{ width: '26%' }}>Figure</th><th>Customer&rsquo;s</th><th>By AI</th><th>AI vs customer</th></tr>
+              <tr><th style={{ width: '26%' }}>Figure</th><th>Manual</th><th>By AI</th><th>AI vs manual</th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
@@ -285,7 +285,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
                   <td data-col="diff">
                     {hasRun ? r.diff : '—'}
                     {hasRun && (r.better === 'ours' || r.better === 'customer') && (
-                      <Box component="span" sx={{ display: 'block', fontSize: 11.5, color: 'var(--c-text-2)' }}>{r.better === 'ours' ? 'AI is better' : "the customer's is better"}</Box>
+                      <Box component="span" sx={{ display: 'block', fontSize: 11.5, color: 'var(--c-text-2)' }}>{r.better === 'ours' ? 'AI is better' : 'the manual nesting is better'}</Box>
                     )}
                   </td>
                 </tr>
@@ -302,7 +302,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
           {(gradeUp || gradeAi) && (
             <Box data-testid="compare-tab-grade" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0 }}>
               <CapsLabel>Grade and impact class</CapsLabel>
-              {([['customer', "Customer's", gradeUp], ['ours', 'By AI', gradeAi]] as const).filter(([, , v]) => !!v).map(([side, label, v]) => (
+              {([['customer', 'Manual', gradeUp], ['ours', 'By AI', gradeAi]] as const).filter(([, , v]) => !!v).map(([side, label, v]) => (
                 <Box key={side} data-side={side} data-tone={v!.tone} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.25, minWidth: 0 }}>
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
                     <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{label}</Typography>
@@ -347,7 +347,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
 
       <SectionCard title="The plates" subtitle="Open a plate to see its drawing.">
         <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, minWidth: 0 }}>
-          <PlateList title="Customer's" testid="compare-tab-plates-customer" plates={upPlates} nests={upPlates.map((p) => savedNests.find((n) => n.id === p.lotId))} openKey={openPlate} onOpen={setOpenPlate} />
+          <PlateList title="Manual nesting" testid="compare-tab-plates-customer" plates={upPlates} nests={upPlates.map((p) => savedNests.find((n) => n.id === p.lotId))} openKey={openPlate} onOpen={setOpenPlate} />
           <PlateList title="By AI" testid="compare-tab-plates-ours" plates={autoPlates} nests={autoPlates.map((p) => autoNests.find((n) => n.lotNo === p.lotNo))} openKey={openPlate} onOpen={setOpenPlate} />
         </Box>
         {hasRun && <Box sx={{ mt: 1 }}><Badge family="neutral" noIcon label={data.alternative ? plan.mainLabel : 'The upload stays the saved nesting'} /></Box>}

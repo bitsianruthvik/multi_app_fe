@@ -155,10 +155,10 @@ export function DiagramLegend({ seqs, hasOurs = false, hasOutside = false, hasSc
       )}
       {hasOurs && (
         <>
-          <Swatch label="Customer's part" help="Where the customer's own file drew this part.">
+          <Swatch label="Manual nesting part" help="Where the manual nesting file drew this part.">
             <rect x={1} y={1} width={16} height={10} rx={2} fill={C.scrapLine} fillOpacity={0.85} />
           </Swatch>
-          <Swatch label="Added by AI" help="A part AI added to the customer's plate, in the space they left.">
+          <Swatch label="Added by AI" help="A part AI added to the manual nesting's plate, in the space it left.">
             <rect x={1.5} y={1.5} width={15} height={9} rx={2} fill={C.scrapLine} fillOpacity={0.35} stroke="var(--c-primary-700)" strokeWidth={1.4} strokeDasharray="3 2" />
           </Swatch>
         </>

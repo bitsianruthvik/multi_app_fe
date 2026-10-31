@@ -54,7 +54,7 @@ function AdditionRow({ add, base }: { add: NestAddition; base: Nest | undefined 
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <Mono chip>{add.lotNo}</Mono>
         <Box sx={{ fontSize: 13.5, fontWeight: 500 }}>{add.plateCode}</Box>
-        <Badge family="info" noIcon label="Gets more pieces" title="The customer's layout stays. AI puts more in the space they left." />
+        <Badge family="info" noIcon label="Gets more pieces" title="The manual layout stays. AI puts more in the space it left." />
         <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
           {`+${add.pieces.length}: ${counts.map((c) => `${c.code} ×${c.qty}`).join(', ')}`}
         </Box>

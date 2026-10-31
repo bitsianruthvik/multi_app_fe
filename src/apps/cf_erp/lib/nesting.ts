@@ -584,7 +584,7 @@ export const isProNestPlate = (n: object): boolean => (n as NestExtras).sourceKi
 export function originLine(n: Nest): string {
   const v = n as V2Nest;
   if (isProNestPlate(v)) return `ProNest job${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
-  if (isCustomerPlate(v)) return `Customer's layout${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
+  if (isCustomerPlate(v)) return `Manual nesting${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
   if (v.sourceKind === 'sheet') return 'From the Excel sheet';
   return 'Nested here';
 }
@@ -781,7 +781,7 @@ export function differenceText(row: typeof COMPARE_ROWS[number], up: number | nu
   const word = d < 0 ? 'less' : 'more';
   if (row.better === 'info') return { arrow, text: `Auto ${amount} ${word}`, side: 'none' };
   const autoBetter = d < 0;
-  return { arrow, text: `Auto ${amount} ${word} · ${autoBetter ? 'auto is better' : "customer's is better"}`, side: autoBetter ? 'auto' : 'uploaded' };
+  return { arrow, text: `Auto ${amount} ${word} · ${autoBetter ? 'auto is better' : 'manual is better'}`, side: autoBetter ? 'auto' : 'uploaded' };
 }
 
 /** "ran 3 min ago" for the saved automatic run. */
@@ -1060,7 +1060,7 @@ export interface SwapPlan {
   /** There is something to swap with (both sides measured). */
   show: boolean;
   to: 'ai' | 'uploaded';
-  /** "AI's nesting is the main one" / "The customer's nesting is the main one". */
+  /** "AI's nesting is the main one" / 'The manual nesting is the main one'. */
   mainLabel: string;
   /** The button. */
   label: string;
@@ -1104,9 +1104,9 @@ export function swapPlan(a: CompareAnswer | null | undefined, gate: SwapGate | n
   const alt = a?.alternative ?? null;
   const ready = !!a?.uploaded && !!a?.auto && ['ready', 'accepted', 'discarded'].includes(a.auto.status) && !!a.auto.metrics;
   const to: 'ai' | 'uploaded' = alt?.canSwap?.to ?? (alt?.main === 'ai' ? 'uploaded' : 'ai');
-  const mainLabel = alt?.main === 'ai' ? "AI's nesting is the main one" : "The customer's nesting is the main one";
-  const label = to === 'ai' ? "Make AI's nesting the main one" : "Switch back to the customer's nesting";
-  const title = to === 'ai' ? "Make AI's nesting the main one?" : "Switch back to the customer's nesting?";
+  const mainLabel = alt?.main === 'ai' ? "AI's nesting is the main one" : 'The manual nesting is the main one';
+  const label = to === 'ai' ? "Make AI's nesting the main one" : 'Switch back to the manual nesting';
+  const title = to === 'ai' ? "Make AI's nesting the main one?" : 'Switch back to the manual nesting?';
   const empty: SwapPlan = { show: false, to, mainLabel, label, ok: false, why: null, title, lines: [], plates: [], confirm: to === 'ai' ? 'Make it the main one' : 'Switch back', onOrder: null };
   if (!alt || !ready || !a?.uploaded || !a.auto.metrics) return empty;
   const fromM = to === 'ai' ? a.uploaded.metrics : a.auto.metrics;
@@ -1126,7 +1126,7 @@ export function swapPlan(a: CompareAnswer | null | undefined, gate: SwapGate | n
     plates.length ? `Plate sizes: ${plates.join(', ')}.` : 'The same plate sizes.',
     left > 0 ? `${left} ${left === 1 ? 'piece the customer nested is' : 'pieces the customer nested are'} not on AI's plates and will be left over.` : null,
     to === 'ai' ? customPlatesLine(a.auto.customPlates) : null,
-    to === 'ai' ? "The customer's nesting is kept. You can switch back until the line has a production order." : "AI's nesting is kept beside it.",
+    to === 'ai' ? 'The manual nesting is kept. You can switch back until the line has a production order.' : "AI's nesting is kept beside it.",
     onOrder,
   ].filter((x): x is string => !!x);
   const why = alt.canSwap?.ok === false ? (alt.canSwap.reason ?? alt.lockReason ?? 'It cannot be swapped now.') : null;

@@ -98,20 +98,20 @@ await check('swapPlan: the customer\'s nesting is the main one — "Make AI\'s n
   assert.equal(p.to, 'ai');
   assert.equal(p.ok, true);
   assert.equal(p.why, null);
-  assert.equal(p.mainLabel, "The customer's nesting is the main one");
+  assert.equal(p.mainLabel, 'The manual nesting is the main one');
   assert.equal(p.label, "Make AI's nesting the main one");
   assert.deepEqual(p.lines.slice(0, 4), [
     'Plates: 5 → 3.', 'Steel bought: 2.497 t → 1.098 t.', 'Net steel (offcuts kept): 0.876 t → 0.898 t.',
     'Plate sizes: +1 × 14 mm 6,000 × 2,000 mm, −3 × 14 mm 3,000 × 1,500 mm.',
   ]);
-  assert.ok(p.lines.includes("The customer's nesting is kept. You can switch back until the line has a production order."));
+  assert.ok(p.lines.includes('The manual nesting is kept. You can switch back until the line has a production order.'));
   assert.equal(p.onOrder, null, 'no PO, no warning');
 });
 
 await check('swapPlan: AI\'s is the main one — "Switch back", the figures the other way round', async () => {
   const p = swapPlan(answer({ alternative: alt({ main: 'ai', canSwap: { to: 'uploaded', ok: true, reason: null }, swapCount: 1 }) }));
   assert.equal(p.to, 'uploaded');
-  assert.equal(p.label, "Switch back to the customer's nesting");
+  assert.equal(p.label, 'Switch back to the manual nesting');
   assert.equal(p.mainLabel, "AI's nesting is the main one");
   assert.equal(p.lines[0], 'Plates: 3 → 5.');
   assert.equal(p.lines[3], 'Plate sizes: +3 × 14 mm 3,000 × 1,500 mm, −1 × 14 mm 6,000 × 2,000 mm.');
@@ -197,7 +197,7 @@ await check('the tab says which nesting is the main one and offers the swap', as
   await mountTab();
   await waitFor(() => $('compare-tab-swap'), 'the swap row');
   assert.equal($('compare-tab-swap').getAttribute('data-main'), 'uploaded');
-  assert.match($('compare-tab-swap').textContent, /The customer's nesting is the main one/);
+  assert.match($('compare-tab-swap').textContent, /The manual nesting is the main one/);
   assert.equal($('compare-tab-swap-button').textContent, "Make AI's nesting the main one");
   assert.equal($('compare-tab-swap-button').disabled, false);
   await unmount();
@@ -224,7 +224,7 @@ await check('swap: the confirm says what changes, then one POST with the run on 
   assert.ok(calls.filter((c) => c.includes('/nesting/compare?')).length > before, 'the comparison is read again');
   assert.equal(swapped, 1, 'the Nesting tab is told to read the plates again');
   await waitFor(() => $('compare-tab-swap')?.getAttribute('data-main') === 'ai', 'main: ai');
-  assert.equal($('compare-tab-swap-button').textContent, "Switch back to the customer's nesting");
+  assert.equal($('compare-tab-swap-button').textContent, 'Switch back to the manual nesting');
   await unmount();
 });
 

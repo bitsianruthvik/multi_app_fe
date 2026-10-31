@@ -1629,8 +1629,10 @@ export interface NestChoicePlate {
 }
 
 export type PlateKind = 'STANDARD' | 'CUSTOM';
-/** Which plates nesting may use on a line; null = not chosen yet. */
-export type PlateChoice = 'standard' | 'any';
+/** Which plates nesting may use on a line; null = not chosen yet. 'free' = any size within the line's range (§96). */
+export type PlateChoice = 'standard' | 'any' | 'free';
+/** A free-size line's range, mm; a blank key = Setup › Cutting's custom-plate limits, else the catalog's range. */
+export interface FreeRange { minLength?: number; maxLength?: number; minWidth?: number; maxWidth?: number }
 
 export interface NestChoiceGroup {
   key: string;
@@ -1659,6 +1661,7 @@ export interface NestingChoices {
   readOnlyReason: string | null;
   /** The line's setting: null until the user chooses (no run before that). */
   plateChoice?: PlateChoice | null;
+  freeRange?: FreeRange | null;
   plateKinds?: { standard: number; custom: number; unknown: number };
   groups: NestChoiceGroup[];
   unusable: NestChoicePiece[];
