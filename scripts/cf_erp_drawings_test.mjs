@@ -464,8 +464,17 @@ await checkAsync('a row an RDSO sheet covers is seen, not "waiting for a file": 
   const cell = document.querySelector('[data-testid="row-drawing"]');
   assert.equal(cell.getAttribute('data-state'), 'sheet');
   assert.match(cell.getAttribute('aria-label'), /RDSO\/B-11753\/2 · rev R4 — click to see it \(kept at its issuer/);
-  await act(async () => { cell.click(); });
-  assert.equal(viewed, 1);
+  // 2026-10-31: a click opens the Drawings tool for the row (the parts' files are there), not the sheet note.
+  let tool = 0;
+  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, onClick: () => { tool++; }, onView: () => { viewed++; } })));
+  await act(async () => { document.querySelector('[data-testid="row-drawing"]').click(); });
+  assert.deepEqual([tool, viewed], [1, 0]);
+  // Someone who cannot change drawings can still look: the tool opens for them too.
+  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, why: 'Read only', onClick: () => { tool++; }, onView: () => { viewed++; } })));
+  const ro = document.querySelector('[data-testid="row-drawing"]');
+  assert.equal(ro.disabled, false);
+  await act(async () => { ro.click(); });
+  assert.deepEqual([tool, viewed], [2, 0]);
 });
 const treeRow = (rowId, parentId, name, level, more = {}) => ({ rowId, parentId, code: null, name, level, depth: parentId ? 1 : 0, seq: rowId, mark: null, hasDrawing: false, drawingId: null, fileKind: null, fileName: null, number: null, revision: null, status: null, isPlatePart: false, cutPlateIds: [], sheet: null, ...more });
 const sheetOf = (r) => ({ id: r.id, number: r.number, revision: r.revision, title: r.title, status: r.status, url: r.url, hasFile: r.hasFile, fileName: r.fileName, fileKind: r.fileKind });
