@@ -30,7 +30,10 @@ function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
   if (e.plate) {
     const pl = e.plate;
     if (pl.pts.length < 3) return [];
-    const g = new THREE.ExtrudeGeometry(new THREE.Shape(pl.pts.map(([x, y]) => new THREE.Vector2(x, y))), { depth: pl.t, bevelEnabled: false, curveSegments: 1 });
+    const shape = new THREE.Shape(pl.pts.map(([x, y]) => new THREE.Vector2(x, y)));
+    // Its bolt holes (x, y, diameter) go right through.
+    for (const [hx, hy, hd] of pl.holes ?? []) shape.holes.push(new THREE.Path().absarc(hx, hy, hd / 2, 0, Math.PI * 2, true));
+    const g = new THREE.ExtrudeGeometry(shape, { depth: pl.t, bevelEnabled: false, curveSegments: 8 });
     const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...pl.u), new THREE.Vector3(...pl.v), new THREE.Vector3(...pl.w));
     m.setPosition(pl.o[0], pl.o[1], pl.o[2]);
     g.applyMatrix4(m);

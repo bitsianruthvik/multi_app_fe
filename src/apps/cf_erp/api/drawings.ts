@@ -234,7 +234,7 @@ export interface Model3DElement {
   member?: { a: [number, number, number]; b: [number, number, number]; up: [number, number, number]; section: Model3DSection };
   box?: { c: [number, number, number]; size: [number, number, number] };
   /** a shaped plate: its outline (mm) extruded `t` along w; the outline's x runs along u, y along v, its (0,0) at o */
-  plate?: { pts: [number, number][]; t: number; o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; w: [number, number, number] };
+  plate?: { pts: [number, number][]; holes?: [number, number, number][]; t: number; o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; w: [number, number, number] };
 }
 export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; elements: Model3DElement[] }
 export const getLineModel3d = (orderId: number, lineId: number) =>
