@@ -23,6 +23,7 @@ import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useToast } from '../components/toastContext';
 import { ContractorWorkCard } from '../components/ContractorWork/ContractorWorkCard';
 import { FlashOnChange, celebrate, nudge } from '../motion';
+import { Progress3D } from '../components/Production/Progress3D';
 
 const STEP_FAMILY: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
   done: 'success', in_progress: 'warning', ready: 'info', not_ready: 'neutral', on_hold: 'danger',
@@ -71,6 +72,13 @@ export default function ProductionOrderDetail() {
         </Box>
       </SectionCard>
       <Box sx={{ mt: 2 }}>
+        {po.lineIds.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <SectionCard title="In 3D" subtitle="Every piece coloured by the step it is at. A part gone into its assembly takes the assembly’s colour; uncut parts are dashed.">
+              <Progress3D orderId={po.order.id} lineIds={po.lineIds} productionOrderId={po.id} />
+            </SectionCard>
+          </Box>
+        )}
         <SectionCard title="Pieces and steps" subtitle={po.state === 'yet_to_plan' ? 'Release it to put its pieces on the floor.' : `${po.piecesTotal} piece${po.piecesTotal === 1 ? '' : 's'} with steps${po.piecesTotal > po.pieces.length ? ` — the first ${po.pieces.length} shown; the Tracker has them all` : ''}.`}>
           {po.pieces.length === 0 ? <EmptyState title={po.state === 'yet_to_plan' ? 'Not released yet' : 'No steps'} /> : (
             <Box sx={{ display: 'grid', gap: 0.5 }} data-testid="po-pieces">

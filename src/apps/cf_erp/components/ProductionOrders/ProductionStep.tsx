@@ -25,6 +25,7 @@ import { linesToCheck } from '../../lib/releaseFlow';
 import { ReleaseFlowGaps } from './ReleaseFlowGaps';
 import { useToast } from '../toastContext';
 import { TimingSheetButtons } from '../TimingSheetButtons';
+import { Progress3D } from '../Production/Progress3D';
 
 const ROW_COLS = { xs: '1fr auto', md: '120px minmax(200px, 2fr) 120px 150px auto' };
 
@@ -89,6 +90,11 @@ export function ProductionStep({ order, onChanged }: { order: SalesOrder; onChan
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }} data-testid="production-step">
+        {lines.some((l) => l.lineType === 'custom') && (
+          <SectionCard title="In 3D" subtitle="The order’s lines, once per unit, each piece coloured by the step it is at. A part gone into its assembly takes the assembly’s colour; uncut parts are dashed.">
+            <Progress3D orderId={order.id} lineIds={lines.filter((l) => l.lineType === 'custom').map((l) => l.id)} />
+          </SectionCard>
+        )}
         <SectionCard title="Times" subtitle="Setup and operation time, both per piece — filled in by the formulas; type over a box to change it."
           actions={(
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>

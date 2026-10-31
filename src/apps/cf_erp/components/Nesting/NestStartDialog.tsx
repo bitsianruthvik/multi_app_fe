@@ -43,7 +43,8 @@ export function PlatesToUse({ choice, kinds, range, editable, busy, onPick }: {
     ? `${kinds.standard} standard · ${kinds.custom + kinds.unknown} custom sizes in the catalog${kinds.unknown > 0 ? ` (${kinds.unknown} not marked)` : ''}`
     : null;
   const [draft, setDraft] = useState<Record<keyof FreeRange, string>>(() => rangeText(range));
-  useEffect(() => { setDraft(rangeText(range)); }, [range?.minLength, range?.maxLength, range?.minWidth, range?.maxWidth]);
+  const rangeKey = JSON.stringify(range ?? null);
+  useEffect(() => { setDraft(rangeText(JSON.parse(rangeKey) as FreeRange | null)); }, [rangeKey]);
   const typed = rangeOf(draft);
   const changed = JSON.stringify(typed) !== JSON.stringify(rangeOf(rangeText(range)));
   const field = (k: keyof FreeRange, label: string) => (
