@@ -10,7 +10,7 @@ import { isLit, litMark } from '../../lib/model3d';
  *
  * Draws the line's model (`cf-erp-model3d/1`, kept with its standard drawing — services/model3dService.js) the way the
  * takeoff tool draws its model.json: members as their plates (an I or a box from its flanges and webs, a pipe as a
- * tube) along their axis, plates as boxes. The level that is open lights up (its elements, by drawing mark); the rest
+ * tube) along their axis, shaped plates (gussets) as their outline extruded, other plates as boxes. The level that is open lights up (its elements, by drawing mark); the rest
  * is shown faint, or hidden with "Only this level". Drag to turn, scroll to zoom, right-drag to pan; click a piece to
  * name it.
  */
@@ -21,6 +21,17 @@ const FAINT = 0xb9c2cc;
 
 /** The meshes of one element, in model millimetres (z up). */
 function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
+  if (e.plate) {
+    // A shaped plate (a gusset at its real outline): the outline extruded to its thickness, then put in place.
+    const pl = e.plate;
+    if (pl.pts.length < 3) return [];
+    const shape = new THREE.Shape(pl.pts.map(([x, y]) => new THREE.Vector2(x, y)));
+    const g = new THREE.ExtrudeGeometry(shape, { depth: pl.t, bevelEnabled: false, curveSegments: 1 });
+    const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...pl.u), new THREE.Vector3(...pl.v), new THREE.Vector3(...pl.w));
+    m.setPosition(pl.o[0], pl.o[1], pl.o[2]);
+    g.applyMatrix4(m);
+    return [g];
+  }
   if (e.box) {
     const g = new THREE.BoxGeometry(e.box.size[0], e.box.size[1], e.box.size[2]);
     g.translate(e.box.c[0], e.box.c[1], e.box.c[2]);
@@ -117,15 +128,15 @@ export function Model3DView({ model, marks }: { model: Model3D; marks: (string |
       return out;
     };
     const litGeo = merge(groups.lit); const plainGeo = merge(groups.plain);
-    const litMesh = litGeo ? new THREE.Mesh(litGeo, new THREE.MeshLambertMaterial({ color: LIT })) : null;
-    const plainMat = new THREE.MeshLambertMaterial({ color: lit ? FAINT : STEEL, transparent: !!lit, opacity: lit ? 0.28 : 1, depthWrite: !lit });
+    const litMesh = litGeo ? new THREE.Mesh(litGeo, new THREE.MeshLambertMaterial({ color: LIT, side: THREE.DoubleSide })) : null;
+    const plainMat = new THREE.MeshLambertMaterial({ color: lit ? FAINT : STEEL, transparent: !!lit, opacity: lit ? 0.28 : 1, depthWrite: !lit, side: THREE.DoubleSide });
     const plainMesh = plainGeo ? new THREE.Mesh(plainGeo, plainMat) : null;
     if (plainMesh) scene.add(plainMesh);
     if (litMesh) scene.add(litMesh);
     const edges = litGeo ? new THREE.LineSegments(new THREE.EdgesGeometry(litGeo, 30), new THREE.LineBasicMaterial({ color: 0x7a3e0c })) : null;
     if (edges) scene.add(edges);
     const pickGeo = merge(pickGeoms);
-    const pickMesh = pickGeo ? new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false })) : null;
+    const pickMesh = pickGeo ? new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })) : null;
     if (pickMesh) scene.add(pickMesh);
 
     const controls = new OrbitControls(camera, renderer.domElement);
