@@ -6,7 +6,7 @@ import type { SalesOrder } from './types';
  * production orders) and how it is SHIPPED (its dispatch units), captured before the design is frozen.
  *
  *   GET /orders/:id/execution-plan
- *   PUT /orders/:id/execution-plan  { production?, dispatch?, lines?: [{ lineId, own }], dryRun? }
+ *   PUT /orders/:id/execution-plan  { production?, dispatch?, groups?, lines?: [{ lineId, own }], dryRun? }
  *
  * A dry run is the screen's live preview: nothing is written, and problems come back in the answer.
  */
@@ -14,7 +14,14 @@ export type ProductionLevel = 'order' | 'line' | 'unit' | 'assembly';
 export type DispatchLevel = 'same' | 'line' | 'unit' | 'assembly';
 
 export interface PlanChoice<L extends string = string> { level: L; levelId: number | null }
-export interface ExecutionPlan { production: PlanChoice<ProductionLevel>; dispatch: PlanChoice<DispatchLevel> }
+/**
+ * A BATCH (init.sql §97, 2026-11-01): several pieces of a line's split level (units, or sub-assemblies such as Girder
+ * lines) in ONE production order. `keys` are the pieces' keys (ExecutionPlanLine.pieces).
+ */
+export interface PlanGroup { name: string | null; keys: string[] }
+export interface ExecutionPlan { production: PlanChoice<ProductionLevel>; dispatch: PlanChoice<DispatchLevel>; groups?: PlanGroup[] }
+/** One piece a line can be split into: a unit ("Bridge span 2") or a sub-assembly ("Bridge span 1 · Girder line 3"). */
+export interface PlanPiece { key: string; label: string; unitNo: number }
 
 /** A BOM level of a line: the definition its rows were made from, e.g. "Girder line" — 4 in one span. */
 export interface PlanLevel { id: number; name: string; depth: number; perUnit: number }
@@ -40,6 +47,11 @@ export interface ExecutionPlanLine {
   rows: number;
   productionCount: number;
   dispatchCount: number | null;
+  /** The pieces of the line's split level, in tree order (empty when it is not split; absent from an older server). */
+  pieces?: PlanPiece[];
+  piecesTotal?: number;
+  /** The line's batches (from its own plan, or its share of the order's). */
+  groups?: PlanGroup[];
   problems: string[];
   /** The line's selects, labelled by result (null for a line from stock; absent from an older server). */
   options?: { production: PlanOptionGroup<ProductionLevel>; dispatch: PlanOptionGroup<DispatchLevel> } | null;
@@ -92,6 +104,8 @@ export interface ExecutionPlanView {
 export interface ExecutionPlanInput {
   production?: PlanChoice<ProductionLevel>;
   dispatch?: PlanChoice<DispatchLevel>;
+  /** The batches of every line that follows the order (a line of its own sends its own in `own.groups`). */
+  groups?: PlanGroup[];
   lines?: { lineId: number; own: ExecutionPlan | null }[];
   dryRun?: boolean;
 }

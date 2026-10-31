@@ -279,56 +279,170 @@ await check('a line group opens (and the line\'s grid is read); full screen fill
   assert.ok(q1('full-screen-frame'), 'full screen');
 });
 
-// ── 4. the execution plan ───────────────────────────────────────────────────
-await check('execution plan: prefilled with the usual, the live preview, a template, save', async () => {
+// ── 4. the execution plan (2026-11-01: three cards, batches, shipping folded away) ─────────────────────────────
+const typeInto = async (el, value) => {
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await React.act(async () => { setter.call(el, value); el.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(20); });
+};
+const checked = (el) => el?.getAttribute('aria-checked') === 'true';
+// Line 1 (×3 spans) per Girder line: 4 a span = 12 pieces, in tree order.
+const PIECES = [1, 2, 3].flatMap((u) => [1, 2, 3, 4].map((g) => ({ key: `L41U${u}A6094:${500 + g}#1`, label: `Bridge span ${u} · Girder line ${g}`, unitNo: u })));
+const UNIT_PIECES = [1, 2, 3].map((u) => ({ key: `L41U${u}`, label: `Bridge span ${u}`, unitNo: u }));
+const planPut = (extra = () => ({})) => (body) => {
+  const b = typeof body === 'string' ? JSON.parse(body) : body;
+  const lvl = b.production?.level;
+  const pieces = lvl === 'assembly' ? PIECES : lvl === 'unit' ? UNIT_PIECES : [];
+  const groups = (b.groups ?? []).filter((g) => g.keys.every((k) => k.startsWith('L41U')));
+  const lines = [planLine(41, 1, { plan: { production: b.production, dispatch: b.dispatch }, pieces, piecesTotal: pieces.length, groups }), planLine(42, 2, { plan: { production: b.production, dispatch: b.dispatch }, pieces: [], groups: [] }),
+    planLine(43, 3, { lineType: 'standard', made: false, levels: [], productionCount: 0, dispatchCount: null, item: { id: 9, code: 'PL-6', name: 'MS Plate' } })];
+  const items = lvl === 'unit' ? ['SO260008 · Line 1 · Bridge span 1 of 3', 'SO260008 · Line 1 · Bridge span 2 of 3', 'SO260008 · Line 1 · Bridge span 3 of 3', 'SO260008 · Line 2 · Bridge span 1 of 1'] : ['SO260008 · Line 1 · Bridge span ×3'];
+  return PLAN({ dryRun: !!b.dryRun, plan: { production: b.production, dispatch: b.dispatch, groups: b.groups ?? [] }, lines, preview: { production: part(items), dispatch: part(items), limit: 60 },
+    saved: b.dryRun ? null : { at: '2026-10-18T10:00:00Z', by: { id: 1, name: 'Asha' } }, ...extra(b) });
+};
+await check('batch maths: sizes typed, equal batches, a click moves a piece, the PUT body carries the batches', () => {
+  assert.deepEqual(m.parseSizes('4, 8'), [4, 8]);
+  assert.deepEqual(m.parseSizes('4 8+2 x -1'), [4, 8, 2, 1], 'any separator; never throws');
+  assert.deepEqual(m.parseSizes(''), []);
+  const g = m.groupsFromSizes(PIECES, [4, 8]);
+  assert.deepEqual(g.map((x) => x.keys.length), [4, 8]);
+  assert.equal(g[0].keys[0], PIECES[0].key);
+  assert.deepEqual(m.groupsFromSizes(PIECES, [5, 20, 3]).map((x) => x.keys.length), [5, 7], 'sizes past the pieces stop');
+  assert.deepEqual(m.equalSizes(12, 5), [5, 5, 2]);
+  assert.deepEqual(m.equalSizes(12, 0), []);
+  // A click: batch 1 → batch 2; the last batch → a new one; alone in the last → on its own; on its own → batch 1.
+  let gs = m.movePiece(g, PIECES[0].key, PIECES);
+  assert.deepEqual(gs.map((x) => x.keys.length), [3, 9]);
+  assert.equal(gs[1].keys[0], PIECES[0].key, 'kept in tree order');
+  gs = m.movePiece(gs, PIECES[0].key, PIECES);
+  assert.deepEqual(gs.map((x) => x.keys.length), [3, 8, 1], 'out of the last batch: a new batch');
+  gs = m.movePiece(gs, PIECES[0].key, PIECES);
+  assert.deepEqual(gs.map((x) => x.keys.length), [3, 8], 'alone in the last batch: back on its own');
+  gs = m.movePiece(gs, PIECES[0].key, PIECES);
+  assert.deepEqual(gs.map((x) => x.keys.length), [4, 8], 'on its own: into batch 1');
+  assert.equal(m.sizesText(gs), '4, 8');
+  const s = m.batchSummary(PIECES, m.groupsFromSizes(PIECES, [4]), 'Girder line');
+  assert.deepEqual([s.batches[0].title, s.alone.length], ['Batch 1 — 4 Girder lines', 8]);
+  assert.equal(m.plainLabel('Per sub-assembly: Girder line — 20 production orders'), 'Per Girder line — 20 production orders');
+  assert.equal(m.plainLabel('As the order: Per line — 1 production order'), 'Same as the whole order: Per line — 1 production order');
+  // The PUT body: a line following the order sends its batches at the top; a line of its own inside its own plan.
+  const v = PLAN({ plan: { production: { level: 'assembly', levelId: 6094 }, dispatch: { level: 'same', levelId: null } } });
+  const d = { ...m.draftOf(v), production: { level: 'assembly', levelId: 6094 }, groups: { 41: g, 42: [], 43: [] } };
+  const body = m.inputOf(d, v, true);
+  assert.deepEqual(body.groups.map((x) => x.keys.length), [4, 8]);
+  const d2 = { ...d, own: { ...d.own, 41: { production: { level: 'unit', levelId: null }, dispatch: { level: 'same', levelId: null } } }, groups: { 41: [{ name: null, keys: ['L41U1', 'L41U3'] }] } };
+  const body2 = m.inputOf(d2, v, true);
+  assert.equal(body2.groups, undefined, 'no batches for the order (and none saved)');
+  assert.deepEqual(body2.lines.find((l) => l.lineId === 41).own.groups, [{ name: null, keys: ['L41U1', 'L41U3'] }]);
+  assert.equal(m.draftChanged(d, v), true, 'batches are a change');
+});
+await check('execution plan: three cards, the live preview, split per unit, shipping folded away, save', async () => {
   reset();
   globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN();
-  globalThis.__routes['PUT /orders/3/execution-plan'] = (body) => {
-    const b = typeof body === 'string' ? JSON.parse(body) : body;
-    const unit = b.production?.level === 'unit';
-    const items = unit ? ['SO260008 · Line 1 · Bridge span 1 of 3', 'SO260008 · Line 1 · Bridge span 2 of 3', 'SO260008 · Line 1 · Bridge span 3 of 3', 'SO260008 · Line 2 · Bridge span 1 of 1'] : ['SO260008 · Line 1 · Bridge span ×3'];
-    return PLAN({ dryRun: !!b.dryRun, plan: { production: b.production, dispatch: b.dispatch }, preview: { production: part(items), dispatch: part(items), limit: 60 }, saved: b.dryRun ? null : { at: '2026-10-18T10:00:00Z', by: { id: 1, name: 'Asha' } } });
-  };
+  globalThis.__routes['PUT /orders/3/execution-plan'] = planPut();
   let changed = 0;
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3, onChanged: () => { changed += 1; } }));
   await settle(80);
-  const panel = q1('execution-plan');
-  assert.ok(panel, 'the panel');
-  assert.equal(q1('prod-line').getAttribute('aria-pressed'), 'true', 'production defaults to per line');
-  assert.equal(q1('disp-same').getAttribute('aria-pressed'), 'true', 'dispatch defaults to the same');
+  assert.ok(q1('execution-plan'), 'the panel');
+  assert.ok(checked(q1('mode-line')), 'production defaults to one per line');
+  assert.match(text(q1('mode-order')), /^All at once/);
+  assert.match(text(q1('mode-split')), /^Split into batches/);
+  assert.equal(q1('plan-templates'), null, 'no template buttons any more');
   assert.match(text(q1('plan-sentence')), /^This order will make 2 production orders: SO260008 · Line 1 · Bridge span ×3/);
-  assert.match(text(q1('plan-line-3')), /Taken from stock/);
   assert.match(text(q1('plan-saved')), /Not saved yet/);
   assert.match(text(q1('plan-saved')), /nesting will then run per production order/);
   assert.equal(q1('plan-save').disabled, false, 'the default can be saved as it is');
-  await click(q1('prod-unit')); await settle(400);
-  const dry = bodyOf(lastCall('PUT', '/orders/3/execution-plan'));
-  assert.equal(dry.dryRun, true, 'a change asks for a dry run');
-  assert.deepEqual(dry.production, { level: 'unit', levelId: null });
+  assert.match(text(q1('execution-plan')), /Line 3: taken from stock/);
+  await click(q1('mode-split')); await settle(500);
+  assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).production, { level: 'assembly', levelId: 6094 }, 'Split starts with the first level by its own name');
+  assert.equal(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).dryRun, true, 'a change asks for a dry run');
+  assert.ok(checked(q1('mode-split')));
+  assert.equal(text(q1('split-assembly-6094')), 'Each Girder line');
+  assert.equal(text(q1('split-unit')), 'Each Bridge span', 'per unit by the item\'s name (a line has 3)');
+  await click(q1('split-unit')); await settle(500);
+  assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).production, { level: 'unit', levelId: null });
   assert.equal(text(q1('preview-production-count')), '4 units');
-  assert.match(text(q1('preview-production')), /Bridge span 2 of 3/);
-  assert.equal(q1('disp-line').disabled, true, 'dispatch per line would be bigger than a production order per unit');
+  assert.match(text(q1('batches-line-1')), /Line 1 · Bridge span ×3 — 3 Bridge spans/);
+  assert.equal(q1('preview-dispatch'), null, 'shipping is folded away');
+  await click(q1('shipping-toggle')); await settle(40);
+  assert.match(text(q1('shipping-why')), /Per line is not offered: a shipment cannot be bigger than a production order/);
+  assert.ok(q1('preview-dispatch'), 'the dispatch preview inside');
   await click(q1('plan-save')); await settle(80);
   const savedBody = bodyOf(lastCall('PUT', '/orders/3/execution-plan'));
   assert.equal(savedBody.dryRun, undefined, 'the save is not a dry run');
   assert.deepEqual(savedBody.production, { level: 'unit', levelId: null });
   assert.equal(changed, 1, 'the order\'s stages are read again');
   assert.match(text(q1('plan-saved')), /Saved by Asha/);
-  // A template sets the order's choice in one click.
-  await click([...q1('plan-templates').querySelectorAll('button')].find((b) => text(b) === 'One per Girder line')); await settle(400);
-  assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).production, { level: 'assembly', levelId: 6094 });
 });
-await check('execution plan: a line its own way, picked in the grid', async () => {
+await check('batches: type "4, 8", chips coloured by batch, a click moves a piece, equal batches, the rest, clear', async () => {
+  reset();
+  globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN();
+  globalThis.__routes['PUT /orders/3/execution-plan'] = planPut();
+  await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
+  await settle(80);
+  await click(q1('mode-split')); await settle(500);
+  assert.match(text(q1('batches-line-1')), /Line 1 · Bridge span ×3 — 12 Girder lines/);
+  assert.match(text(q1('rest-1')), /No batches yet: all 12 — each becomes its own production order/);
+  assert.match(text(q1('batches-line-2')), /Nothing to split on this line/, 'line 2 came back with no pieces');
+  await typeInto(q1('sizes-1'), '4, 8'); await settle(40);
+  assert.equal(byLabel(q1('pieces-1'), 'Bridge span 1 · Girder line 1: Batch 1') !== null, true, 'the first piece is in batch 1');
+  assert.ok(byLabel(q1('pieces-1'), 'Bridge span 2 · Girder line 1: Batch 2'), 'the fifth in batch 2');
+  assert.match(text(q1('batch-list-1')), /Batch 1 — 4 Girder lines: Bridge span 1 · Girder line 1, .*Batch 2 — 8 Girder lines/);
+  assert.equal(q1('rest-1'), null, 'nothing left over');
+  await settle(500);
+  const body = bodyOf(lastCall('PUT', '/orders/3/execution-plan'));
+  assert.deepEqual(body.groups.map((g) => g.keys.length), [4, 8], 'the dry run carries the batches');
+  assert.deepEqual(body.groups[0].keys, PIECES.slice(0, 4).map((p) => p.key));
+  // A click on the first piece: on to batch 2 — the sizes box follows.
+  await click(q1('piece-1-0')); await settle(40);
+  assert.ok(byLabel(q1('pieces-1'), 'Bridge span 1 · Girder line 1: Batch 2'));
+  assert.equal(q1('sizes-1').value, '3, 9');
+  // Equal batches of 5.
+  await typeInto(q1('equal-size-1'), '5'); await click(q1('equal-1')); await settle(40);
+  assert.equal(q1('sizes-1').value, '5, 5, 2');
+  assert.match(text(q1('batch-list-1')), /Batch 3 — 2 Girder lines/);
+  // Fewer than all: the rest stay on their own, and can go in one batch.
+  await typeInto(q1('sizes-1'), '4,'); await settle(40);
+  assert.equal(q1('sizes-1').value, '4,', 'typing is not rewritten under the cursor');
+  assert.match(text(q1('rest-1')), /8 left over — each becomes its own production order/);
+  await click(q1('rest-batch-1')); await settle(40);
+  assert.equal(q1('sizes-1').value, '4, 8');
+  await click(q1('clear-1')); await settle(40);
+  assert.match(text(q1('rest-1')), /No batches yet: all 12/);
+  assert.equal(q1('sizes-1').value, '');
+  // Another level clears the batches (they were pieces of the old one).
+  await typeInto(q1('sizes-1'), '6, 6'); await settle(500);
+  await click(q1('split-unit')); await settle(500);
+  assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).groups ?? [], [], 'changing what it is split by clears the batches');
+});
+await check('batches: a problem from the server holds the save; a failed preview never throws', async () => {
+  reset();
+  globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN();
+  globalThis.__routes['PUT /orders/3/execution-plan'] = planPut((b) => (b.groups?.length ? { problems: ['Line 1: Bridge span 1 · Girder line 1 is in Batch 1 and in Batch 2 — a piece goes in one batch only.'] } : {}));
+  await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
+  await settle(80);
+  await click(q1('mode-split')); await settle(500);
+  await typeInto(q1('sizes-1'), '4, 8'); await settle(500);
+  assert.match(text(q1('plan-problems')), /a piece goes in one batch only/);
+  assert.equal(q1('plan-save').disabled, true);
+  globalThis.__routes['PUT /orders/3/execution-plan'] = () => ({ __status: 500, body: { message: 'down' } });
+  await typeInto(q1('sizes-1'), '3'); await settle(500);
+  assert.ok(q1('plan-preview-error'), 'one quiet line');
+  assert.ok(q1('execution-plan'), 'the panel stays');
+});
+await check('execution plan: a line its own way, picked in the folded table', async () => {
   reset();
   globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN();
   globalThis.__routes['PUT /orders/3/execution-plan'] = () => PLAN({ dryRun: true });
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
   await settle(80);
+  assert.equal(q1('plan-lines'), null, 'folded away');
+  await click(q1('lines-toggle')); await settle(40);
   const sel = byLabel(q1('plan-line-1'), 'Line 1: production orders');
-  await pick(sel, 'Per sub-assembly: Girder line'); await settle(400);
+  await pick(sel, 'Per Girder line'); await settle(500);
   const body = bodyOf(lastCall('PUT', '/orders/3/execution-plan'));
   assert.deepEqual(body.lines.find((l) => l.lineId === 41).own, { production: { level: 'assembly', levelId: 6094 }, dispatch: { level: 'same', levelId: null } });
   assert.equal(body.lines.find((l) => l.lineId === 42).own, null, 'line 2 still follows the order');
+  assert.match(text(q1('plan-line-3')), /Taken from stock/);
 });
 await check('execution plan: read only after the freeze, and a problem holds the save', async () => {
   reset();
@@ -337,7 +451,8 @@ await check('execution plan: read only after the freeze, and a problem holds the
   await settle(80);
   assert.match(text(q1('execution-plan')), /Every line is frozen, so the plan is fixed/);
   assert.equal(q1('plan-save'), null, 'no save');
-  assert.equal(q1('prod-unit').disabled, true);
+  assert.equal(q1('mode-split').disabled, true);
+  await click(q1('lines-toggle')); await settle(40);
   assert.ok(byLabel(q1('plan-line-1'), 'Frozen'), 'the frozen line is marked');
   reset();
   globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ problems: ['Line 2 has no Girder line — choose another level for it.'] });
@@ -388,18 +503,17 @@ await check('nothing to choose: one sentence and Change; Change opens the panel,
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
   await settle(80);
   assert.equal(text(q1('plan-nothing')), NOTHING);
-  assert.equal(q1('prod-line'), null, 'no bars while collapsed');
+  assert.equal(q1('mode-line'), null, 'no cards while collapsed');
   assert.equal(q1('plan-save'), null, 'nothing to save');
   await click(q1('plan-change')); await settle(40);
-  assert.ok(q1('prod-line'), 'Change opens the panel');
-  assert.equal(text(q1('prod-line')), 'Per line — 1 production order');
-  assert.equal(q1('prod-order'), null, 'Whole order folded in');
-  assert.equal(q1('prod-unit'), null, 'Per unit never shows on a line of 1');
-  assert.match(text(q1('prod-note')), /Per unit gives the same here \(the line is 1 unit\)/);
-  assert.equal(q1('plan-lines'), null, 'no per-line table for an order of one line');
+  assert.ok(q1('mode-line'), 'Change opens the panel');
+  assert.match(text(q1('mode-line')), /One per line.*1 production order/);
+  assert.equal(q1('mode-order'), null, 'All at once gives the same on one line: not offered');
+  assert.equal(q1('mode-split').disabled, true, 'nothing to split by (one span, no levels)');
+  assert.equal(q1('lines-toggle'), null, 'no per-line table for an order of one line');
   assert.match(text(q1('plan-saved')), /Nothing to choose — the default is the plan/);
 });
-await check('choose by result: the bars labelled with counts, duplicates hidden with a note; the chosen one always shows', async () => {
+await check('choose by result: the cards say what they make; the line selects and shipping read plainly; the chosen one always shows', async () => {
   reset();
   globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ nothingToChoose: false, summary: '2 production orders, ships as 2 dispatch units.', options: OPTIONS,
     lines: [planLine(41, 1, { options: lineOpts }), planLine(42, 2, { quantity: 1, options: lineOpts }), planLine(43, 3, { lineType: 'standard', made: false, levels: [], productionCount: 0, dispatchCount: null, options: null, item: { id: 9, code: 'PL-6', name: 'MS Plate' } })] });
@@ -407,29 +521,28 @@ await check('choose by result: the bars labelled with counts, duplicates hidden 
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
   await settle(80);
   assert.equal(q1('plan-nothing'), null, 'something to choose: the whole panel');
-  assert.equal(text(q1('prod-order')), 'Whole order — 1 production order');
-  assert.equal(text(q1('prod-line')), 'Per line — 2 production orders');
-  assert.equal(text(q1('prod-assembly-6094')), 'Per sub-assembly: Girder line — 20 production orders (each Girder line + the rest)');
-  assert.equal(q1('prod-unit'), null, 'Per unit gives the same: hidden');
-  assert.equal(text(q1('prod-note')), 'Per unit gives the same here (every line is 1 unit).');
-  assert.equal(text(q1('disp-same')), 'Same as production orders — 2 dispatch units');
-  assert.equal(q1('disp-line'), null);
+  assert.match(text(q1('mode-order')), /All at once.*1 production order$/);
+  assert.match(text(q1('mode-line')), /One per line.*2 production orders$/);
+  await click(q1('shipping-toggle')); await settle(40);
+  assert.match(text(q1('shipping-toggle')), /Shipping: Same as production orders/);
   assert.match(text(q1('disp-note')), /^Per line gives the same here \(it matches the production orders\)/);
+  await click(q1('lines-toggle')); await settle(40);
   assert.ok(q1('plan-lines'), 'the per-line table with three lines');
-  // A line's select: "As the order" says what it gives; its Per unit (the line is 1 unit) is hidden.
+  // A line's select: "Same as the whole order" says what it gives; its Per unit (the line is 1 unit) is hidden.
   const sel = byLabel(q1('plan-line-2'), 'Line 2: production orders');
   const btn = sel.closest('.MuiInputBase-root').querySelector('[role="combobox"], [role="button"]');
   await fire(btn, 'mousedown', { button: 0 }); await settle();
   const opts = [...document.querySelectorAll('[role="option"]')].map(text);
-  assert.deepEqual(opts, ['As the order: Per line — 1 production order', "Whole order — together with the order's other lines", 'Per line — 1 production order', 'Per sub-assembly: Girder line — 5 production orders (each Girder line + the rest)']);
-  await click([...document.querySelectorAll('[role="option"]')].find((o) => text(o).startsWith('Per sub-assembly'))); await settle(400);
+  assert.deepEqual(opts, ['Same as the whole order: Per line — 1 production order', "Whole order — together with the order's other lines", 'Per line — 1 production order', 'Per Girder line — 5 production orders (each Girder line + the rest)']);
+  await click([...document.querySelectorAll('[role="option"]')].find((o) => text(o).startsWith('Per Girder line'))); await settle(500);
   assert.deepEqual(bodyOf(lastCall('PUT', '/orders/3/execution-plan')).lines.find((l) => l.lineId === 42).own.production, { level: 'assembly', levelId: 6094 });
   // The saved choice stays visible though it would be folded in.
   reset();
   globalThis.__routes['GET /orders/3/execution-plan'] = () => PLAN({ plan: { production: { level: 'unit', levelId: null }, dispatch: { level: 'same', levelId: null } }, options: OPTIONS });
   await render(React.createElement(m.ExecutionPlanPanel, { orderId: 3 }));
   await settle(80);
-  assert.ok(q1('prod-unit') && q1('prod-unit').getAttribute('aria-pressed') === 'true', 'the chosen Per unit shows, pressed');
+  assert.ok(checked(q1('mode-split')), 'per unit is a split');
+  assert.ok(q1('split-unit') && q1('split-unit').getAttribute('aria-pressed') === 'true', 'the chosen Each Bridge span shows, pressed');
 });
 
 // ── 5. the stage bodies ─────────────────────────────────────────────────────
