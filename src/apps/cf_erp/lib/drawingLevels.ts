@@ -6,7 +6,7 @@ import type { DrawingTree, DrawingTreeRow } from '../api/drawings';
  * RDSO sheet covers (no file on the line, a register drawing with a kept file or a link) counts as having one.
  */
 
-export interface Crumb { rowId: number; name: string; level: string; hasDrawing: boolean; current: boolean }
+export interface Crumb { rowId: number; name: string; level: string; hasDrawing: boolean; current: boolean; mark?: string | null }
 
 export interface LevelView {
   /** the row the person is on (they asked for it, or stepped to it) */
@@ -45,7 +45,7 @@ export function levelView(tree: DrawingTree, atId: number): LevelView | null {
   const parts = tree.rows.filter((r) => r.parentId === at.rowId).sort((a, b) => a.seq - b.seq);
   return {
     at, shown, inherited: !!shown && shown.rowId !== at.rowId,
-    crumbs: chain.map((r) => ({ rowId: r.rowId, name: r.name, level: r.level, hasDrawing: rowShows(r), current: r.rowId === at.rowId })),
+    crumbs: chain.map((r) => ({ rowId: r.rowId, name: r.name, level: r.level, hasDrawing: rowShows(r), current: r.rowId === at.rowId, mark: r.mark })),
     parts,
   };
 }

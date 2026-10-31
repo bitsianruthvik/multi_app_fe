@@ -25,6 +25,7 @@
     "@react-native-picker/picker": "^2.11.4",
     "@types/react-router-dom": "^5.3.3",
     "@types/react-window": "^1.8.8",
+    "@types/three": "^0.169.0",
     "@types/yup": "^0.29.14",
     "@xyflow/react": "^12.10.2",
     "axios": "^1.12.2",
@@ -34,6 +35,7 @@
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.4",
     "react-window": "^1.8.11",
+    "three": "^0.169.0",
     "yup": "^1.7.1",
     "zod": "^4.1.12"
   },

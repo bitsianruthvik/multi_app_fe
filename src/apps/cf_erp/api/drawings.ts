@@ -221,3 +221,19 @@ export interface DrawingTree { line: DrawingsView['line']; rows: DrawingTreeRow[
 /** Every row of the line with its parent and drawing — one read (view permission), for the viewer's levels. */
 export const getDrawingTree = (orderId: number, lineId: number) =>
   cfApi.get<DrawingTree>(`${base(orderId, lineId)}/tree`);
+
+// ── the line's 3D model (kept with its standard drawing; services/model3dService.js) ──
+export type Model3DSection =
+  | { type: 'I'; h: number; bTop: number; tTop: number; bBot: number; tBot: number; tw: number }
+  | { type: 'box'; h: number; w: number; bTop: number; tTop: number; bBot: number; tBot: number; tw: number }
+  | { type: 'pipe'; d: number; t: number };
+export interface Model3DElement {
+  id: string;
+  /** the drawing mark of the BOM row it belongs to; `in` = the marks of the rows above it */
+  mark: string | null; in?: string[]; label?: string;
+  member?: { a: [number, number, number]; b: [number, number, number]; up: [number, number, number]; section: Model3DSection };
+  box?: { c: [number, number, number]; size: [number, number, number] };
+}
+export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; elements: Model3DElement[] }
+export const getLineModel3d = (orderId: number, lineId: number) =>
+  cfApi.get<{ fileId: number; fileName: string; model: Model3D }>(`/orders/${orderId}/lines/${lineId}/model3d`);

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Box, Button, Checkbox, CircularProgress, Dialog, DialogTitle, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
@@ -11,8 +11,12 @@ import NavigateNextRounded from '@mui/icons-material/NavigateNextRounded';
 import ViewSidebarRounded from '@mui/icons-material/ViewSidebarRounded';
 import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
+import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
-import { blobAsText, downloadDrawing, fetchDrawingBlob, type Drawing } from '../../api/drawings';
+import { blobAsText, downloadDrawing, fetchDrawingBlob, getLineModel3d, type Drawing, type Model3D } from '../../api/drawings';
+
+// three.js only loads when someone opens the 3D view.
+const Model3DView = lazy(() => import('./Model3DView'));
 import { getDesignUses, type DesignUses } from '../../api/links';
 import { piecesWords } from '../../lib/links';
 import { DesignUsesDialog } from './DesignUsesDialog';
@@ -216,6 +220,17 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // Linked copies: how many pieces are made to this drawing. Quiet on any failure — the viewer works without it.
   const [uses, setUses] = useState<DesignUses | null>(null);
   const [usesOpen, setUsesOpen] = useState(false);
+  // The line's 3D model, if its standard keeps one (read once per line); the 3D switch shows only then.
+  const [model, setModel] = useState<Model3D | null>(null);
+  const [mode3d, setMode3d] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setModel(null);
+    getLineModel3d(orderId, lineId).then((r) => { if (live) setModel(r.model); }).catch(() => { /* no model: 2D only */ });
+    return () => { live = false; };
+  }, [orderId, lineId]);
+  // The level to light up: the open row, then each level above it, deepest first.
+  const marks3d = useMemo(() => [drawing.mark, ...(levels ? [...levels.view.crumbs].reverse().map((c) => c.mark ?? null) : [])], [drawing.mark, levels]);
   useEffect(() => {
     let live = true;
     setUses(null);
@@ -338,7 +353,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       )}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 3, pb: 1, minHeight: 36, flexWrap: 'wrap' }}>
-        {!isPdf && (
+        {!isPdf && !mode3d && (
           <>
             {ib('Zoom out', <ZoomOutRounded fontSize={iconSize} />, pz.zoomOut, { disabled: !view })}
             <Typography aria-live="polite" data-testid="viewer-percent" sx={{ fontFamily: 'var(--font-mono)', fontSize: large ? 15 : 12.5, minWidth: 52, textAlign: 'center', color: 'var(--c-text-2)' }}>
@@ -353,13 +368,22 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             </Typography>
           </>
         )}
-        {isPdf && <Typography data-testid="viewer-pdf-note" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>PDF — zoom and pan use your browser’s PDF viewer.</Typography>}
+        {isPdf && !mode3d && <Typography data-testid="viewer-pdf-note" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>PDF — zoom and pan use your browser’s PDF viewer.</Typography>}
         <Box sx={{ flex: 1 }} />
+        {model && (
+          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => setMode3d((x) => !x)}
+            data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? 'Back to 2D' : '3D'}</Button>
+        )}
         {ib('Details', <ViewSidebarRounded fontSize={iconSize} />, () => setStrip((x) => !x), { testid: 'viewer-strip-toggle', pressed: strip, text: strip ? 'Hide the details' : 'Show the details', sx: { color: strip ? 'var(--c-primary-700)' : 'var(--c-text-2)' } })}
       </Box>
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, borderTop: '1px solid var(--c-border)' }}>
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: 'flex', background: 'var(--c-surface-2)' }}>
+        {mode3d && model && (
+          <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the 3D view…</Box>}>
+            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}><Model3DView model={model} marks={marks3d} /></Box>
+          </Suspense>
+        )}
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d && model ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
           {loaded.state === 'loading' && (
             <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}>
               <CircularProgress size={18} /> Loading the drawing…
