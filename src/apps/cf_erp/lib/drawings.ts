@@ -175,16 +175,14 @@ export function buttonLabel(s: Pick<DrawingsSummary, 'rows' | 'rowsWithDrawing'>
 }
 
 /** What one row shows in its drawing cell: nothing yet, a file (with its revision), or a register drawing waiting for one. */
-/** 'sheet': no file on the line, but a register drawing that can be seen (a standard's kept file, or an RDSO sheet's link). */
-export interface RowDrawingState { kind: 'none' | 'file' | 'sheet' | 'waiting'; revision: string | null; fileName: string | null; number: string | null }
+/** A register drawing with no file on the line (an RDSO series sheet included) is 'waiting': the row offers an upload (user, 2026-10-31). */
+export interface RowDrawingState { kind: 'none' | 'file' | 'waiting'; revision: string | null; fileName: string | null; number: string | null }
 export function rowDrawing(view: Pick<DrawingsView, 'drawings' | 'waiting'> | null | undefined, rowId: number): RowDrawingState {
   if (!view) return { kind: 'none', revision: null, fileName: null, number: null };
   const { saved, waiting } = coveringRow(view, rowId);
   // The file the row is read by: one with its own mark first is the server's rule; here the newest saved file covering it.
   const d = saved[saved.length - 1];
   if (d) return { kind: 'file', revision: d.drawing?.revision ?? null, fileName: d.fileName, number: d.drawing?.number ?? d.mark };
-  const seen = waiting.find((x) => x.drawing.hasFile) ?? waiting.find((x) => x.drawing.url);
-  if (seen) return { kind: 'sheet', revision: seen.drawing.revision, fileName: seen.drawing.fileName ?? null, number: seen.drawing.number };
   const w = waiting[0];
   if (w) return { kind: 'waiting', revision: w.drawing.revision, fileName: null, number: w.drawing.number };
   return { kind: 'none', revision: null, fileName: null, number: null };
@@ -194,8 +192,7 @@ export function rowDrawing(view: Pick<DrawingsView, 'drawings' | 'waiting'> | nu
 export function rowDrawingTitle(name: string, s: RowDrawingState, why?: string | null): string {
   if (why) return why;
   if (s.kind === 'file') return `${s.fileName ?? 'Drawing'}${s.revision ? ` · rev ${s.revision}` : ''} — click to see it or upload a new revision for ${name}`;
-  if (s.kind === 'sheet') return `${s.number} · rev ${s.revision} — click to see it${s.fileName ? '' : ' (kept at its issuer’s site)'}`;
-  if (s.kind === 'waiting') return `${s.number} is in the register, waiting for a file — click to attach one for ${name}`;
+  if (s.kind === 'waiting') return `Upload a drawing for ${name} (${s.number} is in the register, waiting for a file)`;
   return `Upload a drawing for ${name}`;
 }
 

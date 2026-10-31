@@ -453,34 +453,17 @@ await checkAsync('a row with no copies has no switch', async () => {
 // ── 2026-10-27: RDSO sheets on the structure levels (a register drawing kept at its issuer's site, or by a standard) ──
 const rdsoSheet = { id: 77, code: null, number: 'RDSO/B-11753/2', revision: 'R4', status: 'issued', title: 'DETAILS OF X-FRAME AND END DIAPHRAGM', earlier: [], url: 'https://rdso.example/series.pdf#page=3', hasFile: false, fileName: null, fileKind: null };
 const sheetView = view({ waiting: [{ drawing: rdsoSheet, rows: [{ id: 7, code: 'DP', name: 'End diaphragm', level: 'Diaphragm', isPlatePart: false, pieces: 2, lengthMm: null, widthMm: null, thicknessMm: null, sizeMatches: null }] }] });
-await checkAsync('a row an RDSO sheet covers is seen, not "waiting for a file": the row icon opens it', async () => {
-  const st = d.rowDrawing(sheetView, 7);
-  assert.equal(st.kind, 'sheet');
-  assert.equal(st.number, 'RDSO/B-11753/2');
-  const plain = d.rowDrawing(view({ waiting: [{ drawing: { ...rdsoSheet, url: null }, rows: sheetView.waiting[0].rows }] }), 7);
-  assert.equal(plain.kind, 'waiting', 'no link and no file: still waiting for a file');
-  let viewed = 0;
-  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, onClick: () => {}, onView: () => { viewed++; } })));
-  const cell = document.querySelector('[data-testid="row-drawing"]');
-  assert.equal(cell.getAttribute('data-state'), 'sheet');
-  assert.match(cell.getAttribute('aria-label'), /RDSO\/B-11753\/2 · rev R4 — click to see it \(kept at its issuer/);
-  // 2026-10-31: a click opens the Drawings tool for the row (the parts' files are there), not the sheet note.
-  let tool = 0;
-  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, onClick: () => { tool++; }, onView: () => { viewed++; } })));
-  await act(async () => { document.querySelector('[data-testid="row-drawing"]').click(); });
-  assert.deepEqual([tool, viewed], [1, 0]);
-  // Someone who cannot change drawings can still look: the tool opens for them too.
-  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, why: 'Read only', onClick: () => { tool++; }, onView: () => { viewed++; } })));
-  const ro = document.querySelector('[data-testid="row-drawing"]');
-  assert.equal(ro.disabled, false);
-  await act(async () => { ro.click(); });
-  assert.deepEqual([tool, viewed], [2, 0]);
-  // A sheet kept as a file (its page stored with the register) opens straight in the viewer.
-  const kept = d.rowDrawing(view({ waiting: [{ drawing: { ...rdsoSheet, hasFile: true, fileName: 'RDSO-B-11753-2_rev_R4.pdf', fileKind: 'pdf' }, rows: sheetView.waiting[0].rows }] }), 7);
-  assert.equal(kept.kind, 'sheet');
-  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: kept, onClick: () => { tool++; }, onView: () => { viewed++; } })));
-  await act(async () => { document.querySelector('[data-testid="row-drawing"]').click(); });
-  assert.deepEqual([tool, viewed], [2, 1]);
+await checkAsync('2026-10-31: a row only an RDSO sheet covers (link or kept page) offers an upload, not the sheet', async () => {
+  for (const drawing of [rdsoSheet, { ...rdsoSheet, hasFile: true, fileName: 'RDSO-B-11753-2_rev_R4.pdf', fileKind: 'pdf' }]) {
+    const st = d.rowDrawing(view({ waiting: [{ drawing, rows: sheetView.waiting[0].rows }] }), 7);
+    assert.equal(st.kind, 'waiting');
+    let tool = 0, viewed = 0;
+    await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'End diaphragm', state: st, onClick: () => { tool++; }, onView: () => { viewed++; } })));
+    const cell = document.querySelector('[data-testid="row-drawing"]');
+    assert.match(cell.getAttribute('aria-label'), /^Upload a drawing for End diaphragm \(RDSO\/B-11753\/2 is in the register/);
+    await act(async () => { cell.click(); });
+    assert.deepEqual([tool, viewed], [1, 0], 'the upload (Drawings dialog for the row), never the viewer');
+  }
 });
 const treeRow = (rowId, parentId, name, level, more = {}) => ({ rowId, parentId, code: null, name, level, depth: parentId ? 1 : 0, seq: rowId, mark: null, hasDrawing: false, drawingId: null, fileKind: null, fileName: null, number: null, revision: null, status: null, isPlatePart: false, cutPlateIds: [], sheet: null, ...more });
 const sheetOf = (r) => ({ id: r.id, number: r.number, revision: r.revision, title: r.title, status: r.status, url: r.url, hasFile: r.hasFile, fileName: r.fileName, fileKind: r.fileKind });
@@ -489,26 +472,12 @@ globalThis.__tree = { line: sheetView.line, rows: [
   treeRow(7, 1, 'End diaphragm', 'Diaphragm', { mark: 'DP', sheet: sheetOf(rdsoSheet) }),
   treeRow(9, 7, 'Diaphragm top flange', 'Plate part', { mark: 'DTF', hasDrawing: true, drawingId: 5, fileKind: 'dxf', fileName: 'DTF.dxf' }),
 ] };
-await checkAsync('levels: a row with only a sheet is a level with a drawing (it is shown, and its crumb can be stepped to)', async () => {
-  const lv = d.levelView(globalThis.__tree, 7);
-  assert.equal(lv.shown.rowId, 7);
-  assert.equal(lv.inherited, false);
-  assert.deepEqual(lv.crumbs.map((c) => c.hasDrawing), [true, true]);
+await checkAsync('levels: a sheet alone is not a drawing — the viewer shows the nearest real file, and the part below', async () => {
+  assert.equal(d.levelView(globalThis.__tree, 7).shown, null, 'neither the diaphragm nor the span has a file of its own');
+  assert.deepEqual(d.levelView(globalThis.__tree, 7).crumbs.map((c) => c.hasDrawing), [false, false]);
+  assert.equal(d.levelView(globalThis.__tree, 9).shown.rowId, 9);
 });
-await checkAsync('the structure\'s "view" on a sheet-only row opens the level viewer: the sheet, its title, "Open the sheet" at its page, the part below', async () => {
-  await act(() => root.render(React.createElement(d.DrawingsButton, { orderId: 1, lineId: 5, canManage: true, drawings: provide(sheetView), viewRow: { id: 7, name: 'End diaphragm' }, onViewDone: () => {} })));
-  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-  const note = document.querySelector('[data-testid="row-viewer-sheet"]');
-  assert.ok(note, 'the sheet note is shown');
-  assert.match(note.textContent, /RDSO\/B-11753\/2 · rev R4/);
-  assert.match(note.textContent, /DETAILS OF X-FRAME AND END DIAPHRAGM/);
-  assert.match(note.textContent, /kept at its issuer/);
-  const open = document.querySelector('[data-testid="row-viewer-open-sheet"]');
-  assert.equal(open.getAttribute('href'), 'https://rdso.example/series.pdf#page=3');
-  assert.equal(open.getAttribute('target'), '_blank');
-  assert.deepEqual([...document.querySelectorAll('[data-testid="row-viewer-part"]')].map((b) => b.textContent), ['Diaphragm top flange']);
-  await act(() => root.render(React.createElement('div')));
-});
+
 await checkAsync('the Drawings dialog: a waiting register drawing with a link has "Open the sheet"', async () => {
   await act(() => root.render(React.createElement(d.DrawingsDialog, { open: true, onClose: () => {}, orderId: 1, lineId: 5, canManage: true, view: sheetView, error: null, loading: false, onView: () => {} })));
   const a = document.querySelector('[data-testid="waiting-open"]');
