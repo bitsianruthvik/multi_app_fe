@@ -174,6 +174,20 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels }: {
               <Button size="small" sx={{ minWidth: 0, py: 0, fontSize: 12 }} onClick={() => onAll(false)}>None</Button>
             </Box>
           </Box>
+          {/* Measurements and codes on / off in one click each (user, 2026-11-01): the dimension layers, and the text layers that carry the marks. */}
+          {(() => {
+            const dimLayers = view.layers.filter((l) => l.role === 'dim').map((l) => l.name);
+            const codeLayers = view.layers.filter((l) => l.role === 'text').map((l) => l.name);
+            const on = (names: string[]) => names.length > 0 && names.every((n) => !hidden.has(n));
+            const flip = (names: string[]) => { const show = !on(names); for (const n of names) if (hidden.has(n) === show) onToggle(n); };
+            if (!dimLayers.length && !codeLayers.length) return null;
+            return (
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', my: 0.75 }}>
+                {dimLayers.length > 0 && <Button size="small" variant={on(dimLayers) ? 'contained' : 'outlined'} aria-pressed={on(dimLayers)} data-testid="viewer-measurements" onClick={() => flip(dimLayers)}>Measurements</Button>}
+                {codeLayers.length > 0 && <Button size="small" variant={on(codeLayers) ? 'contained' : 'outlined'} aria-pressed={on(codeLayers)} data-testid="viewer-codes" onClick={() => flip(codeLayers)}>Codes</Button>}
+              </Box>
+            );
+          })()}
           <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }} data-testid="viewer-layers">
             {view.layers.map((l) => (
               <Box component="li" key={l.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: 13 }}>
@@ -223,6 +237,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const [usesOpen, setUsesOpen] = useState(false);
   // The line's 3D model, if its standard keeps one (read once per line); the 3D switch shows only then.
   const [model, setModel] = useState<Model3D | null>(null);
+  const [codes, setCodes] = useState<Record<string, string>>({});
   const [mode3d, setMode3d] = useState(false);
   // A plate part in 3D: its outline (from this drawing, else the line's drawings) and its thickness. Read once, on the
   // first 3D click; a DXF that is not a plate part (a level's drawing) has none.
@@ -247,7 +262,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   useEffect(() => {
     let live = true;
     setModel(null);
-    getLineModel3d(orderId, lineId).then((r) => { if (live) setModel(r.model); }).catch(() => { /* no model: 2D only */ });
+    getLineModel3d(orderId, lineId).then((r) => { if (live) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ });
     return () => { live = false; };
   }, [orderId, lineId]);
   // The level to light up: the open row, then each level above it, deepest first.
@@ -409,7 +424,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
               </Typography>
             ) : (
               <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the 3D view…</Box>}>
-                <Model3DView model={model} part={part && typeof part === 'object' ? part : null} marks={marks3d} />
+                <Model3DView model={model} part={part && typeof part === 'object' ? part : null} marks={marks3d} codes={codes} />
               </Suspense>
             )}
           </Box>

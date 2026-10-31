@@ -238,4 +238,4 @@ export interface Model3DElement {
 }
 export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; elements: Model3DElement[] }
 export const getLineModel3d = (orderId: number, lineId: number) =>
-  cfApi.get<{ fileId: number; fileName: string; model: Model3D }>(`/orders/${orderId}/lines/${lineId}/model3d`);
+  cfApi.get<{ fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> }>(`/orders/${orderId}/lines/${lineId}/model3d`);

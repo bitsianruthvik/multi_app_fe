@@ -6,6 +6,8 @@ import type { Model3D } from '../../api/drawings';
 import { isLit, litMark, sizeWords, type Part3D } from '../../lib/model3d';
 import { elementGeometries, label, merge } from '../../lib/model3dGeometry';
 
+const normMark = (s: string) => s.trim().replace(/[\s_-]+/g, '-').toUpperCase();
+
 /**
  * THE 3D VIEW (user, 2026-10-31: "a 3D version in the tool to show the diagram in 3D"; then: labels, dimensions,
  * "Only this level", and parts in 3D).
@@ -56,7 +58,7 @@ function dimensions(bb: THREE.Box3, textH: number, names: [string, string, strin
 
 type Mode = 'span' | 'part';
 
-export function Model3DView({ model, part, marks }: { model: Model3D | null; part: Part3D | null; marks: (string | null | undefined)[] }) {
+export function Model3DView({ model, part, marks, codes = {} }: { model: Model3D | null; part: Part3D | null; marks: (string | null | undefined)[]; codes?: Record<string, string> }) {
   const host = useRef<HTMLDivElement | null>(null);
   const lit = useMemo(() => (model ? litMark(model, marks) : null), [model, marks]);
   // A part opened on its own row shows itself; a level the model knows shows the whole structure.
@@ -139,7 +141,8 @@ export function Model3DView({ model, part, marks }: { model: Model3D | null; par
         const c = bb.getCenter(new THREE.Vector3());
         if (seen.some((s) => s.mark === e.mark && s.p.distanceTo(c) < textH * 8)) continue;
         seen.push({ mark: e.mark, p: c });
-        const s = label(e.mark, textH * 0.8); s.position.copy(c); labelGroup.add(s);
+        // Codes: the part's code on this line without the order (user, 2026-11-01); its mark where the line has no code for it.
+        const s = label(codes[normMark(e.mark)] ?? e.mark, textH * 0.8); s.position.copy(c); labelGroup.add(s);
         if (labelGroup.children.length > 400) break;
       }
     } else if (showPart && part && !focus.isEmpty()) {
@@ -199,7 +202,7 @@ export function Model3DView({ model, part, marks }: { model: Model3D | null; par
       renderer.dispose(); renderer.domElement.remove(); api.current = null;
     };
     // The scene is rebuilt for a new model, part, lit level or mode; the switches are read each frame.
-  }, [model, part, lit, mode]);
+  }, [model, part, lit, mode, codes]);
 
   // "Only this level" frames it (after the ref has the new value).
   useEffect(() => { const id = requestAnimationFrame(() => api.current?.fit()); return () => cancelAnimationFrame(id); }, [only]);
@@ -222,7 +225,7 @@ export function Model3DView({ model, part, marks }: { model: Model3D | null; par
         <Box sx={{ flex: 1 }} />
         <Box sx={{ display: 'flex', gap: 0.5, pointerEvents: 'auto', flexWrap: 'wrap' }}>
           {mode === 'span' && lit && <Button size="small" variant={only ? 'contained' : 'outlined'} onClick={() => setOnly((x) => !x)} data-testid="model3d-only" aria-pressed={only}>Only this level</Button>}
-          <Button size="small" variant={labels ? 'contained' : 'outlined'} onClick={() => setLabels((x) => !x)} data-testid="model3d-labels" aria-pressed={labels}>Labels</Button>
+          <Button size="small" variant={labels ? 'contained' : 'outlined'} onClick={() => setLabels((x) => !x)} data-testid="model3d-labels" aria-pressed={labels}>Codes</Button>
           <Button size="small" variant={dims ? 'contained' : 'outlined'} onClick={() => setDims((x) => !x)} data-testid="model3d-dims" aria-pressed={dims}>Dimensions</Button>
           <Button size="small" variant="outlined" onClick={() => api.current?.fit()} data-testid="model3d-fit">Fit</Button>
         </Box>
