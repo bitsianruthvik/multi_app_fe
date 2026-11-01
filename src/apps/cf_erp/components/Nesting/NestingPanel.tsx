@@ -864,7 +864,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     },
     {
       key: 'cncAi', label: 'Download AI DXFs for ProNest (zip)', icon: <PrecisionManufacturingRounded fontSize="small" />,
-      help: 'One DXF per plate the way the shop cuts: part codes marked first, holes, outlines, leads and the cut order on layers of their own — and each plate\'s cut plan as data. ProNest opens them; no CNC code is made.',
+      help: 'One DXF per plate the way the shop cuts: holes, then outlines, and leads on a layer of their own — geometry only, no text, so ProNest can program them. Each plate\'s cut plan and the part codes come as data in the zip.',
       why: proposal ? 'Use or discard the proposal first.' : !(plan.saved && t.plates > 0) ? 'Nothing is nested yet.' : !cncKnown ? 'These plates have no layout to cut from.' : waitWhy,
       busy: fileBusy === 'cncAi', onClick: downloadCncAi,
     },
