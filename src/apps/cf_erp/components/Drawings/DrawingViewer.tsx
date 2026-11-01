@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Box, Button, Checkbox, CircularProgress, Dialog, DialogTitle, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, CircularProgress, Dialog, DialogTitle, FormControlLabel, IconButton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import FitScreenRounded from '@mui/icons-material/FitScreenRounded';
@@ -14,7 +14,8 @@ import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
 import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getLineModel3d, type Drawing, type Model3D } from '../../api/drawings';
-import { thicknessFromName, type Part3D } from '../../lib/model3d';
+import { litMark, selectionFacts, settleScope, thicknessFromName, type Part3D, type Scope3D, type Selection3D } from '../../lib/model3d';
+import { pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
 
 // three.js only loads when someone opens the 3D view.
 const Model3DView = lazy(() => import('./Model3DView'));
@@ -106,8 +107,71 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function SideStrip({ drawing, view, hidden, onToggle, onAll, levels }: {
+const mm0 = (n: number) => Math.round(n).toLocaleString('en-IN');
+const holesWords = (holes: { d: number; n: number }[]) => holes.map((h) => `${h.n} × Ø${h.d}`).join(', ');
+
+/** The side panel's "Selected" section header: its title and a clear button. */
+function SelectedHead({ onClear }: { onClear: () => void }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <CapsLabel>Selected</CapsLabel>
+      <Button size="small" sx={{ minWidth: 0, py: 0, fontSize: 12 }} onClick={onClear} data-testid="viewer-selected-clear">Clear (Esc)</Button>
+    </Box>
+  );
+}
+
+/** A piece picked in 3D: what it is, where it is, and the "just this part / in the whole structure" toggle. */
+function Selected3D({ sel, scope, onScope, allOfMark, onAllOfMark, onClear }: {
+  sel: Selection3D; scope: Scope3D; onScope: (s: Scope3D) => void; allOfMark: boolean; onAllOfMark: (v: boolean) => void; onClear: () => void;
+}) {
+  return (
+    <Box data-testid="viewer-selected" data-kind="3d">
+      <SelectedHead onClear={onClear} />
+      <Row label="Part"><span data-testid="viewer-selected-label">{sel.label}</span></Row>
+      {sel.mark && <Row label="Mark"><Mono>{sel.mark}</Mono></Row>}
+      {sel.code && <Row label="Code"><Mono>{sel.code}</Mono></Row>}
+      <Row label="What">{sel.kind}</Row>
+      <Row label="Size">{sel.size}</Row>
+      {sel.levels.length > 0 && <Row label="In">{sel.levels.join(' · ')}</Row>}
+      {sel.holeCount > 0 && <Row label="Holes">{`${sel.holeCount} · ${holesWords(sel.holes)}`}</Row>}
+      {sel.sameMark > 1 && <Row label="Same mark">{`${sel.sameMark} pieces in the model`}</Row>}
+      <ToggleButtonGroup size="small" exclusive fullWidth value={scope === 'selection' ? 'selection' : 'whole'} sx={{ mt: 1 }}
+        onChange={(_, v: Scope3D | null) => { if (v) onScope(v); }} aria-label="Show the selected part">
+        <ToggleButton value="selection" data-testid="viewer-selected-just">Just this part</ToggleButton>
+        <ToggleButton value="whole" data-testid="viewer-selected-whole">In the whole structure</ToggleButton>
+      </ToggleButtonGroup>
+      {sel.sameMark > 1 && sel.mark && (
+        <FormControlLabel sx={{ mt: 0.5, '& .MuiFormControlLabel-label': { fontSize: 13 } }}
+          control={<Checkbox size="small" checked={allOfMark} onChange={(e) => onAllOfMark(e.target.checked)} inputProps={{ 'aria-label': 'Select all pieces of this mark' }} data-testid="viewer-selected-all-mark" />}
+          label={`All ${sel.sameMark} pieces marked ${sel.mark}`} />
+      )}
+    </Box>
+  );
+}
+
+/** A shape picked in 2D: its layer, size, area, the holes and cut-outs inside it and its label. */
+function Selected2D({ facts, onZoom, onClear }: { facts: ShapeFacts; onZoom: () => void; onClear: () => void }) {
+  const what = facts.kind === 'circle' ? `Circle Ø${mm0(facts.diameterMm ?? 0)}` : facts.kind === 'outline' ? 'Closed outline' : 'Line';
+  return (
+    <Box data-testid="viewer-selected" data-kind="2d">
+      <SelectedHead onClear={onClear} />
+      {facts.text && <Row label="Label"><span data-testid="viewer-selected-label">{facts.text}</span></Row>}
+      <Row label="What">{what}</Row>
+      <Row label="Layer">{facts.layer}</Row>
+      <Row label="Size">{`${mm0(facts.lengthMm)} × ${mm0(facts.widthMm)} mm`}</Row>
+      {facts.areaMm2 != null && <Row label="Area">{`${fmtM2(facts.areaMm2 / 1e6)} (${mm0(facts.areaMm2)} mm²)`}</Row>}
+      <Row label={facts.kind === 'line' ? 'Length' : 'Perimeter'}>{`${mm0(facts.pathMm)} mm`}</Row>
+      {facts.kind === 'outline' && <Row label="Holes inside">{facts.holeCount ? `${facts.holeCount} · ${holesWords(facts.holes)}` : 'none'}</Row>}
+      {facts.cutouts > 0 && <Row label="Cut-outs inside">{facts.cutouts}</Row>}
+      <Button size="small" variant="outlined" sx={{ mt: 1 }} onClick={onZoom} data-testid="viewer-selected-zoom">Zoom to it</Button>
+    </Box>
+  );
+}
+
+function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected }: {
   drawing: ViewerDrawing; view: DxfView | null; hidden: ReadonlySet<string>; onToggle: (name: string) => void; onAll: (show: boolean) => void; levels?: ViewerLevels;
+  /** the "Selected" section (a piece picked in 3D, a shape in 2D), at the top */
+  selected?: React.ReactNode;
 }) {
   const g = drawing.geometry ?? null;
   const reg = drawing.drawing ?? null;
@@ -118,6 +182,7 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels }: {
       maxHeight: { xs: '38%', md: 'none' }, borderLeft: { md: '1px solid var(--c-border)' }, borderTop: { xs: '1px solid var(--c-border)', md: 'none' },
       background: 'var(--c-surface)',
     }}>
+      {selected}
       <Box>
         <CapsLabel>Drawing</CapsLabel>
         {reg && (
@@ -267,6 +332,23 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   }, [orderId, lineId]);
   // The level to light up: the open row, then each level above it, deepest first.
   const marks3d = useMemo(() => [drawing.mark, ...(levels ? [...levels.view.crumbs].reverse().map((c) => c.mark ?? null) : [])], [drawing.mark, levels]);
+  // 3D selection and what the 3D view shows (one toggle: lib/model3d.ts scopeChoices). The person's choice is kept;
+  // the scope shown falls back when that choice is not on offer (no selection, no lit level).
+  const [selIdx, setSelIdx] = useState<number | null>(null);
+  const [allOfMark, setAllOfMark] = useState(false);
+  const [scopePick, setScopePick] = useState<Scope3D | null>(null);
+  useEffect(() => { setSelIdx(null); setScopePick(null); setAllOfMark(false); }, [drawing.id, model]);
+  const lit3d = useMemo(() => (model ? litMark(model, marks3d) : null), [model, marks3d]);
+  const partObj = part && typeof part === 'object' ? part : null;
+  const sel3d = useMemo(() => (model && selIdx != null ? selectionFacts(model, selIdx, allOfMark, codes) : null), [model, selIdx, allOfMark, codes]);
+  const scope3d = settleScope(scopePick ?? (model && (lit3d || !partObj) ? 'whole' : 'part'), { hasModel: !!model, hasPart: !!partObj, lit: lit3d, selected: !!sel3d });
+  const selIndices = sel3d?.indices;
+  const selected3d = useMemo(() => selIndices ?? [], [selIndices]);
+  const onPick3d = useCallback((i: number | null) => {
+    setSelIdx(i);
+    if (i == null) setScopePick((s) => (s === 'selection' ? 'whole' : s));
+    else setStrip(true);
+  }, []);
   useEffect(() => {
     let live = true;
     setUses(null);
@@ -306,7 +388,34 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   }, [orderId, lineId, drawing.id, drawing.fileKind, attempt]);
 
   const view = loaded.state === 'dxf' ? loaded.view : null;
-  const pz = usePanZoom({ bounds: view?.bounds ?? null, actualScale: PX_PER_MM / (view?.unitMm ?? 1), resetKey: view, memoryKey: `${orderId}:${lineId}:${drawing.id}`, quickWhileMoving: (view?.entityCount ?? 0) > QUICK_ABOVE });
+  // 2D picking: the drawing's shapes are read from its layers on the first click (lib/dxfPick.ts), then kept.
+  const shapesRef = useRef<{ view: DxfView; shapes: Shape[] } | null>(null);
+  const [sel2d, setSel2d] = useState<number | null>(null);
+  useEffect(() => { setSel2d(null); }, [view]);
+  const shapesNow = useCallback((): Shape[] => {
+    if (!view) return [];
+    if (shapesRef.current?.view !== view) shapesRef.current = { view, shapes: shapesOf(view) };
+    return shapesRef.current.shapes;
+  }, [view]);
+  /** The shapes on layers that are shown. */
+  const pickAt = useCallback((x: number, y: number, tol: number) => {
+    return pickShape(shapesNow(), x, y, tol, (sh) => hidden.has(sh.layer));
+  }, [shapesNow, hidden]);
+  const onTap = useCallback((x: number, y: number, tol: number) => {
+    const i = pickAt(x, y, tol);
+    setSel2d(i >= 0 ? i : null);
+    if (i >= 0) setStrip(true);
+  }, [pickAt]);
+  const zoomRef = useRef<{ fit: () => void; zoomToBox: (b: { minX: number; minY: number; maxX: number; maxY: number }) => void } | null>(null);
+  const onDoubleTap = useCallback((x: number, y: number, tol: number) => {
+    const i = pickAt(x, y, tol);
+    if (i < 0) { zoomRef.current?.fit(); return; }
+    setSel2d(i); zoomRef.current?.zoomToBox(shapesNow()[i]);
+  }, [pickAt, shapesNow]);
+  const pz = usePanZoom({ bounds: view?.bounds ?? null, actualScale: PX_PER_MM / (view?.unitMm ?? 1), resetKey: view, memoryKey: `${orderId}:${lineId}:${drawing.id}`, quickWhileMoving: (view?.entityCount ?? 0) > QUICK_ABOVE, onTap, onDoubleTap });
+  zoomRef.current = { fit: pz.fit, zoomToBox: pz.zoomToBox };
+  const shape2d = view && sel2d != null ? shapesRef.current?.shapes[sel2d] ?? null : null;
+  const facts2d = useMemo(() => (view && sel2d != null && shapesRef.current?.view === view ? shapeFacts(view, shapesRef.current.shapes, sel2d) : null), [view, sel2d]);
 
   // The viewport takes focus once there is something to look at, so the arrow keys work at once.
   const focusEl = useRef<HTMLElement | null>(null);
@@ -347,7 +456,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const note = levels ? inheritedLabel(levels.view) : null;
 
   return (
-    <Dialog open onClose={(_, reason) => { if (reason === 'escapeKeyDown' && fs.active) fs.exit(); else onClose(); }}
+    <Dialog open onClose={(_, reason) => {
+      // Esc clears a selection first, then leaves full screen, then closes.
+      if (reason === 'escapeKeyDown' && mode3d && selIdx != null) { onPick3d(null); return; }
+      if (reason === 'escapeKeyDown' && !mode3d && sel2d != null) { setSel2d(null); return; }
+      if (reason === 'escapeKeyDown' && fs.active) fs.exit(); else onClose();
+    }}
       fullScreen={fs.active || large} fullWidth maxWidth={false} onKeyDown={onKeyDown}
       aria-labelledby="drawing-viewer-title" data-testid="drawing-viewer"
       PaperProps={{ sx: fs.active || large ? {} : { width: 'min(96vw, 1500px)', height: 'min(92vh, 1000px)', maxHeight: '92vh' } }}>
@@ -400,7 +514,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             {ib('Fit the drawing to the width', <WidthFullRounded fontSize={iconSize} />, pz.fitWidth, { disabled: !view, text: 'Fit to width (a long drawing, read along its length)' })}
             <Tooltip title="True size (96 dpi)"><span><Button size={large ? 'large' : 'small'} onClick={pz.actual} disabled={!view} sx={{ minWidth: 0, px: 1 }}>100%</Button></span></Tooltip>
             <Typography sx={{ ml: 1, fontSize: 12, color: 'var(--c-text-3)', display: { xs: 'none', md: large ? 'none' : 'block' } }}>
-              Scroll to zoom · drag to pan · Shift + scroll pans sideways
+              Drag (or Ctrl / Shift / middle drag) to pan · scroll to zoom at the cursor · click a shape for its details · double-click to zoom to it, empty space to fit
             </Typography>
           </>
         )}
@@ -424,7 +538,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
               </Typography>
             ) : (
               <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the 3D view…</Box>}>
-                <Model3DView model={model} part={part && typeof part === 'object' ? part : null} marks={marks3d} codes={codes} />
+                <Model3DView model={model} part={partObj} marks={marks3d} codes={codes} scope={scope3d} onScope={setScopePick} selected={selected3d} onPick={onPick3d} />
               </Suspense>
             )}
           </Box>
@@ -468,12 +582,21 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
                 data-testid="viewer-svg" data-bounds={`${view.bounds.minX} ${view.bounds.minY} ${view.bounds.maxX - view.bounds.minX} ${view.bounds.maxY - view.bounds.minY}`}>
                 <g ref={pz.contentRef} data-testid="viewer-content">
                   <Scene layers={stable} hidden={hidden} />
+                  {shape2d && (
+                    <path d={shapePath(shape2d)} data-testid="viewer-selected-shape" pointerEvents="none" vectorEffect="non-scaling-stroke"
+                      stroke="var(--c-danger-600)" strokeWidth={3} strokeLinejoin="round" fill={shape2d.closed ? 'var(--c-danger-600)' : 'none'} fillOpacity={0.14} />
+                  )}
                 </g>
               </svg>
             </Box>
           )}
         </Box>
-        {strip && <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} />}
+        {strip && (
+          <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels}
+            selected={mode3d
+              ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)} />
+              : facts2d && shape2d && <Selected2D facts={facts2d} onZoom={() => pz.zoomToBox(shape2d)} onClear={() => setSel2d(null)} />} />
+        )}
       </Box>
       {usesOpen && uses && <DesignUsesDialog uses={uses} onClose={() => setUsesOpen(false)} />}
     </Dialog>

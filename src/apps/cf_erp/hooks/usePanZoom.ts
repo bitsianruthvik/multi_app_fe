@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 
 /**
  * Pan and zoom for the drawing viewer — the SAME behaviour as the HRMS org chart (cf_hrms/components/OrgChartCanvas.tsx
@@ -8,7 +8,9 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
  *   wheel (plain, mostly vertical)  zoom about the cursor, gentle: exp(-dy * 0.0015)   (~16% a mouse notch)
  *   pinch on a trackpad / Ctrl+wheel zoom about the cursor, fast: exp(-dy * 0.01)
  *   Shift+wheel, or a mostly sideways swipe   pan
- *   drag (mouse)                     pan, from anywhere; cursor grab / grabbing; no inertia
+ *   drag (mouse)                     pan, from anywhere; cursor grab / grabbing; no inertia. Ctrl / Shift + drag and a
+ *                                    middle-button drag pan too (the 3D views' pan gestures, user 2026-11-01)
+ *   click (a press that moves < 4 px) `onTap` with the world point (the viewer picks a shape); double-click `onDoubleTap`
  *   one finger                       pans; two fingers pinch about their midpoint
  *   Safari gesturechange             zoom about the cursor
  *   buttons                          zoom x1.2 / ÷1.2, Fit, and 100% (true size)
@@ -60,6 +62,9 @@ export function fitWidthView(box: Box, w: number, h: number, pad = PAD): View {
   return { s, tx: pad - s * box.minX, ty: top + s * box.maxY };
 }
 
+/** The world point (y up) under screen point (sx, sy). */
+export const toWorld = (v: View, sx: number, sy: number): [number, number] => [(sx - v.tx) / v.s, (v.ty - sy) / v.s];
+
 /** Scale to `next` keeping the world point under screen (sx, sy) where it is. */
 export function zoomAbout(v: View, next: number, sx: number, sy: number): View {
   const k = next / v.s;
@@ -79,7 +84,7 @@ export function wheelAction(e: { deltaX: number; deltaY: number; deltaMode: numb
   return { kind: 'zoom', factor: Math.exp(-dy * (e.ctrlKey ? PINCH_ZOOM : WHEEL_ZOOM)) };
 }
 
-export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = false, memoryKey }: {
+export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = false, memoryKey, onTap, onDoubleTap }: {
   bounds: Box | null;
   /** pixels per world unit at true size (96 dpi) */
   actualScale: number;
@@ -89,6 +94,9 @@ export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = f
   quickWhileMoving?: boolean;
   /** the drawing's identity: its view is remembered under it for the session */
   memoryKey?: string | null;
+  /** a click (not a drag): the world point under it and 6 screen px in world units (a pick tolerance) */
+  onTap?: (x: number, y: number, tol: number) => void;
+  onDoubleTap?: (x: number, y: number, tol: number) => void;
 }) {
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
   const gRef = useRef<SVGGElement | null>(null);
@@ -236,8 +244,16 @@ export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = f
     return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   };
 
+  const tapFrom = useRef<{ x: number; y: number } | null>(null);
+  const worldAt = (e: { clientX: number; clientY: number; currentTarget: HTMLElement }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const [x, y] = toWorld(view.current, e.clientX - r.left, e.clientY - r.top);
+    return [x, y, 6 / view.current.s] as const;
+  };
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
-    if (e.button !== 0) return;
+    // Left drag pans (with or without Ctrl / Shift); a middle drag pans too.
+    if (e.button !== 0 && !(e.button === 1 && e.pointerType === 'mouse')) return;
+    tapFrom.current = e.button === 0 && touches.current.size === 0 ? { x: e.clientX, y: e.clientY } : null;
     if (e.pointerType === 'touch') {
       touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.current.size === 2) { pan.current = null; pinch.current = { dist: spread().dist, s: view.current.s }; return; }
@@ -274,6 +290,23 @@ export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = f
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     pan.current = null;
   };
+  const onPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
+    const t = tapFrom.current; tapFrom.current = null;
+    const tap = !!t && !pinch.current && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 4;
+    endPan(e);
+    if (tap && onTap) { const [x, y, tol] = worldAt(e); onTap(x, y, tol); }
+  };
+  const onDoubleClick = (e: ReactMouseEvent<HTMLElement>) => { if (onDoubleTap) { const [x, y, tol] = worldAt(e); onDoubleTap(x, y, tol); } };
+  // A middle press must not start the browser's auto-scroll.
+  const onMouseDown = (e: ReactMouseEvent<HTMLElement>) => { if (e.button === 1) e.preventDefault(); };
+
+  /** Show a box (a picked shape): fitted, with room around it. */
+  const zoomToBox = useCallback((b: Box) => {
+    const { w, h } = size();
+    const pw = (b.maxX - b.minX) * 0.15 || 1, ph = (b.maxY - b.minY) * 0.15 || 1;
+    fitted.current = false;
+    commit(fitView({ minX: b.minX - pw, minY: b.minY - ph, maxX: b.maxX + pw, maxY: b.maxY + ph }, w, h));
+  }, [commit, size]);
 
   // Keyboard path (DESIGN_SYSTEM §6.4): arrows pan, + / - zoom, 0 fits, 1 is true size.
   const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
@@ -301,7 +334,7 @@ export function usePanZoom({ bounds, actualScale, resetKey, quickWhileMoving = f
     percent: actualScale > 0 ? Math.round((scale / actualScale) * 100) : 100,
     zoomIn: () => zoomBy(ZOOM_STEP),
     zoomOut: () => zoomBy(1 / ZOOM_STEP),
-    fit, fitWidth, actual, panBy,
-    bind: { onPointerDown, onPointerMove, onPointerUp: endPan, onPointerCancel: endPan, onKeyDown },
+    fit, fitWidth, actual, panBy, zoomToBox,
+    bind: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: endPan, onKeyDown, onDoubleClick, onMouseDown },
   };
 }

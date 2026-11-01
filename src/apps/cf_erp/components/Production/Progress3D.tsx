@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { getLineModel3d, type Model3D } from '../../api/drawings';
 import { getRowProgress, type RowProgress } from '../../api/rowProgress';
 import { lookOf, legendOf, marksOf, rowOfElement, type Look } from '../../lib/progress3d';
 import { elementGeometries, merge } from '../../lib/model3dGeometry';
+import { GESTURES_3D, ownerAt } from '../../lib/model3d';
+import { bindClicks, createOrbit, frameBox, highlightMaterial, VIEW_DIR } from '../../lib/orbit3d';
 
 /**
  * THE 3D PROGRESS VIEW (user, 2026-11-01): a production order's or a sales order's lines in 3D — every line's model,
  * once per unit of its quantity — each piece coloured by the flow step its row is at (lib/progress3d.ts: a row gone
  * into its parent takes the parent's colour, so a sub-assembly at assembly level is one colour; uncut parts are
  * ghosts; a step being worked pulses). Lines with no 3D model are listed, not drawn. Refreshes every minute.
+ * Gestures as the drawing viewer's 3D (lib/orbit3d.ts): Ctrl / Shift / middle / right drag pans, double-click a piece
+ * to turn about it; a clicked piece is outlined in the highlight colour (its own small mesh — no rebuild).
  */
 
 interface LineData { lineId: number; model: Model3D | null; progress: RowProgress | null; error?: string }
@@ -104,14 +107,14 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
 
     // One mesh per look (colour × ghost × faint × pulse): few draw calls whatever the size.
     const buckets = new Map<string, { look: Look; geos: THREE.BufferGeometry[] }>();
-    const owner: { start: number; count: number; text: string }[] = []; const pickList: THREE.BufferGeometry[] = [];
+    const owner: { start: number; count: number }[] = []; const pickList: THREE.BufferGeometry[] = [];
     let at = 0;
     for (const p of placed) {
       const k = `${p.look.colour}|${p.look.ghost}|${p.look.faint}|${p.look.pulse}`;
       if (!buckets.has(k)) buckets.set(k, { look: p.look, geos: [] });
       buckets.get(k)?.geos.push(...p.geos);
       const n = p.geos.reduce((s, g) => s + g.attributes.position.count, 0);
-      owner.push({ start: at, count: n, text: p.look.words }); pickList.push(...p.geos); at += n;
+      owner.push({ start: at, count: n }); pickList.push(...p.geos); at += n;
     }
     const pulsing: THREE.MeshLambertMaterial[] = [];
     const all = new THREE.Box3();
@@ -132,33 +135,33 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
     const pickMesh = pickGeo ? new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })) : null;
     if (pickMesh) scene.add(pickMesh);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true; controls.dampingFactor = 0.12; controls.screenSpacePanning = true;
-    const fit = () => {
-      if (all.isEmpty()) return;
-      const c = all.getCenter(new THREE.Vector3()); const r = Math.max(all.getSize(new THREE.Vector3()).length() / 2, 200);
-      const dist = (r / Math.sin((camera.fov * Math.PI) / 360)) * 1.1;
-      camera.position.copy(c).add(new THREE.Vector3(-0.55, -0.75, 0.48).normalize().multiplyScalar(dist));
-      camera.near = dist / 300; camera.far = dist * 30; camera.updateProjectionMatrix();
-      controls.target.copy(c); controls.update();
-    };
+    const controls = createOrbit(camera, renderer.domElement);
+    const fit = () => frameBox(camera, controls, all, { dir: VIEW_DIR, margin: 1.1 });
     fit(); api.current = { fit };
 
-    const ray = new THREE.Raycaster(); const ptr = new THREE.Vector2(); let down: [number, number] | null = null;
-    const onDown = (ev: PointerEvent) => { down = [ev.clientX, ev.clientY]; };
-    const onUp = (ev: PointerEvent) => {
-      if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4 || !pickMesh) { down = null; return; }
-      down = null;
-      const r = renderer.domElement.getBoundingClientRect();
-      ptr.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-      ray.setFromCamera(ptr, camera);
-      const hit = ray.intersectObject(pickMesh, false)[0];
-      if (!hit || hit.faceIndex == null) { setPicked(null); return; }
-      const v = hit.faceIndex * 3; const o = owner.find((x) => v >= x.start && v < x.start + x.count);
-      setPicked(o ? o.text : null);
+    // The picked piece: its own highlight mesh, swapped on each pick.
+    const sel = new THREE.Group(); scene.add(sel);
+    const highlight = (i: number) => {
+      for (const c of [...sel.children]) { const m = c as THREE.Mesh; m.geometry?.dispose?.(); (m.material as THREE.Material | undefined)?.dispose?.(); sel.remove(c); }
+      const g = i >= 0 ? merge(placed[i].geos.map((x) => x.clone())) : null;
+      if (g) { sel.add(new THREE.Mesh(g, highlightMaterial())); sel.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: 0x6b0f45 }))); }
     };
-    renderer.domElement.addEventListener('pointerdown', onDown);
-    renderer.domElement.addEventListener('pointerup', onUp);
+    const ray = new THREE.Raycaster();
+    const pick = (ndc: THREE.Vector2) => {
+      if (!pickMesh) return -1;
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(pickMesh, false)[0];
+      return hit && hit.faceIndex != null ? ownerAt(owner, hit.faceIndex * 3) : -1;
+    };
+    const unbind = bindClicks(renderer.domElement, {
+      click: (ndc) => { const i = pick(ndc); highlight(i); setPicked(i >= 0 ? placed[i].look.words : null); },
+      dblclick: (ndc) => {
+        const i = pick(ndc);
+        if (i < 0) { fit(); return; }
+        const bb = new THREE.Box3(); for (const g of placed[i].geos) bb.union(new THREE.Box3().setFromBufferAttribute(g.attributes.position as THREE.BufferAttribute));
+        frameBox(camera, controls, bb, { margin: 2.2 });
+      },
+    });
     const ro = new ResizeObserver(() => { const s = size(); renderer.setSize(s.w, s.h); camera.aspect = s.w / s.h; camera.updateProjectionMatrix(); });
     ro.observe(el);
     let raf = 0; const t0 = performance.now();
@@ -171,8 +174,7 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
     loop();
     const readyAt = requestAnimationFrame(() => setReady(true));
     return () => {
-      cancelAnimationFrame(raf); cancelAnimationFrame(readyAt); ro.disconnect(); controls.dispose();
-      renderer.domElement.removeEventListener('pointerdown', onDown); renderer.domElement.removeEventListener('pointerup', onUp);
+      cancelAnimationFrame(raf); cancelAnimationFrame(readyAt); ro.disconnect(); controls.dispose(); unbind();
       scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); (m.material as THREE.Material | undefined)?.dispose?.(); });
       renderer.dispose(); renderer.domElement.remove(); api.current = null;
     };
@@ -185,7 +187,7 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
         {!ready && <Box role="status" sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Building the 3D view…</Box>}
         <Box sx={{ position: 'absolute', right: 10, top: 8 }}><Button size="small" variant="outlined" onClick={() => api.current?.fit()} sx={{ background: 'var(--c-surface)' }}>Fit</Button></Box>
         <Typography data-testid="progress3d-picked" sx={{ position: 'absolute', left: 10, bottom: 8, fontSize: 12.5, color: picked ? 'var(--c-text-1)' : 'var(--c-text-3)', background: 'var(--c-surface)', px: 1, borderRadius: 'var(--r-sm)', maxWidth: 'calc(100% - 20px)' }}>
-          {picked ?? 'Drag to turn · scroll to zoom · right-drag to pan · click a piece to see where it is'}
+          {picked ?? `${GESTURES_3D} · click a piece to see where it is`}
         </Typography>
       </Box>
       <Box data-testid="progress3d-legend" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', fontSize: 12.5, color: 'var(--c-text-2)' }}>
