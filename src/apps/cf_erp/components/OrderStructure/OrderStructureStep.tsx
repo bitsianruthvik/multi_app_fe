@@ -30,6 +30,7 @@ import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { BomPanel } from '../Bom/BomPanel';
 import { StandardLineBanner } from '../StandardLineBanner';
+import { TrackCurveCard } from '../TrackCurveCard';
 import { OrderTotalBar } from '../OrderTotalBar';
 import { OrderSpecValuesPanel } from '../OrderSpecValuesPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -234,6 +235,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                                   onShowGrid={() => showGrid(l.id, l.lineNo)} onGoFreeze={hasFreeze && onGoStage ? () => onGoStage('lock') : null} onDismiss={() => hideNeeds(l.id)} />
                               )}
                               <StandardLineBanner lineId={l.id} hasStandard={!!l.standard} refreshKey={order} onChanged={onChanged} />
+                              <TrackCurveCard lineId={l.id} hasStandard={!!l.standard} />
                               <Box data-testid={`line-grid-${l.lineNo}`} sx={{ minWidth: 0, scrollMarginTop: 72 }}>
                                 <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
                               </Box>
