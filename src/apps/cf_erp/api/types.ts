@@ -2,9 +2,11 @@ import type { PriceBasis, StockOwner } from './money';
 import type { GstRegistration, LineTax, OrderTax, PurchaseTax } from './gst';
 import type { CutFrom, CutFromAnswer, CutRef, CutStockAnswer } from './cutting';
 import type { OrderValue } from '../lib/orderValue';
+import type { ListColumn, ListRow } from '../lib/listValue';
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
-export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
+/** list = rows of named columns on one piece (HOLE_SET; lib/listValue.ts), its columns in tableConfig.columns. */
+export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table' | 'list';
 /** step_up: the next row up. linear: a straight line between rows. */
 export type TableMode = 'step_up' | 'linear';
 export interface TableAxis {
@@ -13,7 +15,7 @@ export interface TableAxis {
   kind?: 'spec' | 'level'; field?: string; level?: 'FAMILY' | 'SUBFAMILY' | 'VARIANT'; dataType?: string;
 }
 /** A table specification's shape — one or two axes, and how a value between rows is read. */
-export interface TableConfig { axes: TableAxis[]; mode: TableMode; /** 2 = a chart of rows (any number of inputs and one result) with value { rows }. */ version?: number }
+export interface TableConfig { axes: TableAxis[]; mode: TableMode; /** 2 = a chart of rows (any number of inputs and one result) with value { rows }. */ version?: number; /** A LIST spec's config is { columns } (no axes): lib/listValue.ts. */ columns?: ListColumn[] }
 /** A table's own chart: 1-D { x, v } or 2-D { x, y, v } with v[yIndex][xIndex]. `null` in v = the machine cannot. */
 export interface TableValue1D { x: number[]; v: (number | null)[] }
 export interface TableValue2D { x: number[]; y: number[]; v: (number | null)[][] }
@@ -169,7 +171,7 @@ export interface Rule {
 }
 
 export interface ValueView {
-  raw: number | string | boolean | TableValue | null;
+  raw: number | string | boolean | TableValue | ListRow[] | null;
   display: string | null;
   source: ValueRule;
   from: string;
@@ -216,7 +218,8 @@ export interface ResolvedSpec {
     source: 'calculated' | 'drawing' | 'typed';
     overridable: boolean;
     rollup?: boolean;
-    calculated?: { raw: number; display: string } | null;
+    /** a number, or a list's rows (HOLE_SET over the drawing's DRAWN_HOLE_SET) */
+    calculated?: { raw: number | ListRow[]; display: string } | null;
     calculatedFrom?: 'calculated' | 'drawing';
     held?: boolean;
     frozen?: boolean;

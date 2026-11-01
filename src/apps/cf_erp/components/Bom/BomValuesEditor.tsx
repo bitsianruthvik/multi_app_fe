@@ -10,6 +10,7 @@ import { useToast } from '../toastContext';
 import type { Resolution, ResolvedSpec, StructureNode } from '../../api/types';
 import { DangerBadge, ErrorNotice, Mono, RuleBadge, SkeletonRows } from '../ui';
 import { SpecValueInput } from '../SpecValueInput';
+import { listState } from '../../lib/listValue';
 import { baseInputs, specsToFill, specsToShow, type SaveValuesResult, type ValueWrite } from './bomModel';
 import type { NodeValues } from './useSpecValues';
 
@@ -146,6 +147,8 @@ export function BomValuesEditor({
                       autoFocus={autoFocus && s.spec.code === focusCode}
                       onChange={(v) => setEdits((m) => ({ ...m, [s.spec.code]: v }))}
                       label={`${s.spec.name}${s.rule.isRequired ? ' *' : ''}`}
+                      spec={s.spec.dataType === 'list' ? s.spec : undefined}
+                      listDrawing={s.spec.dataType === 'list' ? listState(s).drawing : undefined}
                     />
                     <Typography sx={{ fontSize: 11, mt: 0.25, color: said.length || gap ? 'var(--c-danger-600)' : 'var(--c-text-3)' }}>
                       {said.length ? said.join(' ') : isDefault ? `Default ${s.value?.display} — leave empty to keep it` : gap ? `${s.spec.code} · required` : s.spec.code}

@@ -8,6 +8,7 @@ import { DangerBadge, ErrorNotice, Mono, RuleBadge, SourceBadge, WarnBadge, Empt
 import { sourceMark, sourceOfDerived } from '../lib/valueSource';
 import { SpecValueInput } from './SpecValueInput';
 import { toInputString } from '../lib/tree';
+import { listState } from '../lib/listValue';
 
 const CAPTURE_LABEL = { item: 'Item', batch: 'Each batch', individual: 'Each unit' } as const;
 
@@ -165,7 +166,12 @@ export function SpecsTable({
                         value={drafting ? (draftValues?.[s.spec.id] ?? '') : (edits[s.spec.id] ?? '')}
                         onChange={(v) => (drafting ? onDraftChange?.(s.spec.id, v) : setEdits((m) => ({ ...m, [s.spec.id]: v })))}
                         label={s.rule.valueRule === 'defaulted' && s.value && s.value.source !== 'entered' ? `Default: ${s.value.display}` : undefined}
+                        listDrawing={s.spec.dataType === 'list' ? listState(s).drawing : undefined}
                       />
+                    ) : s.spec.dataType === 'list' && onSave && !resolution.frozen && editableHere(s, resolution.mode) ? (
+                      // A list opens its rows in one click and saves them at once (no "Edit values" round first).
+                      <SpecValueInput dataType="list" tableConfig={s.spec.tableConfig} spec={s.spec} value={ownInput(s)} listDrawing={listState(s).drawing}
+                        onChange={(v) => { setError(null); onSave([{ specificationId: s.spec.id, value: v }]).catch((e) => setError(e as CfApiError)); }} />
                     ) : s.value && s.spec.dataType === 'table' ? (
                       <SpecValueInput dataType="table" tableConfig={s.spec.tableConfig} spec={s.spec}
                         value={toInputString(s.value.raw)} onChange={() => {}} disabled />

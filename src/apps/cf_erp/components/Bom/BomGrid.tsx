@@ -11,6 +11,7 @@ import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import type { BackState } from '../shell/backState';
 import type { SpecValues } from './useSpecValues';
+import type { Resolution } from '../../api/types';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
 import { isDimension, sheetLabel } from '../../lib/stripLayout';
@@ -21,13 +22,23 @@ import { orderMark, sourceMark, sourceOfDerived, type OrderCellSource, type Valu
 import { ValueSourceMark } from './ValueSourceMark';
 import { CodeText } from './CodeText';
 import { splitAiNote } from '../../lib/addLine';
+import { listSummary, parseList } from '../../lib/listValue';
+import { RecordListDialog } from '../Values/ListValueDialog';
+
+/** A list cell's words: its typed rows' summary, else what the server says it holds (the drawing's set). */
+const listText = (input: string, shown: string | null | undefined): string => {
+  if (input === '') return shown ?? '';
+  return listSummary(parseList(input)) ?? shown ?? 'Typed rows — click to see them';
+};
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
-type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; options?: { id: number; value: string; label?: string | null }[] };
+type Cell = { text: string; input: string; saved: string; editable: boolean; /** A list: its rows open in a dialog (never typed in the cell). */ list?: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode, flashKeys }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode, flashKeys, loadSpecs }: {
+  /** A list cell (HOLE_SET) opens its rows: the record's values are read with this (GET /records/:id/specs). Without it a list only shows its summary. */
+  loadSpecs?: (recordId: number) => Promise<Resolution>;
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -69,6 +80,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const [fileOver, setFileOver] = useState<string | null>(null);
   const [roleEdit, setRoleEdit] = useState<{ key: string; text: string } | null>(null);
   const [moveDialog, setMoveDialog] = useState<BomRow | null>(null);
+  /** A list cell whose rows are open (HOLE_SET). */
+  const [listOpen, setListOpen] = useState<{ row: BomRow; code: string; editable: boolean; saved: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [movePosition, setMovePosition] = useState<DropPosition>('before');
   const catalog = useMemo(() => {
@@ -134,6 +147,10 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       if (!s || !resolution) return { text: '', input: '', saved: '', editable: false, why: entry?.error?.message ?? (entry ? 'This variable does not apply to this row.' : 'Loading values…') };
       const saved = ownInput(s, resolution.mode), input = pending.values?.[row.node.id]?.[col.code] ?? saved;
       const editable = !busy && !row.paste && canEditValues(row) && !resolution.frozen && valueEditable(s, resolution.mode) && s.spec.dataType !== 'table';
+      if (s.spec.dataType === 'list') {
+        return { text: listText(input, s.value?.display), input, saved, editable, list: true, type: 'list', source: sourceOfDerived(s.derived),
+          why: !canEditValues(row) ? 'Shared values: open this item or definition to edit them.' : editable ? 'Click to see or change its rows.' : `${s.rule.valueRule} value — click to see its rows.` };
+      }
       const text = input === '' ? (saved !== '' && pending.values?.[row.node.id]?.[col.code] !== undefined ? '' : s.value?.display ?? '') : s.spec.dataType === 'option'
         ? s.options?.find((o) => String(o.id) === input)?.label || s.options?.find((o) => String(o.id) === input)?.value || input
         : s.spec.dataType === 'boolean' ? input === 'true' ? 'Yes' : 'No' : input;
@@ -144,7 +161,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     const vc = view ? viewCell(view, info, col.code, !busy && !row.paste && canEditValues(row), pending.values?.[row.node.id]?.[col.code]) : null;
     if (view && info && !vc) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
     if (!view || !info || !vc) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
-    return { text: vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, type: vc.type, options: vc.options,
+    const isList = vc.type === 'list';
+    return { text: isList ? listText(vc.input, vc.input === '' ? vc.text : vc.cell.display) : vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, list: isList, type: vc.type, options: vc.options,
       source: vc.cell.from ? { from: vc.cell.from, calculated: vc.cell.calculated, noCalc: vc.cell.noCalc } : null,
       order: vc.cell.inherit || vc.cell.override ? { inherit: vc.cell.inherit, override: vc.cell.override, orderDisplay: vc.cell.orderDisplay, display: vc.cell.defaultDisplay } : null,
       why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? vc.cell.why ?? (vc.cell.missing ? 'Required value is missing.' : undefined) };
@@ -153,6 +171,14 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     const c = cellAt(row, col), n = row.node;
     // Does not apply: low-light, not editable, and never flagged missing — different from a required value that is empty.
     if (c.applies === false) return { text: '', applies: false, editable: false, why: c.why, title: c.why };
+    if (c.list) {
+      // A list is never typed into its cell: a click opens its rows (onCellClick below). Its marker still says drawing / typed.
+      const changedList = col.code in (pending.values?.[n.id] ?? {});
+      const srcList = changedList ? null : sourceMark(c.source, c.editable);
+      return { text: c.text, editable: false, why: c.why, tone: changedList ? 'warning' : srcList?.from === 'typed' ? 'strong' : 'normal', state: srcList?.from ?? 'list',
+        mark: srcList ? <ValueSourceMark mark={srcList} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => onWrites([{ row, code: col.code, text: '', saved: c.saved }])} /> : undefined,
+        tint: gaps?.get(n.id)?.includes(col.code) && !changedList ? 'var(--c-warning-200)' : undefined, title: srcList?.title ?? c.why ?? c.text };
+    }
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
     const gap = !!gaps?.get(n.id)?.includes(col.code);
     // A formula's value says where it comes from (worked out · from the drawing · typed by hand over it); a cell being changed says "changed" instead.
@@ -252,6 +278,12 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       })}
       cellAt={(rowKey, colKey) => { const row = rowByKey.get(rowKey), col = colByKey.get(colKey); return row && col ? sheetCell(row, col) : { text: '' }; }}
       onWrites={onSheetWrites} onToggleRow={onToggle}
+      onCellClick={(rowKey, colKey) => {
+        const row = rowByKey.get(rowKey), col = colByKey.get(colKey);
+        if (!row || !col || row.paste) return;
+        const c = cellAt(row, col);
+        if (c.list && c.applies !== false && loadSpecs) setListOpen({ row, code: col.code, editable: c.editable, saved: c.saved });
+      }}
       rowProps={(key) => {
         const row = rowByKey.get(key);
         if (!row) return undefined;
@@ -282,6 +314,14 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
         };
       }}
       rowSx={(key) => fileOver === key ? { '& > td': { background: 'var(--c-primary-50)', boxShadow: 'inset 0 2px 0 var(--c-primary-600), inset 0 -2px 0 var(--c-primary-600)' } } : drop?.key === key ? { '& > td': { boxShadow: `inset 0 ${drop.position === 'after' ? '-3px' : '3px'} 0 ${drop.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-600)'}` } } : flashKeys?.has(key) ? rowFlashSx : undefined} />
+    {listOpen && (
+      <RecordListDialog recordId={listOpen.row.node.id} load={loadSpecs!} specCode={listOpen.code} disabled={!listOpen.editable}
+        title={`${colByKey.get(listOpen.code)?.name ?? listOpen.code} — ${listOpen.row.node.name}`}
+        pendingText={pending.values?.[listOpen.row.node.id]?.[listOpen.code]}
+        onClose={() => setListOpen(null)}
+        onSave={(rows) => onWrites([{ row: listOpen.row, code: listOpen.code, text: JSON.stringify(rows), saved: listOpen.saved }])}
+        onBack={() => onWrites([{ row: listOpen.row, code: listOpen.code, text: '', saved: listOpen.saved }])} />
+    )}
     <Dialog open={!!moveDialog} onClose={() => setMoveDialog(null)} fullWidth maxWidth="sm">
       <DialogTitle>Move {moveDialog?.node.name}<IconButton aria-label="Close move options" onClick={() => setMoveDialog(null)} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseRounded /></IconButton></DialogTitle>
       <DialogContent sx={{ display: 'grid', gap: 2, pt: '16px !important' }}>

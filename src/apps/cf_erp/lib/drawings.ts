@@ -1,4 +1,5 @@
 import type { CountOrList, Drawing, DrawingGeometry, DrawingValue, DrawingRow, DrawingsSummary, DrawingsUploadFile, DrawingsView, RegisterRef, UploadRegister } from '../api/drawings';
+import { listSummary, type ListRow } from './listValue';
 
 /** Pure helpers for the Drawings dialog: numbers, the outline as an SVG path, and the sentences. */
 
@@ -231,7 +232,7 @@ export const skippedWords = (f: Pick<DrawingsUploadFile, 'fanOut'>): string => {
 const FROM_WORDS: Record<string, string> = { title: 'from the drawing’s title', drawing: 'from the drawing', name: 'from the file name', file: 'from the file name', filename: 'from the file name', text: 'from the text in the drawing' };
 /** TRUE_AREA → "True area". */
 export const specLabel = (code: string): string => { const t = code.toLowerCase().replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1); };
-const valueText = (v: string | number | null): string => (typeof v === 'number' ? group(v, Number.isInteger(v) ? 0 : 2) : v == null ? 'empty' : String(v));
+const valueText = (v: string | number | ListRow[] | null): string => (typeof v === 'number' ? group(v, Number.isInteger(v) ? 0 : 2) : v == null ? 'empty' : Array.isArray(v) ? listSummary(v) ?? '' : String(v));
 
 /**
  * What a file fills in, in one line: "Length 11,650 · Width 500 from the drawing; Thickness 25 · Grade E350

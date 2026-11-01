@@ -16,6 +16,9 @@ import { parseTableValue, summaryOf } from './TableValue/tableValueModel';
 import { ChartRowsDialog } from './Charts/ChartRowsDialog';
 import { chartRows, chartSummary, isRowsChart, withUnit } from '../lib/charts';
 import type { ChartAxis, ChartRow } from '../api/charts';
+import ListAltRounded from '@mui/icons-material/ListAltRounded';
+import { ListValueDialog, type ListDrawing } from './Values/ListValueDialog';
+import { listColumns, listSummary, parseList } from '../lib/listValue';
 
 /** The specification a value is for — enough to add to its list and to say so. */
 interface SpecRef { id: number; code: string; name: string }
@@ -30,7 +33,7 @@ interface SpecRef { id: number; code: string; name: string }
  * ClassificationPicker's allowCreate — a filter or a receipt offers nothing to add.
  */
 export function SpecValueInput({
-  dataType, unit, options, tableConfig, value, onChange, label, disabled, size = 'small', autoFocus, spec, chain,
+  dataType, unit, options, tableConfig, value, onChange, label, disabled, size = 'small', autoFocus, spec, chain, listDrawing,
 }: {
   dataType: DataType;
   unit?: string | null;
@@ -51,6 +54,8 @@ export function SpecValueInput({
    * chain is offered no new value — machine setup is not the catalog's.
    */
   chain?: Resolution['chain'];
+  /** dataType 'list': the drawing's (or worked-out) set the value stands over, shown beside the rows with a way back. */
+  listDrawing?: ListDrawing | null;
 }) {
   const common = { label, size, disabled, fullWidth: true, autoFocus, value, onChange: (e: { target: { value: string } }) => onChange(e.target.value) };
   switch (dataType) {
@@ -81,11 +86,37 @@ export function SpecValueInput({
       return <TextField {...common} type="date" InputLabelProps={{ shrink: true }} />;
     case 'option':
       return <OptionInput options={options} value={value} onChange={onChange} label={label} disabled={disabled} size={size} autoFocus={autoFocus} spec={spec} chain={chain} />;
+    case 'list':
+      return <ListTrigger specName={spec?.name ?? label ?? 'List'} tableConfig={tableConfig} value={value} onChange={onChange} disabled={disabled} drawing={listDrawing} />;
     case 'table':
       return <TableTrigger specName={spec?.name ?? label ?? 'Table'} unit={unit} tableConfig={tableConfig} value={value} onChange={onChange} disabled={disabled} />;
     default:
       return <TextField {...common} inputProps={{ maxLength: 500 }} />;
   }
+}
+
+/**
+ * A list has no single cell to type into either: a button with its summary ("12 × Ø22 · 4 × Ø26 countersunk") opens
+ * its rows (ListValueDialog). The value is carried as the rows' JSON, as a table's is; '' = not typed (it follows the
+ * drawing's set, which the button then shows).
+ */
+function ListTrigger({ specName, tableConfig, value, onChange, disabled, drawing }: {
+  specName: string; tableConfig?: TableConfig | null; value: string; onChange: (v: string) => void; disabled?: boolean; drawing?: ListDrawing | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const columns = listColumns(tableConfig);
+  const typed = parseList(value);
+  const words = typed ? listSummary(typed, columns) : drawing ? `${drawing.display ?? listSummary(drawing.rows, columns)} (${drawing.from === 'drawing' ? 'from the drawing' : 'worked out'})` : 'No rows yet';
+  return (
+    <>
+      <Button variant="outlined" size="small" fullWidth onClick={() => setOpen(true)} startIcon={<ListAltRounded fontSize="small" />} data-testid="list-trigger"
+        sx={{ justifyContent: 'flex-start', textTransform: 'none', fontFamily: 'var(--font-mono)', fontSize: 12.5, textAlign: 'left' }}>
+        {words}
+      </Button>
+      {open && <ListValueDialog open onClose={() => setOpen(false)} title={specName} columns={columns} typed={typed} drawing={drawing}
+        disabled={disabled} onSave={(rows) => onChange(JSON.stringify(rows))} onBack={() => onChange('')} />}
+    </>
+  );
 }
 
 /**

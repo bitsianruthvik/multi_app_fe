@@ -17,7 +17,7 @@ import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
-import type { BomType, Flow, StructureNode } from '../../api/types';
+import type { BomType, Flow, Resolution, StructureNode } from '../../api/types';
 import type { BomChange, BomChangesResponse } from '../../api/bomChanges';
 import type { LinkChoiceValue } from '../../api/links';
 import { placeholderTitle, positionCodeTitle } from '../../api/placeholders';
@@ -129,6 +129,9 @@ function RowButton({ label, onClick, children, pressed, danger, disabled }: {
  * rows, and sent together by Save (POST /bom-changes, all or nothing). It reaches
  * exactly the rows the per-line menus reach, by the same `mine` rule.
  */
+/** A record's values (its resolution) — what a list cell's rows dialog reads. */
+const loadSpecs = (recordId: number) => cfApi.get<Resolution>(`/records/${recordId}/specs`);
+
 export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onChanged, onGoCutPieces }: {
   source: BomSource;
   /** This screen is the BOM's home: its own lines are changed here, and its status and revision are managed here. */
@@ -1170,7 +1173,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle} linkCell={linkCell} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null} flashKeys={flashKeys}
+              onWrites={onGridWrites} loadSpecs={loadSpecs} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null} flashKeys={flashKeys}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />

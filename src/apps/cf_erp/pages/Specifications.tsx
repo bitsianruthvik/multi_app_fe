@@ -21,7 +21,7 @@ import { FadeIn } from '../motion';
 
 
 const matches = (s: Specification, term: string) => !term || s.code.toLowerCase().includes(term) || s.name.toLowerCase().includes(term);
-const TYPE_CHIPS: [string, string][] = [['', 'All'], ['number', 'Number'], ['text', 'Text'], ['option', 'Pick-list'], ['boolean', 'Yes / no'], ['date', 'Date'], ['table', 'Table']];
+const TYPE_CHIPS: [string, string][] = [['', 'All'], ['number', 'Number'], ['text', 'Text'], ['option', 'Pick-list'], ['boolean', 'Yes / no'], ['date', 'Date'], ['table', 'Table'], ['list', 'List']];
 
 const COLUMNS: DataColumn<Specification>[] = [
   { key: 'code', header: 'Code', render: (s) => <Mono chip>{s.code}</Mono>, sortValue: (s) => s.code, alwaysVisible: true },
@@ -31,6 +31,7 @@ const COLUMNS: DataColumn<Specification>[] = [
       <Box sx={{ py: 0.5 }}>
         <Box sx={{ fontWeight: 500 }}>{s.name}</Box>
         {s.dataType === 'option' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{(s.options ?? []).map((o) => o.value).join(' · ')}</Typography>}
+        {s.dataType === 'list' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{(s.tableConfig?.columns ?? []).map((c) => `${c.name}${c.unit ? ` (${c.unit})` : ''}`).join(' · ')}</Typography>}
         {s.dataType === 'table' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{(s.tableConfig?.axes ?? []).map((a) => a.label).join(' × ')}</Typography>}
       </Box>
     ),

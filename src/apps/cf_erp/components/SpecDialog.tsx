@@ -10,9 +10,13 @@ import type { DataType, Meta, Specification, TableMode } from '../api/types';
 import { ErrorNotice } from './ui';
 import { TYPE_LABEL } from '../lib/specTypes';
 import { DialogHeader } from './FormDialog';
+import { listColumns, listConfigOf, listConfigProblem } from '../lib/listValue';
 
 interface OptionDraft { id?: number; value: string; label: string; status?: 'active' | 'inactive' }
 interface AxisDraft { label: string; unit: string }
+/** A list column as the form edits it (lib/listValue listConfigOf turns it into the config). */
+interface ColDraft { code: string; name: string; kind: 'number' | 'word'; unit: string; optionsText: string; required: boolean; integer: boolean; blank: string }
+const NEW_COL: ColDraft = { code: '', name: '', kind: 'number', unit: '', optionsText: '', required: false, integer: false, blank: '' };
 
 
 /**
@@ -36,6 +40,8 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
   const [newOption, setNewOption] = useState('');
   const [tableAxes, setTableAxes] = useState<AxisDraft[]>([{ label: '', unit: '' }]);
   const [tableMode, setTableMode] = useState<TableMode>('step_up');
+  // A LIST's columns (HOLE_SET: diameter, count, kind, depth).
+  const [listCols, setListCols] = useState<ColDraft[]>([{ ...NEW_COL }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
 
@@ -56,6 +62,8 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
     const axes = existing?.tableConfig?.axes;
     setTableAxes(axes?.length ? axes.map((a) => ({ label: a.label, unit: a.unit ?? '' })) : [{ label: '', unit: '' }]);
     setTableMode(existing?.tableConfig?.mode ?? 'step_up');
+    const cols = existing?.dataType === 'list' ? listColumns(existing.tableConfig) : [];
+    setListCols(cols.length ? cols.map((c) => ({ code: c.code, name: c.name, kind: c.kind, unit: c.unit ?? '', optionsText: (c.options ?? []).join(', '), required: !!c.required, integer: !!c.integer, blank: c.blank ?? '' })) : [{ ...NEW_COL }]);
   }, [open, existing]);
 
   const addOption = () => {
@@ -65,9 +73,13 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
     setNewOption('');
   };
 
+  const listConfig = dataType === 'list' ? listConfigOf(listCols) : null;
+  const listProblem = listConfig ? listConfigProblem(listConfig) : null;
+  // An existing list's columns are sent only when they changed.
+  const listChanged = !!listConfig && (!existing || JSON.stringify(listConfig) !== JSON.stringify(listConfigOf(listColumns(existing.tableConfig))));
   const tableConfig = dataType === 'table'
     ? { axes: tableAxes.map((a) => ({ label: a.label.trim(), unit: a.unit.trim() || null })), mode: tableMode }
-    : undefined;
+    : listConfig && listChanged ? listConfig : undefined;
   // Once a table has values, its axis COUNT is fixed (the shape of every stored
   // chart depends on it) — a relabel or a change of mode is still free.
   const axisCountLocked = dataType === 'table' && !!existing && existing.valueCount > 0;
@@ -78,7 +90,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
     setError(null);
     let saved: Specification | null = null;
     try {
-      const common = { name, measurementType: measurementType || null, defaultUom: defaultUom || null, decimals: decimals === '' ? null : Number(decimals), description: description || null, ...(dataType === 'table' ? {} : { orderLevel }) };
+      const common = { name, measurementType: measurementType || null, defaultUom: defaultUom || null, decimals: decimals === '' ? null : Number(decimals), description: description || null, ...(dataType === 'table' || dataType === 'list' ? {} : { orderLevel }) };
       if (existing) {
         // dataType goes with it: the field is editable until the spec has values,
         // and leaving it out made changing it silently do nothing.
@@ -122,7 +134,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
           <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
           <TextField select label="Data type" value={dataType} disabled={!!existing && existing.valueCount > 0}
             helperText={existing && existing.valueCount > 0 ? 'Fixed once values exist' : ' '} onChange={(e) => setDataType(e.target.value as DataType)}>
-            {(meta?.dataTypes ?? ['number', 'text', 'boolean', 'date', 'option', 'table']).map((d) => <MenuItem key={d} value={d}>{TYPE_LABEL[d] ?? d}</MenuItem>)}
+            {(meta?.dataTypes ?? ['number', 'text', 'boolean', 'date', 'option', 'table', 'list']).map((d) => <MenuItem key={d} value={d}>{TYPE_LABEL[d] ?? d}</MenuItem>)}
           </TextField>
           <TextField select label="Measures" value={measurementType} onChange={(e) => setMeasurementType(e.target.value)} helperText=" ">
             <MenuItem value="">—</MenuItem>
@@ -136,7 +148,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
             <TextField label="Decimals shown" type="number" value={decimals} onChange={(e) => setDecimals(e.target.value)} inputProps={{ min: 0, max: 6 }} />
           )}
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
-          {dataType !== 'table' && (
+          {dataType !== 'table' && dataType !== 'list' && (
             <Box sx={{ gridColumn: '1 / -1' }}>
               <FormControlLabel control={<Checkbox checked={orderLevel} onChange={(e) => setOrderLevel(e.target.checked)} inputProps={{ 'aria-label': 'Can be set for a whole order' }} />}
                 label="Can be set for a whole order" />
@@ -176,6 +188,40 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } }} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
                 <Button onClick={addOption} startIcon={<AddRounded />}>Add</Button>
               </Box>
+            </Box>
+          </Box>
+        )}
+        {dataType === 'list' && (
+          <Box sx={{ mt: 2.5 }} data-testid="list-columns">
+            <Typography sx={{ fontWeight: 500, mb: 0.5 }}>Columns</Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 1 }}>
+              Each value is a list of rows with these columns — a hole set is Diameter (mm), Holes (whole number), Kind (drilled, punched, …) and Through (mm, empty = the part&rsquo;s thickness).
+            </Typography>
+            <Box sx={{ display: 'grid', gap: 1.5 }}>
+              {listCols.map((c, i) => {
+                const put = (patch: Partial<ColDraft>) => setListCols((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                return (
+                  <Box key={i} data-testid="list-column" sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(4, minmax(0, 1fr)) auto' }, gap: 1, alignItems: 'center', pb: 1.5, borderBottom: '1px solid var(--c-divider)' }}>
+                    <TextField size="small" label="Code" value={c.code} onChange={(e) => put({ code: e.target.value.toUpperCase() })} placeholder="DIA" inputProps={{ style: { fontFamily: 'var(--font-mono)' }, 'aria-label': `Column ${i + 1} code` }} />
+                    <TextField size="small" label="Name" value={c.name} onChange={(e) => put({ name: e.target.value })} placeholder="Diameter" inputProps={{ 'aria-label': `Column ${i + 1} name` }} />
+                    <TextField size="small" select label="Holds" value={c.kind} onChange={(e) => put({ kind: e.target.value as ColDraft['kind'] })}>
+                      <MenuItem value="number">A number</MenuItem>
+                      <MenuItem value="word">A word</MenuItem>
+                    </TextField>
+                    {c.kind === 'number'
+                      ? <TextField size="small" label="Unit" value={c.unit} onChange={(e) => put({ unit: e.target.value })} placeholder="mm" />
+                      : <TextField size="small" label="Options (commas)" value={c.optionsText} onChange={(e) => put({ optionsText: e.target.value })} placeholder="drilled, punched" />}
+                    <IconButton aria-label={`Remove column ${i + 1}`} disabled={listCols.length < 2} onClick={() => setListCols((all) => all.filter((_, j) => j !== i))}><DeleteOutlineRounded /></IconButton>
+                    <Box sx={{ gridColumn: '1 / -1', display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <FormControlLabel control={<Checkbox size="small" checked={c.required} onChange={(e) => put({ required: e.target.checked })} />} label="Needed in every row" />
+                      {c.kind === 'number' && <FormControlLabel control={<Checkbox size="small" checked={c.integer} onChange={(e) => put({ integer: e.target.checked })} />} label="Whole number" />}
+                      {!c.required && <TextField size="small" label="An empty cell means" value={c.blank} onChange={(e) => put({ blank: e.target.value })} placeholder="the part's thickness" sx={{ flex: 1, minWidth: 200 }} />}
+                    </Box>
+                  </Box>
+                );
+              })}
+              <Button size="small" startIcon={<AddRounded />} sx={{ justifySelf: 'start' }} onClick={() => setListCols((all) => [...all, { ...NEW_COL }])}>Add a column</Button>
+              {listProblem && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }} data-testid="list-columns-problem">{listProblem}</Typography>}
             </Box>
           </Box>
         )}
@@ -221,7 +267,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
         {canManage && (
-          <Button variant="contained" onClick={save} disabled={busy || !name.trim() || (!existing && !code.trim()) || tableIncomplete} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+          <Button variant="contained" onClick={save} disabled={busy || !name.trim() || (!existing && !code.trim()) || tableIncomplete || !!listProblem} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
         )}
       </DialogActions>
     </Dialog>
