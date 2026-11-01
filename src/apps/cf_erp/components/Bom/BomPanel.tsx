@@ -22,6 +22,7 @@ import type { BomChange, BomChangesResponse } from '../../api/bomChanges';
 import type { LinkChoiceValue } from '../../api/links';
 import { placeholderTitle, positionCodeTitle } from '../../api/placeholders';
 import { cutPiecesNote } from '../../api/cutPieces';
+import { nestingVoidedNote } from '../../lib/nestingVoid';
 import { saveCutOnRecord } from '../../api/cutting';
 import { SectionCell } from '../SectionPicker';
 import { cfApi, CfApiError } from '../../api/client';
@@ -196,6 +197,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** After a save: the rows that stopped matching their copies, and what Undo sends. */
   const [broken, setBroken] = useState<{ n: number; undo: BomChange[] } | null>(null);
   const [sheetLinks, setSheetLinks] = useState<LinkChoiceValue>('all');
+  /** A save that voided the line's nesting: its message, kept on screen until dismissed. */
+  const [voided, setVoided] = useState<string | null>(null);
   const errorAt = useRef<HTMLDivElement>(null);
   // Structure and Values are ONE tab (user, 2026-10-02: "same things are there so no point having two tabs"):
   // an order line's grid carries the values too — required ones still empty are amber, with a
@@ -556,6 +559,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     toast.success(`Copied ${codeOrName(row.node)} — the new row is below it.`);
     const cut = cutPiecesNote(out.cutPieces);
     if (cut) toast[cut.tone](cut.text);
+    sayVoided(out);
   };
   const dropRefusal = (from: BomRow, to: BomRow, position: DropPosition): string | null => {
     if (!editOn || busy) return 'This structure cannot be changed right now.';
@@ -674,6 +678,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return [...back, ...[...sets.values()].map((recordIds) => ({ op: 'link' as const, recordIds }))];
   };
 
+  /** A save that voided the line's nesting (nested before the freeze; the structure moved under it): said, and kept on screen until dismissed. */
+  const sayVoided = (out: unknown) => {
+    const note = nestingVoidedNote(out);
+    if (!note) return;
+    setVoided(note);
+    toast.error(note);
+    onChanged?.();
+  };
   const save = async (p: Pending = pending): Promise<boolean> => {
     const sent = changesFor(p), undo = undoPlanFor(p);
     setBusy('save');
@@ -692,6 +704,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (notes.length) toast.info(notes[0]);
     const cut = cutPiecesNote(out.cutPieces);
     if (cut) toast[cut.tone](cut.text);
+    sayVoided(out);
     // Rows that no longer match their copies: said once, with a way back.
     const apart = out.links?.breaks?.length ?? 0;
     if (apart > 0) setBroken({ n: apart, undo });
@@ -1024,6 +1037,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       const result = await applyBomSheet(source, sheet.base64, sheet.result.links?.needsChoice ? sheetLinks : undefined);
       setSheet(null);
       toast.success(`Excel changes applied: ${result.summary.sentence}.`);
+      sayVoided(result);
       bom.reload();
     } catch (e) {
       if (e instanceof CfApiError && e.problems.length) {
@@ -1035,6 +1049,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
   return (
     <Box ref={panelRoot} data-bom-panel="" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }} {...backgroundDrop}>
+      {voided && <Alert severity="warning" data-testid="nesting-voided" onClose={() => setVoided(null)} sx={{ py: 0.25 }}>{voided}</Alert>}
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
       <SectionCard
         title={orderGrid ? undefined : type.title}

@@ -149,7 +149,8 @@ await check('No Cut pieces tab: StageBody has no cut_pieces branch; Nesting has 
   const body = await readFile('src/apps/cf_erp/components/OrderProcess/StageBody.tsx', 'utf8');
   assert.doesNotMatch(body, /stageKey === 'cut_pieces'/);
   assert.doesNotMatch(body, /<BlanksPanel/);
-  assert.match(body, /<CutPiecesButton/);
+  // Nesting no longer waits for the freeze (2026-11-01): the "Freeze the design first" gate (which carried the button) is gone; NestingPanel has it.
+  assert.doesNotMatch(body, /Freeze the design first/);
   assert.doesNotMatch(body, /values and cut pieces are settled/);
   const nest = await readFile('src/apps/cf_erp/components/Nesting/NestingPanel.tsx', 'utf8');
   assert.match(nest, /<CutPiecesButton[^>]*count=\{cutPieceCount\}/);

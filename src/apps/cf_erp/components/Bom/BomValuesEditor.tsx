@@ -6,6 +6,7 @@ import SaveRounded from '@mui/icons-material/SaveRounded';
 import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import { cfApi, CfApiError } from '../../api/client';
 import { cutPiecesNote } from '../../api/cutPieces';
+import { nestingVoidedNote } from '../../lib/nestingVoid';
 import { useToast } from '../toastContext';
 import type { Resolution, ResolvedSpec, StructureNode } from '../../api/types';
 import { DangerBadge, ErrorNotice, Mono, RuleBadge, SkeletonRows } from '../ui';
@@ -81,6 +82,9 @@ export function BomValuesEditor({
       onSaved(out.specs);
       const cut = cutPiecesNote(out.cutPieces);
       if (cut) toast[cut.tone](cut.text);
+      // Nested before the freeze, and these values moved what is cut: the nesting is void.
+      const voidedNote = nestingVoidedNote(out);
+      if (voidedNote) toast.error(voidedNote);
       onward();
     } catch (e) {
       setError(e as CfApiError);

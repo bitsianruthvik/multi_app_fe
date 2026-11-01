@@ -17,7 +17,7 @@ The material request (MR) is the material the order uses but does not make: plat
 - For each line without an MR: *Line N has no material request yet*, a **Material** picker (**As the order**, **We buy**, **Customer supplies**) and **Raise MR**, or the reason it cannot be raised yet.
 
 ## How to raise and share the MR
-1. Freeze the design and save the nesting first. Until then the stage says *Waiting for nesting — N cut plates have no plate yet*.
+1. Save the nesting first. Until then the stage says *Waiting for nesting — N cut plates have no plate yet*.
 2. Check **Material** for each line.
 3. Click **Raise MR**. If a line's material comes from the customer, the app asks **The customer's promised date** (**Promised by**): production waits for that date.
 4. Click **Share as PDF** or **Share as Excel** and send it to the customer with the terms.

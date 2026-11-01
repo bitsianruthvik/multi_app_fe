@@ -6,13 +6,12 @@ import LaunchRounded from '@mui/icons-material/LaunchRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import type { CfApiError } from '../../api/client';
-import { lineLock } from '../../api/lock';
 import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, ReleaseSummary, SalesOrder } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
-import { CONFIRM_MOVE, LOCKED_STATUSES } from '../../lib/orders';
+import { CONFIRM_MOVE } from '../../lib/orders';
 import {
   DECIDED_BY_HELP, UNBUILT_STAGE,
   isOrderWide, isUnbuilt, nextLineFor, notForThisLine, tabFor,
@@ -31,7 +30,6 @@ import { HelpButton } from '../../help/HelpButton';
 // Execution plan and Material request were in the order page's own chunk, downloaded before it could draw.
 // (Structure & values, Production and Acceptance stay in it — the order page draws them on its plain tabs too.)
 const NestingPanel = lazy(() => import('../Nesting/NestingPanel').then((m) => ({ default: m.NestingPanel })));
-const CutPiecesButton = lazy(() => import('../Nesting/CutPiecesDialog').then((m) => ({ default: m.CutPiecesButton })));
 const LockPanel = lazy(() => import('../Lock/LockPanel').then((m) => ({ default: m.LockPanel })));
 const ExecutionPlanPanel = lazy(() => import('../OrderStructure/ExecutionPlanPanel').then((m) => ({ default: m.ExecutionPlanPanel })));
 const OrderPurchasePanel = lazy(() => import('../Purchase/OrderPurchasePanel').then((m) => ({ default: m.OrderPurchasePanel })));
@@ -213,23 +211,9 @@ export function StageBody({
     // The layout belongs to ONE line — a cut plate is a temporary item of that
     // line — so without a line there is nothing to nest, and the panel is given
     // the line it is looking at rather than working one out for itself.
-    const orderLine = order.lines?.find((l) => l.id === line?.lineId) ?? null;
-    const notFrozen = !!orderLine && orderLine.lineType === 'custom' && !lineLock(orderLine) && !LOCKED_STATUSES.includes(order.status);
-    body = line && notFrozen
-      ? (
-        <SectionCard title="Nesting">
-          <EmptyState icon={<LockRounded />} title="Freeze the design first"
-            hint={`Nesting lays out the frozen pieces, and line ${line.lineNo} is not frozen yet. The cut pieces are made automatically — look at them any time.`}
-            action={(
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-                {view.stages.some((x) => x.stageKey === 'lock') && <Button variant="contained" onClick={() => onGoStage('lock')}>Go to Freeze design</Button>}
-                <CutPiecesButton lineId={line.lineId} lineNo={line.lineNo} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll}
-                  onGoValues={() => onGoStage('structure')} />
-              </Box>
-            )} />
-        </SectionCard>
-      )
-      : line
+    // Nesting no longer waits for the freeze (user, 2026-11-01): once the BOM and drawings are there a line can be nested;
+    // a later change to what has to be cut voids the nesting (the Structure step warns before, the save says after).
+    body = line
       ? <NestingPanel key={line.lineId} orderId={order.id} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} canEditCatalog={isPermitted('cf_erp_catalog_manage')} onChanged={onReloadAll} />
       : (
         <SectionCard title="Nesting">

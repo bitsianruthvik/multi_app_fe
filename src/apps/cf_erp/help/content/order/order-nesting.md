@@ -7,7 +7,7 @@ routes: ["/:company/cf_erp/orders/:id"]
 tab: nesting
 order: 50
 ---
-Nesting lays a line's cut pieces out on the plates they are cut from, and its sections on stock bars. What you save here is what the shop cuts and what the order buys. It comes after Freeze design and is done one line at a time.
+Nesting lays a line's cut pieces out on the plates they are cut from, and its sections on stock bars. What you save here is what the shop cuts and what the order buys. It is done one line at a time, as soon as the line's structure and drawings are there — it does not wait for Freeze design. If the structure then changes (quantities, sizes, parts added or removed), the line's Structure step warns first (**This line is nested (N plates)…**) and the save makes the nesting void: every saved plate of the line is taken off and the save says so. Nest the line again.
 
 ## What you see
 - Two doors: **Upload your nesting** (**Upload nesting files**) and **Nesting by AI** (**Nest by AI**).

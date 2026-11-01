@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import { Link, useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArchitectureRounded from '@mui/icons-material/ArchitectureRounded';
@@ -38,6 +38,7 @@ import { useToast } from '../toastContext';
 import { AddLineDialog, EditOrderLineDialog, StandardLineDialog, LineStructureText, type AddedLine } from './LineDialogs';
 import { LineReadinessBanner } from './LineReadinessBanner';
 import { readinessFromLock } from '../../lib/lineReadiness';
+import { nestedBanner, nestedState } from '../../lib/nestingVoid';
 import { AiLineBanner } from './AiLineBanner';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -236,6 +237,16 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                               )}
                               <StandardLineBanner lineId={l.id} hasStandard={!!l.standard} refreshKey={order} onChanged={onChanged} />
                               <TrackCurveCard lineId={l.id} hasStandard={!!l.standard} />
+                              {(() => {
+                                // Nested before the freeze: a change to what is cut voids it (user, 2026-11-01) — said before the change.
+                                const nested = !l.release && !lineLock(l) && !LOCKED_STATUSES.includes(order.status) ? nestedState(lineStages(l.id)) : null;
+                                return nested && (
+                                  <Alert severity="warning" data-testid={`line-nested-${l.lineNo}`} sx={{ py: 0.25 }}
+                                    action={onGoStage ? <Button size="small" color="inherit" onClick={() => onGoStage('nesting')}>Open Nesting</Button> : undefined}>
+                                    {nestedBanner(nested)}
+                                  </Alert>
+                                );
+                              })()}
                               <Box data-testid={`line-grid-${l.lineNo}`} sx={{ minWidth: 0, scrollMarginTop: 72 }}>
                                 <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
                               </Box>

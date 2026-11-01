@@ -15,6 +15,7 @@ import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import CallSplitRounded from '@mui/icons-material/CallSplitRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
+import { nestingVoidedNote } from '../lib/nestingVoid';
 import { getLinePlaceholders, placeholderTitle } from '../api/placeholders';
 import type { Sourcing, MasterRecord, Resolution, Rule, ScreenTree, Tree } from '../api/types';
 import { screenTreePath } from '../lib/classificationScreens';
@@ -507,8 +508,11 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
               <SpecsTable resolution={specs.data}
                 emptyHint={isDefinition ? 'Add the rules every item it creates must capture.' : 'Add rules on its classification under Setup, or on this item below.'}
                 onSave={editable ? async (values) => {
-                  await cfApi.put(`/records/${id}/values`, { values });
+                  const out = await cfApi.put(`/records/${id}/values`, { values });
                   toast.success('Values saved.');
+                  // A row of an order nested before the freeze: these values moved what is cut, so its nesting is void.
+                  const voidedNote = nestingVoidedNote(out);
+                  if (voidedNote) toast.error(voidedNote);
                   specs.reload();
                   setVersion((v) => v + 1);
                 } : undefined} />
