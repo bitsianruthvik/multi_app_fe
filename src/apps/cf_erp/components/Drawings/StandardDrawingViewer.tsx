@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { getLineModel3d } from '../../api/drawings';
+import { getLineModel3d, getStandardModel3d } from '../../api/drawings';
 import { standardFileBlob, type StandardDetail, type StandardFile } from '../../api/standards';
 import { levelView } from '../../lib/drawingLevels';
 import { rowOfFile, rowsOfFile, standardLevels } from '../../lib/standardLevels';
@@ -11,10 +11,8 @@ import { DrawingViewer, type ViewerDrawing } from './DrawingViewer';
  * (lib/standardLevels.ts) — breadcrumb, "Parts in this assembly", "Drawing of …" — so stepping between its part files
  * needs no round trip; each file is fetched from the standard (GET /standard-drawings/files/:id).
  *
- * 3D: the model is kept with the standard, but the server only hands it out through an order line made from the
- * standard (GET /orders/:o/lines/:l/model3d — it reads the line's standard's model, and the codes of that line). So it
- * is read through the newest such line; a standard used on no line has no 3D model here yet, only its plate parts in
- * 3D (read from their own DXFs).
+ * 3D: the model kept with the standard — through the newest order line made from it where there is one (that line's
+ * codes come with it), else the standard's own (GET /standard-drawings/:id/model3d — no order, so labelled by mark).
  */
 
 async function saveFile(f: StandardFile) {
@@ -37,7 +35,7 @@ export function StandardDrawingViewer({ standard, file, onClose }: { standard: S
   }), [shownFile, view, levels, standard.drawing]);
   const viewerLevels = useMemo(() => (view ? { view, onGo: setAt } : undefined), [view]);
   const line = standard.lines[0] ?? null;
-  const loadModel = useCallback(async () => (line ? getLineModel3d(line.orderId, line.id) : null), [line]);
+  const loadModel = useCallback(async () => (line ? getLineModel3d(line.orderId, line.id).catch(() => getStandardModel3d(standard.id)) : getStandardModel3d(standard.id)), [line, standard.id]);
   return (
     <DrawingViewer orderId={0} lineId={0} drawing={drawing} levels={viewerLevels} onClose={onClose}
       fetchFile={() => standardFileBlob(shownFile.id)} downloadFile={() => saveFile(shownFile)}

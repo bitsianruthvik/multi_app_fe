@@ -239,3 +239,6 @@ export interface Model3DElement {
 export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; elements: Model3DElement[] }
 export const getLineModel3d = (orderId: number, lineId: number) =>
   cfApi.get<{ fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> }>(`/orders/${orderId}/lines/${lineId}/model3d`);
+/** A standard drawing's own 3D model (no order, so no codes) — the Drawings tab of a standard. */
+export const getStandardModel3d = (standardId: number) =>
+  cfApi.get<{ fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> }>(`/standard-drawings/${standardId}/model3d`);
