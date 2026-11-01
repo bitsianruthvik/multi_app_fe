@@ -15,7 +15,7 @@ import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
 import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getLineModel3d, type Drawing, type Model3D } from '../../api/drawings';
 import { litMark, selectionFacts, settleScope, thicknessFromName, type Part3D, type Scope3D, type Selection3D } from '../../lib/model3d';
-import { pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
+import { partOfView, pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
 
 // three.js only loads when someone opens the 3D view.
 const Model3DView = lazy(() => import('./Model3DView'));
@@ -168,10 +168,11 @@ function Selected2D({ facts, onZoom, onClear }: { facts: ShapeFacts; onZoom: () 
   );
 }
 
-function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected }: {
+function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected, readFacts }: {
   drawing: ViewerDrawing; view: DxfView | null; hidden: ReadonlySet<string>; onToggle: (name: string) => void; onAll: (show: boolean) => void; levels?: ViewerLevels;
   /** the "Selected" section (a piece picked in 3D, a shape in 2D), at the top */
   selected?: React.ReactNode;
+  readFacts?: { lengthMm: number | null; widthMm: number | null; areaMm2: number | null; holes: number | null } | null;
 }) {
   const g = drawing.geometry ?? null;
   const reg = drawing.drawing ?? null;
@@ -224,6 +225,13 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected }:
           <Row label="Holes">{g.holes ? `${g.holes} · ${holesTitle(g)}` : 'none'}</Row>
           <Row label="Cut-outs">{g.innerCuts}</Row>
         </Box>
+      ) : readFacts && (readFacts.lengthMm != null || readFacts.holes != null) ? (
+        <Box data-testid="viewer-facts">
+          <CapsLabel>What the app read</CapsLabel>
+          {readFacts.lengthMm != null && readFacts.widthMm != null && <Row label="Size">{sizeText(readFacts.lengthMm, readFacts.widthMm)}</Row>}
+          {readFacts.areaMm2 != null && <Row label="Area">{fmtM2(readFacts.areaMm2 / 1e6)}</Row>}
+          <Row label="Holes">{readFacts.holes ? readFacts.holes : 'none'}</Row>
+        </Box>
       ) : (
         drawing.fileKind === 'dxf' && (
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Only a plate part’s DXF is read as a shape. This one is shown as drawn.</Typography>
@@ -275,8 +283,16 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected }:
   );
 }
 
-export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false, fetchFile, downloadFile }: {
+export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false, fetchFile, downloadFile, loadModel, modelKey, readFacts }: {
   onClose: () => void;
+  /**
+   * Where the 3D model comes from when it is not an order line's (a standard drawing's), with `modelKey` naming it so
+   * it is read once. Without it the line's model is read (GET …/lines/:lineId/model3d) when there is a line.
+   */
+  loadModel?: () => Promise<{ model: Model3D; codes?: Record<string, string> } | null>;
+  modelKey?: string;
+  /** What is known of the file's shape when there is no full geometry (a standard's part file): size, area, holes. */
+  readFacts?: { lengthMm: number | null; widthMm: number | null; areaMm2: number | null; holes: number | null } | null;
   /** A file that is not an order line's (a standard drawing's part file): how to fetch and download it. */
   fetchFile?: () => Promise<Blob>;
   downloadFile?: () => Promise<void>;
@@ -308,7 +324,8 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // first 3D click; a DXF that is not a plate part (a level's drawing) has none.
   const [part, setPart] = useState<Part3D | null | 'loading' | 'none'>(null);
   const canPart = drawing.fileKind === 'dxf' && drawing.id > 0;
-  useEffect(() => { setPart(null); }, [drawing.id]);
+  const askedServer = useRef(false);
+  useEffect(() => { setPart(null); askedServer.current = false; }, [drawing.id]);
   const loadPart = useCallback(async () => {
     if (part !== null || !canPart) return;
     const of = (d: Pick<Drawing, 'geometry' | 'rows' | 'mark' | 'fileName'> | undefined): Part3D | null => {
@@ -318,18 +335,33 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     };
     const here = of(drawing as Drawing);
     if (here) { setPart(here); return; }
-    setPart('loading');
-    try {
-      const v = await getDrawings(orderId, lineId);
-      setPart(of(v.drawings.find((d) => d.id === drawing.id)) ?? 'none');
-    } catch { setPart('none'); }
-  }, [part, canPart, drawing, orderId, lineId]);
+    // The line's drawings carry the server's shape of the part.
+    if (lineId > 0 && !askedServer.current) {
+      askedServer.current = true;
+      setPart('loading');
+      try {
+        const found = of((await getDrawings(orderId, lineId)).drawings.find((d) => d.id === drawing.id));
+        if (found) { setPart(found); return; }
+      } catch { /* read it from the file below */ }
+    }
+    // No shape from the server (a standard's part file): a plate part's shape is read from its own DXF (lib/dxfPick.ts).
+    const plate = !!drawing.rows?.some((r) => r.isPlatePart) || thicknessFromName(drawing.fileName) != null;
+    if (!plate || loaded.state === 'error' || loaded.state === 'pdf') { setPart('none'); return; }
+    if (loaded.state !== 'dxf') { setPart(null); return; }
+    const t = drawing.rows?.find((r) => r.thicknessMm)?.thicknessMm ?? thicknessFromName(drawing.fileName) ?? 10;
+    setPart(partOfView(loaded.view, drawing.mark, Number(t)) ?? 'none');
+  }, [part, canPart, drawing, orderId, lineId, loaded]);
+  const loadModelRef = useRef(loadModel);
+  useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
   useEffect(() => {
     let live = true;
-    setModel(null);
-    getLineModel3d(orderId, lineId).then((r) => { if (live) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ });
+    setModel(null); setCodes({});
+    const read = loadModelRef.current ? loadModelRef.current() : lineId > 0 ? getLineModel3d(orderId, lineId) : Promise.resolve(null);
+    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ });
     return () => { live = false; };
-  }, [orderId, lineId]);
+  }, [orderId, lineId, modelKey]);
+  // In 3D, the part's shape is read as soon as it can be (the DXF may still be loading on the first click).
+  useEffect(() => { if (mode3d && part === null) void loadPart(); }, [mode3d, part, loadPart]);
   // The level to light up: the open row, then each level above it, deepest first.
   const marks3d = useMemo(() => [drawing.mark, ...(levels ? [...levels.view.crumbs].reverse().map((c) => c.mark ?? null) : [])], [drawing.mark, levels]);
   // 3D selection and what the 3D view shows (one toggle: lib/model3d.ts scopeChoices). The person's choice is kept;
@@ -530,7 +562,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, borderTop: '1px solid var(--c-border)' }}>
         {mode3d && (
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}>
-            {part === 'loading' ? (
+            {part === 'loading' || (!model && part === null && loaded.state === 'loading') ? (
               <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Reading the part’s shape…</Box>
             ) : !model && (part === 'none' || part === null) ? (
               <Typography data-testid="model3d-none" sx={{ m: 'auto', p: 3, maxWidth: 460, fontSize: 14, color: 'var(--c-text-2)', textAlign: 'center' }}>
@@ -592,7 +624,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           )}
         </Box>
         {strip && (
-          <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels}
+          <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} readFacts={readFacts}
             selected={mode3d
               ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)} />
               : facts2d && shape2d && <Selected2D facts={facts2d} onZoom={() => pz.zoomToBox(shape2d)} onClear={() => setSel2d(null)} />} />

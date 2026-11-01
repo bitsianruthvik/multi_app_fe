@@ -5,7 +5,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import VisibilityRounded from '@mui/icons-material/VisibilityRounded';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import {
-  createStandard, getStandard, listStandards, standardFileBlob,
+  createStandard, getStandard, listStandards,
   type StandardDetail, type StandardFile, type StandardSummary, type StandardTreeRow,
 } from '../api/standards';
 import { fileToBase64 } from '../api/bomSheet';
@@ -17,7 +17,7 @@ import { Badge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, PageHeader,
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { FormDialog } from '../components/FormDialog';
-import { DrawingViewer } from '../components/Drawings/DrawingViewer';
+import { StandardDrawingViewer } from '../components/Drawings/StandardDrawingViewer';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 import { staggerRowsSx } from '../components/salesMotion';
@@ -257,17 +257,7 @@ export function StandardDrawingDetail() {
           ) : <EmptyState title="Not used on an order yet" hint="On an order, Add line › From a standard drawing." />}
         </SectionCard>
       )}
-      {viewing && (
-        <DrawingViewer onClose={() => setViewing(null)} orderId={0} lineId={0}
-          drawing={{ id: viewing.id, mark: viewing.mark ?? viewing.fileName, fileName: viewing.fileName, fileKind: viewing.fileKind }}
-          fetchFile={() => standardFileBlob(viewing.id)}
-          downloadFile={async () => {
-            const blob = await standardFileBlob(viewing.id);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = viewing.fileName; document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          }} />
-      )}
+      {viewing && <StandardDrawingViewer standard={d} file={viewing} onClose={() => setViewing(null)} />}
     </DetailLayout>
   );
 }

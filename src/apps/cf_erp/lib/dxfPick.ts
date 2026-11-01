@@ -237,3 +237,20 @@ export function shapeFacts(view: DxfView, shapes: Shape[], index: number): Shape
 
 /** SVG path data for a shape (for its highlight). */
 export const shapePath = (s: Shape) => `M${s.pts.map(([x, y]) => `${x} ${y}`).join('L')}${s.closed ? 'Z' : ''}`;
+
+/**
+ * A plate part's 3D shape read from its own DXF, for a drawing the server has no shape for (a standard's part file):
+ * the largest closed outline is the plate, every closed shape inside it a hole or cut-out. Rings in mm with the
+ * outline's corner at 0,0 (as the server's part geometry). Null when the file has no closed outline. Pure.
+ */
+export function partOfView(view: DxfView, label: string, thicknessMm: number): { label: string; rings: number[][][]; thicknessMm: number; lengthMm: number; widthMm: number } | null {
+  const shapes = shapesOf(view).filter((s) => s.closed && s.pts.length >= 3);
+  if (!shapes.length) return null;
+  const outer = shapes.reduce((a, b) => (b.area > a.area ? b : a));
+  const k = view.unitMm || 1;
+  const ring = (s: Shape) => s.pts.map(([x, y]) => [(x - outer.minX) * k, (y - outer.minY) * k]);
+  const inner = shapes.filter((t) => t !== outer && t.area < outer.area
+    && t.minX >= outer.minX && t.maxX <= outer.maxX && t.minY >= outer.minY && t.maxY <= outer.maxY
+    && pointInPolygon(...(t.circle ? [t.circle.cx, t.circle.cy] as Pt : t.pts[0]), outer.pts));
+  return { label, rings: [ring(outer), ...inner.map(ring)], thicknessMm, lengthMm: (outer.maxX - outer.minX) * k, widthMm: (outer.maxY - outer.minY) * k };
+}

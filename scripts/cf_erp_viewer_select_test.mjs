@@ -28,6 +28,8 @@ const L = await bundle('viewer-select-lib', `
   export * from './src/apps/cf_erp/lib/dxfPick';
   export * from './src/apps/cf_erp/lib/model3d';
   export { toWorld, zoomAbout } from './src/apps/cf_erp/hooks/usePanZoom';
+  export * from './src/apps/cf_erp/lib/standardLevels';
+  export { levelView } from './src/apps/cf_erp/lib/drawingLevels';
 `);
 
 // ── DXF helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -121,6 +123,57 @@ check('the pan-zoom click turns a screen point into the world point (y up), the 
   const [x, y] = L.toWorld(v, 300, 300);
   near(x, 100); near(y, 100);
   near(v.s * x + v.tx, 300); near(-v.s * y + v.ty, 300);
+});
+
+check("a plate part's 3D shape read from its own DXF: the outline from its corner, the holes and the slot inside as rings", () => {
+  const p = L.partOfView(L.parseDxf(plateDxf), 'GP-7', 12);
+  assert.equal(p.label, 'GP-7'); assert.equal(p.thicknessMm, 12);
+  near(p.lengthMm, 400); near(p.widthMm, 200);
+  assert.equal(p.rings.length, 4, 'outline + 2 holes + slot');
+  assert.ok(p.rings[0].every(([x, y]) => x >= -1e-9 && y >= -1e-9 && x <= 400 + 1e-9 && y <= 200 + 1e-9));
+  assert.equal(L.partOfView(L.parseDxf(file(line('L', 0, 0, 10, 0))), 'x', 10), null, 'no closed outline, no part');
+});
+
+// A standard: span (the sheet) › girder G1 (its DXF) › two plates (one with a DXF, one without), and a catalog bolt.
+const std = {
+  id: 7, number: 'RDSO-1', tree: [
+    { key: 'r1', rowId: 11, parentKey: null, depth: 0, lineNo: null, role: null, name: 'Span', kind: 'row', definition: null, quantity: 1, total: 1, mark: null, values: [], fileId: null },
+    { key: 'r2', rowId: 12, parentKey: 'r1', depth: 1, lineNo: 1, role: 'Girder', name: 'Girder', kind: 'row', definition: null, quantity: 2, total: 2, mark: 'G1', values: [], fileId: 502 },
+    { key: 'r3', rowId: 13, parentKey: 'r2', depth: 2, lineNo: 1, role: 'Top flange', name: 'Plate', kind: 'row', definition: null, quantity: 1, total: 2, mark: 'TF1', values: [{ code: 'THICKNESS', text: '32' }, { code: 'LENGTH', text: '7925' }, { code: 'WIDTH', text: '480' }], fileId: 501 },
+    { key: 'r4', rowId: 14, parentKey: 'r2', depth: 2, lineNo: 2, role: 'Stiffener', name: 'Plate', kind: 'row', definition: null, quantity: 4, total: 8, mark: 'IS1', values: [{ code: 'THICKNESS', text: '16' }], fileId: null },
+    { key: 'c1', rowId: null, parentKey: 'r2', depth: 2, lineNo: 3, role: 'Bolt', name: 'M22 bolt', kind: 'catalog', definition: null, quantity: 40, total: 80, mark: null, values: [], fileId: null },
+  ],
+  files: [
+    { id: 500, kind: 'source', mark: null, fileName: 'RDSO-1.pdf', fileKind: 'pdf', lengthMm: null, widthMm: null, areaMm2: null, holes: null, drawingId: 9 },
+    { id: 501, kind: 'part', mark: 'TF1', fileName: 'TF1_32mm.dxf', fileKind: 'dxf', lengthMm: 7925, widthMm: 480, areaMm2: 3804000, holes: 48, drawingId: null },
+    { id: 502, kind: 'part', mark: 'G1', fileName: 'G1.dxf', fileKind: 'dxf', lengthMm: null, widthMm: null, areaMm2: null, holes: null, drawingId: null },
+  ],
+};
+
+check("a standard's version tree becomes the viewer's levels: parents, marks, files; the top row gets the sheet", () => {
+  const lv = L.standardLevels(std);
+  const rows = lv.tree.rows;
+  assert.equal(rows.length, 5);
+  assert.deepEqual(rows.map((r) => r.parentId), [null, 1, 2, 2, 2]);
+  assert.equal(rows[0].drawingId, 500, 'the sheet on the top row'); assert.equal(rows[0].fileKind, 'pdf');
+  assert.equal(rows[2].drawingId, 501); assert.equal(rows[2].isPlatePart, true); assert.equal(rows[2].mark, 'TF1');
+  assert.equal(rows[3].hasDrawing, false); assert.equal(rows[4].hasDrawing, false);
+  assert.equal(L.rowOfFile(lv, 501), 3); assert.equal(L.rowOfFile(lv, 500), 1); assert.equal(L.rowOfFile(lv, 999), null);
+});
+
+check('the levels walk like an order line\'s: a plate with no DXF shows its girder\'s drawing, the crumbs carry the marks the 3D view lights', () => {
+  const lv = L.standardLevels(std);
+  const v = L.levelView(lv.tree, 4);
+  assert.equal(v.inherited, true); assert.equal(v.shown.mark, 'G1');
+  assert.deepEqual(v.crumbs.map((c) => c.mark), [null, 'G1', 'IS1']);
+  const g = L.levelView(lv.tree, 2);
+  assert.deepEqual(g.parts.map((r) => r.mark ?? r.name), ['TF1', 'IS1', 'M22 bolt']);
+});
+
+check("a file's rows carry their size and thickness (a plate part's 3D thickness)", () => {
+  const r = L.rowsOfFile(L.standardLevels(std), 501);
+  assert.equal(r.length, 1);
+  assert.deepEqual([r[0].code, r[0].thicknessMm, r[0].lengthMm, r[0].widthMm, r[0].pieces, r[0].isPlatePart], ['TF1', 32, 7925, 480, 2, true]);
 });
 
 // ── 2. 3D selection ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -279,6 +332,39 @@ await checkAsync('2D: Esc clears the selection first and the viewer stays open; 
   assert.equal(q('[data-testid="viewer-selected"]'), null);
   await press('Escape');
   assert.equal(closed, 1, 'a second Esc with nothing selected closes');
+});
+
+await checkAsync("a standard's part opens in the same tool: levels, its file from the standard's route, its rows and facts, the 3D switch from the standard's line model", async () => {
+  const seen = [];
+  globalThis.__apiFetch = async (path) => {
+    seen.push(path);
+    if (path.includes('/model3d')) return { fileId: 1, fileName: 'm.json', model: { schema: 'cf-erp-model3d/1', units: 'mm', elements: [{ id: 'e1', mark: 'TF1', in: ['G1'], box: { c: [0, 0, 0], size: [10, 10, 10] } }] }, codes: {} };
+    if (path.includes('/standard-drawings/files/')) return new Blob([plateDxf], { type: 'application/dxf' });
+    throw new Error(`not here ${path}`);
+  };
+  const S = await bundle('std-viewer-dom', "export { StandardDrawingViewer } from './src/apps/cf_erp/components/Drawings/StandardDrawingViewer';", {
+    alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') },
+    plugins: [{ name: 'stub-core', setup(b) {
+      b.onResolve({ filter: /^@core\/(api\/client|contexts\/AuthContext)$/ }, (x) => ({ path: x.path, namespace: 'stub' }));
+      b.onLoad({ filter: /.*/, namespace: 'stub' }, (x) => ({ loader: 'js', resolveDir: process.cwd(), contents: x.path.endsWith('client') ? 'export async function apiFetch(path, opts) { return globalThis.__apiFetch(path, opts); }' : 'export const useAuth = () => ({ user: null });' }));
+    } }],
+  });
+  const detail = { ...std, drawing: { id: 9, code: null, number: 'RDSO-1', revision: 'C', title: null, url: null, status: 'issued' }, lines: [{ id: 33, lineNo: 1, orderId: 4, orderCode: 'SO1', orderStatus: 'open', versionNo: 1 }], versions: [], version: null };
+  await act(() => root.render(React.createElement(S.StandardDrawingViewer, { standard: detail, file: std.files[1], onClose: () => {} })));
+  await flush();
+  assert.ok(seen.some((x) => x.endsWith('/standard-drawings/files/501')), 'the file from the standard');
+  assert.ok(seen.some((x) => x.endsWith('/orders/4/lines/33/model3d')), 'the model through the line made from it');
+  const crumbs = [...document.querySelectorAll('[data-testid="viewer-crumb"]')].map((b) => b.textContent);
+  assert.deepEqual(crumbs, ['Span', 'Girder G1', 'Plate TF1']);
+  assert.ok(q('[data-testid="viewer-3d-toggle"]'), 'the 3D switch');
+  assert.match(q('[data-testid="viewer-strip"]').textContent, /RowsTF1/);
+  assert.match(q('[data-testid="viewer-facts"]').textContent, /7,925 × 480 mm/);
+  // Step up to the girder: its own file is fetched, and its parts are listed.
+  await act(async () => { [...document.querySelectorAll('[data-testid="viewer-crumb"]')][1].click(); });
+  await flush();
+  assert.ok(seen.some((x) => x.endsWith('/standard-drawings/files/502')));
+  assert.deepEqual([...document.querySelectorAll('[data-testid="viewer-part"]')].map((b) => b.disabled), [false, true, true], 'TF1 has a drawing; IS1 and the bolt do not');
+  await act(() => root.render(null));
 });
 
 async function press(key) { await ev(q('[role="dialog"]'), 'keydown', { key }); }
