@@ -1,4 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
+import { expandModel, type ModelFile } from '../lib/modelDrawing';
 
 /** Drawings (DXF or PDF) for any row of an order line, on its Structure tab — the contract with the server's drawings routes. */
 export interface DrawingGeometry {
@@ -231,14 +232,26 @@ export interface Model3DElement {
   id: string;
   /** the drawing mark of the BOM row it belongs to; `in` = the marks of the rows above it */
   mark: string | null; in?: string[]; label?: string;
+  /** placed by a stated rule, not read from a drawing */
+  rule?: boolean;
   member?: { a: [number, number, number]; b: [number, number, number]; up: [number, number, number]; section: Model3DSection };
   box?: { c: [number, number, number]; size: [number, number, number] };
   /** a shaped plate: its outline (mm) extruded `t` along w; the outline's x runs along u, y along v, its (0,0) at o */
-  plate?: { pts: [number, number][]; holes?: [number, number, number][]; t: number; o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; w: [number, number, number] };
+  plate?: { pts: [number, number][]; holes?: [number, number, number][]; cuts?: [number, number][][]; t: number; o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; w: [number, number, number] };
 }
-export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; elements: Model3DElement[] }
-export const getLineModel3d = (orderId: number, lineId: number) =>
-  cfApi.get<{ fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> }>(`/orders/${orderId}/lines/${lineId}/model3d`);
+export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; levels?: Record<string, { name?: string; qty?: number }>; elements: Model3DElement[] }
+type ModelAnswer = { fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> };
+/** A model is read once per line (or standard) and kept a few minutes: every level on screen is drawn from this one copy. */
+const MODEL_KEEP_MS = 5 * 60 * 1000;
+const modelsRead = new Map<string, { at: number; answer: Promise<ModelAnswer> }>();
+function readModel(path: string): Promise<ModelAnswer> {
+  const kept = modelsRead.get(path);
+  if (kept && Date.now() - kept.at < MODEL_KEEP_MS) return kept.answer;
+  const answer = cfApi.get<ModelAnswer>(path).then((r) => ({ ...r, model: expandModel(r.model as unknown as ModelFile) as unknown as Model3D }));
+  modelsRead.set(path, { at: Date.now(), answer });
+  answer.catch(() => modelsRead.delete(path));
+  return answer;
+}
+export const getLineModel3d = (orderId: number, lineId: number) => readModel(`/orders/${orderId}/lines/${lineId}/model3d`);
 /** A standard drawing's own 3D model (no order, so no codes) — the Drawings tab of a standard. */
-export const getStandardModel3d = (standardId: number) =>
-  cfApi.get<{ fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> }>(`/standard-drawings/${standardId}/model3d`);
+export const getStandardModel3d = (standardId: number) => readModel(`/standard-drawings/${standardId}/model3d`);

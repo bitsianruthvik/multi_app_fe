@@ -129,8 +129,8 @@ await check('swapPlan: making AI\'s nesting the main one says the custom sizes i
 
 await check('plateRulesBody / limitsDraft / badMm: blank = null; on / off kept; a size out of range is said', async () => {
   const d = limitsDraft({ on: true, maxLength: 12500, maxWidth: 2500, minLength: null, minWidth: null, step: 100 });
-  assert.deepEqual(d, { maxLength: '12500', maxWidth: '2500', minLength: '', minWidth: '', step: '100' });
-  assert.deepEqual(plateRulesBody('', true, d), { gradeRule: null, customPlates: { on: true, maxLength: 12500, maxWidth: 2500, minLength: null, minWidth: null, step: 100 } });
+  assert.deepEqual(d, { maxLength: '12500', maxWidth: '2500', minLength: '', minWidth: '', step: '100', minLotPieces: '', minLotTonnes: '' });
+  assert.deepEqual(plateRulesBody('', true, d), { gradeRule: null, customPlates: { on: true, maxLength: 12500, maxWidth: 2500, minLength: null, minWidth: null, step: 100, minLotPieces: null, minLotTonnes: null } });
   assert.equal(badMm(''), false); assert.equal(badMm('0'), true); assert.equal(badMm('40000'), true); assert.equal(badMm('abc'), true); assert.equal(badMm('6000'), false);
 });
 
@@ -153,7 +153,7 @@ const compare = () => ({
   wholeLine: null, willReplace: null, run: null, lastFailure: null, canAccept: null, alternative: null,
 });
 const puts = [];
-let rulesNow = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'exact', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null }, rows: [], resolved: [] };
+let rulesNow = { on: false, schema: true, sizesSchema: true, plateSchema: true, gradeRule: null, gradeRuleDefault: 'exact', gradeRules: ['warn', 'better', 'exact', 'higher'], impactOrder: 'A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)', customPlates: { on: false, maxLength: null, maxWidth: null, minLength: null, minWidth: null, step: null, minLotPieces: null, minLotTonnes: null }, rows: [], resolved: [] };
 globalThis.fetch = async (url, o = {}) => {
   const u = String(url); const method = o.method || 'GET';
   const body = o.body ? JSON.parse(o.body) : null;
@@ -196,7 +196,7 @@ await check('Setup › Cutting: switch custom sizes on, type the mill\'s limits,
   assert.ok(btn && !btn.disabled);
   await React.act(async () => { btn.click(); await sleep(30); });
   await waitFor(() => puts.length === 1 && saved, 'the save');
-  assert.deepEqual(puts[0], { gradeRule: null, customPlates: { on: true, maxLength: 12500, maxWidth: 2500, minLength: null, minWidth: null, step: 100 } });
+  assert.deepEqual(puts[0], { gradeRule: null, customPlates: { on: true, maxLength: 12500, maxWidth: 2500, minLength: null, minWidth: null, step: 100, minLotPieces: null, minLotTonnes: null } });
   assert.equal(saved.customPlates.on, true);
   await type('Longest', '0');
   const btn2 = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Save plate rules');

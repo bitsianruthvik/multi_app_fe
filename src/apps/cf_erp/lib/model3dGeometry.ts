@@ -14,6 +14,7 @@ export function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
     const shape = new THREE.Shape(pl.pts.map(([x, y]) => new THREE.Vector2(x, y)));
     // Its bolt holes (x, y, diameter) go right through.
     for (const [hx, hy, hd] of pl.holes ?? []) shape.holes.push(new THREE.Path().absarc(hx, hy, hd / 2, 0, Math.PI * 2, true));
+    for (const c of pl.cuts ?? []) shape.holes.push(new THREE.Path(c.map(([x, y]) => new THREE.Vector2(x, y))));
     const g = new THREE.ExtrudeGeometry(shape, { depth: pl.t, bevelEnabled: false, curveSegments: 8 });
     const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...pl.u), new THREE.Vector3(...pl.v), new THREE.Vector3(...pl.w));
     m.setPosition(pl.o[0], pl.o[1], pl.o[2]);
@@ -40,7 +41,7 @@ export function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
   const place = (g: THREE.BufferGeometry) => { g.applyMatrix4(basis); g.translate(mid.x, mid.y, mid.z); return g; };
   const plate = (len: number, depth: number, width: number, dy: number, dz: number) => { const g = new THREE.BoxGeometry(len, depth, width); g.translate(0, dy, dz); return place(g); };
   const s = m.section;
-  if (s.type === 'pipe') { const g = new THREE.CylinderGeometry(s.d / 2, s.d / 2, L, 20, 1, false); g.rotateZ(-Math.PI / 2); return [place(g)]; }
+  if (s.type === 'pipe') { const g = new THREE.CylinderGeometry(s.d / 2, s.d / 2, L, s.d < 40 ? 6 : 20, 1, false); g.rotateZ(-Math.PI / 2); return [place(g)]; }
   const h = s.h;
   if (s.type === 'I') {
     const webH = h - s.tTop - s.tBot;

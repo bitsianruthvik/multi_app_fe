@@ -52,16 +52,16 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
           </TextField>
           <FormControlLabel
             control={<Switch checked={on} disabled={!canEdit || !schema} onChange={(e) => setOn(e.target.checked)} slotProps={{ input: { 'aria-label': 'Let the AI propose custom plate sizes' } }} />}
-            label={<Typography sx={{ fontSize: 14 }}>Let the AI propose a custom plate size (one per steel) when it saves steel. Off: catalog sizes only.</Typography>}
+            label={<Typography sx={{ fontSize: 14 }}>Lines on &quot;Standard + custom sizes&quot; may use custom plates. Off: catalog sizes only.</Typography>}
           />
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             {PLATE_LIMITS.map((f) => (
-              <TextField key={f.key} size="small" label={`${f.label} mm`} value={draft[f.key]} disabled={!canEdit || !schema || !on} error={badMm(draft[f.key])}
-                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} placeholder={f.key === 'step' ? 'band' : 'catalog'}
-                sx={{ width: 120 }} inputProps={{ inputMode: 'decimal', 'aria-label': `${f.label} custom plate mm` }} />
+              <TextField key={f.key} size="small" label={`${f.label} ${f.unit ?? 'mm'}`} value={draft[f.key]} disabled={!canEdit || !schema || !on} error={badMm(draft[f.key])}
+                onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} placeholder={f.key === 'step' ? 'band' : f.unit ? 'none' : 'catalog'}
+                sx={{ width: f.unit ? 190 : 120 }} inputProps={{ inputMode: 'decimal', 'aria-label': `${f.label} custom plate ${f.unit ?? 'mm'}` }} />
             ))}
           </Box>
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>The mill&apos;s sizes. Blank = the catalog&apos;s own range for that thickness; a blank step = the cut-settings band&apos;s order step.</Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>The mill&apos;s sizes. Blank = the catalog&apos;s own range for that thickness; a blank step = the cut-settings band&apos;s order step. A custom size is used only when the sales order takes at least that many plates of it, or that weight; standard sizes have no such limit.</Typography>
           {canEdit && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Box sx={{ flex: 1 }} />

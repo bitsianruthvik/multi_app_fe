@@ -293,6 +293,8 @@ const click = async (x, y) => { const vp = q('[data-testid="viewer-viewport"]');
 let closed = 0;
 const drawing = { id: 77, mark: 'GP-7', fileName: 'GP-7.dxf', fileKind: 'dxf' };
 await act(() => root.render(React.createElement(m.DrawingViewer, { orderId: 1, lineId: 5, drawing, onClose: () => { closed++; } })));
+// The model read fails here and is retried, so the file of an assembly waits out MODEL_WAIT_MS.
+await act(async () => { await new Promise((r) => setTimeout(r, 2100)); });
 await flush();
 
 await checkAsync('2D: a click inside the plate selects it — highlighted, and the side panel says what it is above the drawing facts', async () => {

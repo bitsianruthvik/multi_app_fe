@@ -90,6 +90,8 @@ export interface Selection3D {
   holeCount: number;
   /** how many pieces in the model carry this mark */
   sameMark: number;
+  /** its position is by a stated rule, not read from a drawing */
+  byRule: boolean;
 }
 
 /** The side panel's facts for a selection. Pure. */
@@ -104,7 +106,7 @@ export function selectionFacts(model: Model3D, index: number, allOfMark: boolean
   const holes = [...byD.entries()].map(([d, n]) => ({ d, n })).sort((a, b) => b.n - a.n || b.d - a.d);
   return {
     index, indices, label: e.label ?? mark ?? e.id, mark, code: mark ? codes[normMark(mark)] ?? null : null,
-    kind: kindWords(e), size: sizeWords(e), levels: [...(e.in ?? [])], holes, holeCount: e.plate?.holes?.length ?? 0, sameMark,
+    kind: kindWords(e), size: sizeWords(e), levels: [...(e.in ?? [])], holes, holeCount: e.plate?.holes?.length ?? 0, sameMark, byRule: !!e.rule,
   };
 }
 

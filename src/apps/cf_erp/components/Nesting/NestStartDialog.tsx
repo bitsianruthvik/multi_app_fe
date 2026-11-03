@@ -27,7 +27,7 @@ import { ErrorNotice } from '../ui';
 /**
  * "PLATES TO USE" — chosen once per line before its first run. Three ways (user, 2026-11-01):
  *   standard  the mill's standard sizes only
- *   any       standard and custom sizes from the catalog
+ *   any       standard sizes and custom sizes, the custom ones within the mill's limits and lots (Setup › Cutting)
  *   free      any size: each plate is ordered at the size its layout needs, inside a length × width range
  * The run waits for a choice; it can change any time and affects the NEXT run, not the saved layout.
  */
@@ -61,7 +61,8 @@ export function PlatesToUse({ choice, kinds, range, editable, busy, onPick }: {
           disabled={!editable || busy} onChange={(_, v) => { if (v) onPick(v as PlateChoice); }}>
           <ToggleButton value="standard">Standard sizes</ToggleButton>
           <ToggleButton value="any">Standard + custom sizes</ToggleButton>
-          <ToggleButton value="free">Free size in a range</ToggleButton>
+          {/* Standard, or standard + custom under the mill's rules (user, 2026-11-02). A line already on free size keeps its choice shown. */}
+          {choice === 'free' && <ToggleButton value="free">Free size in a range</ToggleButton>}
         </ToggleButtonGroup>
         {busy && <CircularProgress size={13} aria-label="Saving" />}
       </Box>

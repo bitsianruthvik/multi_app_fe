@@ -27,6 +27,7 @@ import { usePanZoom } from '../../hooks/usePanZoom';
 import { fmtCutM, fmtM2, fmtMm, fmtPct, holesTitle, REGISTER_STATUS_FAMILY, rowCodes, sizeText } from '../../lib/drawings';
 import { DxfError, parseDxf, type DxfLayer, type DxfView, type LayerRole } from '../../lib/dxfView';
 import { inheritedLabel, rowLabel, rowShows, type LevelView } from '../../lib/drawingLevels';
+import { levelDrawing, modelHasLevel, viewToDxf, type ModelFile } from '../../lib/modelDrawing';
 import { useToast } from '../toastContext';
 import { Badge, CapsLabel, ErrorNotice, Mono } from '../ui';
 
@@ -66,7 +67,7 @@ const Scene = memo(function Scene({ layers, hidden }: { layers: DxfLayer[]; hidd
     <>
       {layers.map((l) => (
         <g key={l.name} data-layer={l.name} display={hidden.has(l.name) ? 'none' : undefined}>
-          {l.d && (
+          {l.d && !hidden.has(l.name) && (
             <path d={l.d} fill="none" stroke={ROLE_COLOUR[l.role]} strokeWidth={l.role === 'outline' ? 1.6 : 1.1}
               strokeDasharray={ROLE_DASH[l.role]} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
           )}
@@ -89,6 +90,9 @@ export type ViewerDrawing = Pick<Drawing, 'id' | 'mark' | 'fileName' | 'fileKind
 
 /** Level navigation: where the person is in the line's structure, and how to step. */
 export interface ViewerLevels { view: LevelView; onGo: (rowId: number) => void }
+
+/** How long an assembly's file waits for the model before it is fetched anyway. */
+const MODEL_WAIT_MS = 2000;
 
 type Loaded =
   | { state: 'loading' }
@@ -133,6 +137,7 @@ function Selected3D({ sel, scope, onScope, allOfMark, onAllOfMark, onClear }: {
       <Row label="What">{sel.kind}</Row>
       <Row label="Size">{sel.size}</Row>
       {sel.levels.length > 0 && <Row label="In">{sel.levels.join(' · ')}</Row>}
+      {sel.byRule && <Row label="Position">By rule, not read from a drawing</Row>}
       {sel.holeCount > 0 && <Row label="Holes">{`${sel.holeCount} · ${holesWords(sel.holes)}`}</Row>}
       {sel.sameMark > 1 && <Row label="Same mark">{`${sel.sameMark} pieces in the model`}</Row>}
       <ToggleButtonGroup size="small" exclusive fullWidth value={scope === 'selection' ? 'selection' : 'whole'} sx={{ mt: 1 }}
@@ -168,8 +173,10 @@ function Selected2D({ facts, onZoom, onClear }: { facts: ShapeFacts; onZoom: () 
   );
 }
 
-function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected, readFacts }: {
+function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected, readFacts, inModel }: {
   drawing: ViewerDrawing; view: DxfView | null; hidden: ReadonlySet<string>; onToggle: (name: string) => void; onAll: (show: boolean) => void; levels?: ViewerLevels;
+  /** this mark can be drawn from the line's model, file or no file */
+  inModel: (mark: string | null | undefined) => boolean;
   /** the "Selected" section (a piece picked in 3D, a shape in 2D), at the top */
   selected?: React.ReactNode;
   readFacts?: { lengthMm: number | null; widthMm: number | null; areaMm2: number | null; holes: number | null } | null;
@@ -204,10 +211,10 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected, r
           <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
             {levels.view.parts.map((r) => (
               <Box component="li" key={r.rowId}>
-                <Button size="small" fullWidth disabled={!rowShows(r)} onClick={() => levels.onGo(r.rowId)} data-testid="viewer-part" data-row={r.rowId}
+                <Button size="small" fullWidth disabled={!rowShows(r) && !inModel(r.mark)} onClick={() => levels.onGo(r.rowId)} data-testid="viewer-part" data-row={r.rowId}
                   sx={{ justifyContent: 'space-between', textAlign: 'left', py: 0.5 }}>
                   <span>{rowLabel(r)}</span>
-                  <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{rowShows(r) ? r.level : 'no drawing'}</Box>
+                  <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{rowShows(r) || inModel(r.mark) ? r.level : 'no drawing'}</Box>
                 </Button>
               </Box>
             ))}
@@ -318,6 +325,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const [usesOpen, setUsesOpen] = useState(false);
   // The line's 3D model, if its standard keeps one (read once per line); the 3D switch shows only then.
   const [model, setModel] = useState<Model3D | null>(null);
+  const [modelRead, setModelRead] = useState(false);
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [mode3d, setMode3d] = useState(false);
   // A plate part in 3D: its outline (from this drawing, else the line's drawings) and its thickness. Read once, on the
@@ -355,11 +363,40 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
   useEffect(() => {
     let live = true;
-    setModel(null); setCodes({});
+    setModel(null); setCodes({}); setModelRead(false);
     const read = loadModelRef.current ? loadModelRef.current() : lineId > 0 ? getLineModel3d(orderId, lineId) : Promise.resolve(null);
-    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ });
-    return () => { live = false; };
+    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ }).finally(() => { if (live) setModelRead(true); });
+    // A slow or failing model never holds back a line's file for long; if it comes later, the level still draws from it.
+    const giveUp = setTimeout(() => { if (live) setModelRead(true); }, MODEL_WAIT_MS);
+    return () => { live = false; clearTimeout(giveUp); };
   }, [orderId, lineId, modelKey]);
+  // A LEVEL IS DRAWN FROM THE ONE MODEL (lib/modelDrawing.ts; user, 2026-11-02): no file is fetched for it. Part rows keep
+  // their files for now, and "Customer sheet" still opens the file kept on the row.
+  const levelMark = levels?.view.at.mark ?? drawing.mark;
+  const oneModel = model?.schema === 'cf-erp-model3d/2' ? (model as unknown as ModelFile) : null;
+  const inModel = useCallback((mark: string | null | undefined) => !!oneModel && modelHasLevel(oneModel, mark), [oneModel]);
+  const [sourcePick, setSourcePick] = useState<'model' | 'file'>('model');
+  const showModel = inModel(levelMark) && sourcePick === 'model';
+  // Until the model has been read the file of an assembly waits: it may not be needed (up to 3 MB). A plate part's does not.
+  const waitForModel = !modelRead && !levels?.view.at.isPlatePart;
+  const [drawn, setDrawn] = useState<DxfView | null>(null);
+  const drawnBefore = useRef(new Map<string, DxfView>());
+  useEffect(() => { drawnBefore.current.clear(); }, [model, codes]);
+  useEffect(() => {
+    if (!showModel || !oneModel) { setDrawn(null); return undefined; }
+    const before = drawnBefore.current.get(levelMark);
+    setHidden(new Set(['HIDDEN']));
+    if (before) { setDrawn(before); return undefined; }
+    setDrawn(null);
+    // After a paint, so the person sees "Drawing…" and not a frozen window on a whole span.
+    const t = setTimeout(() => {
+      const d = levelDrawing(oneModel, levelMark, codes);
+      if (!d) { setSourcePick('file'); return; }
+      drawnBefore.current.set(levelMark, d.view);
+      setDrawn(d.view);
+    }, 30);
+    return () => clearTimeout(t);
+  }, [showModel, oneModel, levelMark, codes]);
   // In 3D, the part's shape is read as soon as it can be (the DXF may still be loading on the first click).
   useEffect(() => { if (mode3d && part === null) void loadPart(); }, [mode3d, part, loadPart]);
   // The level to light up: the open row, then each level above it, deepest first.
@@ -392,7 +429,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // Fetch with the app's client (the JWT goes with it), then parse or hand the PDF to the browser.
   useEffect(() => {
     let live = true;
-    setLoaded({ state: 'loading' }); setHidden(new Set());
+    setLoaded({ state: 'loading' });
+    if (showModel || waitForModel) return () => { live = false; };
+    setHidden(new Set());
     (async () => {
       try {
         const blob = fetchFile ? await fetchFile() : await fetchDrawingBlob(orderId, lineId, drawing);
@@ -417,9 +456,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     };
     // The file is identified by its id; a new `drawing` object for the same file must not fetch it again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, lineId, drawing.id, drawing.fileKind, attempt]);
+  }, [orderId, lineId, drawing.id, drawing.fileKind, attempt, showModel, waitForModel]);
 
-  const view = loaded.state === 'dxf' ? loaded.view : null;
+  const view = showModel ? drawn : loaded.state === 'dxf' ? loaded.view : null;
   // 2D picking: the drawing's shapes are read from its layers on the first click (lib/dxfPick.ts), then kept.
   const shapesRef = useRef<{ view: DxfView; shapes: Shape[] } | null>(null);
   const [sel2d, setSel2d] = useState<number | null>(null);
@@ -444,7 +483,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     if (i < 0) { zoomRef.current?.fit(); return; }
     setSel2d(i); zoomRef.current?.zoomToBox(shapesNow()[i]);
   }, [pickAt, shapesNow]);
-  const pz = usePanZoom({ bounds: view?.bounds ?? null, actualScale: PX_PER_MM / (view?.unitMm ?? 1), resetKey: view, memoryKey: `${orderId}:${lineId}:${drawing.id}`, quickWhileMoving: (view?.entityCount ?? 0) > QUICK_ABOVE, onTap, onDoubleTap });
+  const pz = usePanZoom({ bounds: view?.bounds ?? null, actualScale: PX_PER_MM / (view?.unitMm ?? 1), resetKey: view, memoryKey: `${orderId}:${lineId}:${showModel ? `model:${levelMark}` : drawing.id}`, quickWhileMoving: (view?.entityCount ?? 0) > QUICK_ABOVE, onTap, onDoubleTap });
   zoomRef.current = { fit: pz.fit, zoomToBox: pz.zoomToBox };
   const shape2d = view && sel2d != null ? shapesRef.current?.shapes[sel2d] ?? null : null;
   const facts2d = useMemo(() => (view && sel2d != null && shapesRef.current?.view === view ? shapeFacts(view, shapesRef.current.shapes, sel2d) : null), [view, sel2d]);
@@ -460,7 +499,16 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const showAll = (show: boolean) => setHidden(show ? new Set() : new Set(stable.map((l) => l.name)));
 
   const download = async () => {
-    try { if (downloadFile) await downloadFile(); else await downloadDrawing(orderId, lineId, drawing); } catch (e) { toast.error(asError(e).message); }
+    try {
+      if (showModel && view) {
+        // Only now does a level become a file.
+        const url = URL.createObjectURL(new Blob([viewToDxf(view)], { type: 'application/dxf' }));
+        const a = document.createElement('a'); a.href = url; a.download = `${levelMark}.dxf`; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+      if (downloadFile) await downloadFile(); else await downloadDrawing(orderId, lineId, drawing);
+    } catch (e) { toast.error(asError(e).message); }
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -483,9 +531,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       </span>
     </Tooltip>
   );
-  const title = drawing.drawing ? `${drawing.drawing.number} · rev ${drawing.drawing.revision}` : drawing.mark;
-  const isPdf = drawing.fileKind === 'pdf';
-  const note = levels ? inheritedLabel(levels.view) : null;
+  const title = showModel ? (levels?.view.at.code ?? levelMark) : drawing.drawing ? `${drawing.drawing.number} · rev ${drawing.drawing.revision}` : drawing.mark;
+  const isPdf = drawing.fileKind === 'pdf' && !showModel;
+  const note = levels && !showModel ? inheritedLabel(levels.view) : null;
 
   return (
     <Dialog open onClose={(_, reason) => {
@@ -500,7 +548,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, pb: 1 }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography id="drawing-viewer-title" component="h2" sx={{ fontSize: large ? 20 : 16, fontWeight: 600, overflowWrap: 'anywhere' }}>{title}</Typography>
-          <Box sx={{ fontSize: large ? 15 : 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.25, overflowWrap: 'anywhere' }}>{drawing.fileName}</Box>
+          <Box sx={{ fontSize: large ? 15 : 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.25, overflowWrap: 'anywhere' }} data-testid="viewer-source-line">{showModel ? 'Drawn from the structure’s model' : drawing.fileName}</Box>
           {uses && (
             <Box component="button" type="button" data-testid="viewer-used-by" onClick={() => setUsesOpen(true)}
               sx={{ all: 'unset', cursor: 'pointer', mt: 0.25, fontSize: large ? 15 : 13, color: 'var(--c-primary-700)', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)', borderRadius: 'var(--r-sm)' } }}>
@@ -512,7 +560,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         {onUploadRevision && (
           <Button size={large ? 'large' : 'small'} variant="outlined" startIcon={<UploadFileRounded />} onClick={onUploadRevision} data-testid="viewer-upload">Upload a new revision</Button>
         )}
-        {ib('Download file', <DownloadRounded fontSize={iconSize} />, download, { text: 'Download the file' })}
+        {ib(showModel ? 'Download as DXF' : 'Download file', <DownloadRounded fontSize={iconSize} />, download, { text: showModel ? 'Write this view as a DXF and download it' : 'Download the file' })}
         {fs.active ? (
           <Button size={large ? 'large' : 'small'} variant="contained" startIcon={<FullscreenExitRounded />} onClick={fs.exit} data-testid="viewer-fullscreen">Exit full screen</Button>
         ) : ib('Show the drawing full screen', <FullscreenRounded fontSize={iconSize} />, fs.enter, { testid: 'viewer-fullscreen', text: 'Full screen (F; Esc to leave)' })}
@@ -524,7 +572,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           {levels.view.crumbs.map((c, i) => (
             <Box key={c.rowId} component="span" sx={{ display: 'inline-flex', alignItems: 'center' }}>
               {i > 0 && <NavigateNextRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
-              <Button size={large ? 'medium' : 'small'} disabled={!c.hasDrawing && !c.current} aria-current={c.current ? 'step' : undefined} data-testid="viewer-crumb" data-row={c.rowId}
+              <Button size={large ? 'medium' : 'small'} disabled={!c.hasDrawing && !c.current && !inModel(c.mark)} aria-current={c.current ? 'step' : undefined} data-testid="viewer-crumb" data-row={c.rowId}
                 onClick={() => levels.onGo(c.rowId)} title={c.hasDrawing ? c.level : `${c.level} — no drawing`}
                 sx={{ minWidth: 0, px: 0.75, fontWeight: c.current ? 700 : 500, textDecoration: c.current ? 'underline' : 'none', minHeight: large ? 44 : undefined, color: c.hasDrawing || c.current ? undefined : 'var(--c-text-3)' }}>
                 {c.name}
@@ -552,6 +600,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         )}
         {isPdf && !mode3d && <Typography data-testid="viewer-pdf-note" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>PDF — zoom and pan use your browser’s PDF viewer.</Typography>}
         <Box sx={{ flex: 1 }} />
+        {inModel(levelMark) && !mode3d && drawing.id !== 0 && (
+          <ToggleButtonGroup size="small" exclusive value={sourcePick} onChange={(_, v) => { if (v) setSourcePick(v); }} aria-label="What to show" sx={{ mr: 0.5 }}>
+            <ToggleButton value="model" data-testid="viewer-source-model">From the model</ToggleButton>
+            <ToggleButton value="file" data-testid="viewer-source-file">Customer sheet</ToggleButton>
+          </ToggleButtonGroup>
+        )}
         {(model || canPart) && (
           <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => { if (!mode3d) void loadPart(); setMode3d((x) => !x); }}
             data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? 'Back to 2D' : '3D'}</Button>
@@ -576,12 +630,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           </Box>
         )}
         <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
-          {loaded.state === 'loading' && (
+          {(showModel ? !view : loaded.state === 'loading') && (
             <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}>
-              <CircularProgress size={18} /> Loading the drawing…
+              <CircularProgress size={18} /> {showModel ? 'Drawing it from the model…' : 'Loading the drawing…'}
             </Box>
           )}
-          {loaded.state === 'error' && (
+          {!showModel && loaded.state === 'error' && (
             <Box sx={{ m: 'auto', p: 3, maxWidth: 480, display: 'grid', gap: 1.5 }} data-testid="viewer-error">
               <ErrorNotice error={loaded.error} sx={{ mb: 0 }} />
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>The drawing could not be shown here. The file itself is still saved.</Typography>
@@ -591,7 +645,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
               </Box>
             </Box>
           )}
-          {loaded.state === 'pdf' && (
+          {!showModel && loaded.state === 'pdf' && (
             <object data={loaded.url} type="application/pdf" aria-label={`PDF drawing ${drawing.fileName}`} data-testid="viewer-pdf" style={{ width: '100%', height: '100%', border: 0 }}>
               <Box sx={{ m: 'auto', p: 3, display: 'grid', gap: 1.5, justifyItems: 'start' }}>
                 <Typography sx={{ fontSize: 14 }}>Your browser cannot show this PDF here.</Typography>
@@ -624,7 +678,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           )}
         </Box>
         {strip && (
-          <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} readFacts={readFacts}
+          <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} readFacts={readFacts} inModel={inModel}
             selected={mode3d
               ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)} />
               : facts2d && shape2d && <Selected2D facts={facts2d} onZoom={() => pz.zoomToBox(shape2d)} onClear={() => setSel2d(null)} />} />

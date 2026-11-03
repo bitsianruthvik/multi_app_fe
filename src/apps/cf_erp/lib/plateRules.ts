@@ -12,9 +12,11 @@ export const GRADE_RULE_WORDS: Record<NestGradeRule, string> = {
 };
 
 /** The custom-plate limits as the card types them. */
-export const PLATE_LIMITS: { key: keyof Omit<NestCustomPlateSetting, 'on'>; label: string }[] = [
+export const PLATE_LIMITS: { key: keyof Omit<NestCustomPlateSetting, 'on'>; label: string; unit?: string }[] = [
   { key: 'maxLength', label: 'Longest' }, { key: 'maxWidth', label: 'Widest' },
   { key: 'minLength', label: 'Shortest' }, { key: 'minWidth', label: 'Narrowest' }, { key: 'step', label: 'Step' },
+  { key: 'minLotPieces', label: 'Least pieces of a size', unit: 'pcs' },
+  { key: 'minLotTonnes', label: 'or least tonnes of a size', unit: 't' },
 ];
 export type PlateLimitsDraft = Record<(typeof PLATE_LIMITS)[number]['key'], string>;
 
@@ -27,5 +29,5 @@ export const badMm = (s: string) => s.trim() !== '' && !(Number(s) > 0 && Number
 /** The card's draft as the save sends it: blank = null. */
 export function plateRulesBody(rule: NestGradeRule | '', on: boolean, d: PlateLimitsDraft): { gradeRule: NestGradeRule | null; customPlates: NestCustomPlateSetting } {
   const n = (s: string) => (s.trim() === '' ? null : Number(s));
-  return { gradeRule: rule === '' ? null : rule, customPlates: { on, maxLength: n(d.maxLength), maxWidth: n(d.maxWidth), minLength: n(d.minLength), minWidth: n(d.minWidth), step: n(d.step) } };
+  return { gradeRule: rule === '' ? null : rule, customPlates: { on, maxLength: n(d.maxLength), maxWidth: n(d.maxWidth), minLength: n(d.minLength), minWidth: n(d.minWidth), step: n(d.step), minLotPieces: n(d.minLotPieces), minLotTonnes: n(d.minLotTonnes) } };
 }

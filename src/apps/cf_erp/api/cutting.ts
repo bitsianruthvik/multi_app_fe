@@ -150,5 +150,5 @@ export interface NestShopRules {
 }
 export const getNestShopRules = () => cfApi.get<NestShopRules>('/nest-shop-rules');
 export type NestGradeRule = 'warn' | 'better' | 'exact' | 'higher';
-export interface NestCustomPlateSetting { on: boolean; maxLength: number | null; maxWidth: number | null; minLength: number | null; minWidth: number | null; step: number | null }
+export interface NestCustomPlateSetting { on: boolean; maxLength: number | null; maxWidth: number | null; minLength: number | null; minWidth: number | null; step: number | null; minLotPieces?: number | null; minLotTonnes?: number | null }
 export const saveNestShopRules = (body: { on?: boolean; maxPlateSizes?: number | null; rows?: NestShopRuleRow[]; gradeRule?: NestGradeRule | null; customPlates?: NestCustomPlateSetting }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);
