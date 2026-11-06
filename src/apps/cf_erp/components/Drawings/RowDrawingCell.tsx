@@ -15,7 +15,8 @@ export function RowDrawingCell({ name, state, why, onClick, onView }: {
 }) {
   // Only the row's own file opens the viewer; with none (a register sheet waiting for one included) the row offers an
   // upload (user, 2026-10-31: "if it is not there, there should be just upload button").
-  const has = state.kind === 'file';
+  // A level the structure's one model draws counts as having a drawing (no file per level; user, 2026-11-06).
+  const has = state.kind === 'file' || state.kind === 'model';
   const viewing = has && !!onView;
   const title = viewing ? `${rowDrawingTitle(name, state, null)}${why ? ` (${why})` : ''}` : rowDrawingTitle(name, state, why);
   return (

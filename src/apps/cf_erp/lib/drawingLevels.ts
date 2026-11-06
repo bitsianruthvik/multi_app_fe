@@ -32,8 +32,12 @@ export function findRow(tree: DrawingTree, ref: { rowId?: number | null; cutPlat
 
 export const rowLabel = (r: DrawingTreeRow) => r.code ?? r.name;
 
-/** A row has something to show: its own file on the line. A register sheet alone does not count (user, 2026-10-31: a level with no DXF offers an upload). */
-export const rowShows = (r: DrawingTreeRow): boolean => r.hasDrawing;
+/**
+ * A row has something to show: its own file on the line, or its level in the line's ONE model, drawn on screen (user,
+ * 2026-11-06: levels are drawn from the one JSON, so they need no file). A register sheet alone does not count (user,
+ * 2026-10-31: a level with no DXF offers an upload).
+ */
+export const rowShows = (r: DrawingTreeRow): boolean => r.hasDrawing || !!r.inModel;
 
 export function levelView(tree: DrawingTree, atId: number): LevelView | null {
   const rows = byId(tree);

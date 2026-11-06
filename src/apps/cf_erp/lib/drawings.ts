@@ -177,13 +177,15 @@ export function buttonLabel(s: Pick<DrawingsSummary, 'rows' | 'rowsWithDrawing'>
 
 /** What one row shows in its drawing cell: nothing yet, a file (with its revision), or a register drawing waiting for one. */
 /** A register drawing with no file on the line (an RDSO series sheet included) is 'waiting': the row offers an upload (user, 2026-10-31). */
-export interface RowDrawingState { kind: 'none' | 'file' | 'waiting'; revision: string | null; fileName: string | null; number: string | null }
-export function rowDrawing(view: Pick<DrawingsView, 'drawings' | 'waiting'> | null | undefined, rowId: number): RowDrawingState {
+/** 'model': no file, but the line's ONE model draws the row's level, so it has a drawing to see (user, 2026-11-06). */
+export interface RowDrawingState { kind: 'none' | 'file' | 'waiting' | 'model'; revision: string | null; fileName: string | null; number: string | null }
+export function rowDrawing(view: Pick<DrawingsView, 'drawings' | 'waiting' | 'modelRows'> | null | undefined, rowId: number): RowDrawingState {
   if (!view) return { kind: 'none', revision: null, fileName: null, number: null };
   const { saved, waiting } = coveringRow(view, rowId);
   // The file the row is read by: one with its own mark first is the server's rule; here the newest saved file covering it.
   const d = saved[saved.length - 1];
   if (d) return { kind: 'file', revision: d.drawing?.revision ?? null, fileName: d.fileName, number: d.drawing?.number ?? d.mark };
+  if (view.modelRows?.includes(rowId)) return { kind: 'model', revision: null, fileName: null, number: null };
   const w = waiting[0];
   if (w) return { kind: 'waiting', revision: w.drawing.revision, fileName: null, number: w.drawing.number };
   return { kind: 'none', revision: null, fileName: null, number: null };
@@ -194,6 +196,7 @@ export function rowDrawingTitle(name: string, s: RowDrawingState, why?: string |
   if (why) return why;
   if (s.kind === 'file') return `${s.fileName ?? 'Drawing'}${s.revision ? ` · rev ${s.revision}` : ''} — click to see it or upload a new revision for ${name}`;
   if (s.kind === 'waiting') return `Upload a drawing for ${name} (${s.number} is in the register, waiting for a file)`;
+  if (s.kind === 'model') return `Drawing of ${name}, drawn from the structure's model — click to see it`;
   return `Upload a drawing for ${name}`;
 }
 

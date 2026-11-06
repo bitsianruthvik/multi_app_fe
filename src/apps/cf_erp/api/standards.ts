@@ -78,6 +78,8 @@ export interface StandardDetail extends Omit<StandardSummary, 'versions' | 'vers
   versions: StandardVersion[];
   version: StandardVersion | null;
   tree: StandardTreeRow[];
+  /** the level marks (upper case) the standard's ONE model draws */
+  modelLevels?: string[];
   files: StandardFile[];
   lines: { id: number; lineNo: number; orderId: number; orderCode: string; orderStatus: string; versionNo: number | null }[];
 }

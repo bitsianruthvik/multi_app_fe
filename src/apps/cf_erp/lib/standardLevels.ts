@@ -28,8 +28,10 @@ export interface StandardLevels {
   rowOf: Map<number, StandardTreeRow>;
 }
 
-export function standardLevels(d: Pick<StandardDetail, 'id' | 'number' | 'tree' | 'files'>): StandardLevels {
+export function standardLevels(d: Pick<StandardDetail, 'id' | 'number' | 'tree' | 'files' | 'modelLevels'>): StandardLevels {
   const files = new Map(d.files.map((f) => [f.id, f]));
+  // The levels the standard's ONE model draws (no file per level): such a row has a drawing too.
+  const drawn = new Set((d.modelLevels ?? []).map((m) => m.toUpperCase()));
   const sheet = d.files.find((f) => f.kind === 'source') ?? null;
   const idOf = new Map(d.tree.map((r, i) => [r.key, i + 1]));
   const minDepth = d.tree.reduce((m, r) => Math.min(m, r.depth), Infinity);
@@ -45,7 +47,7 @@ export function standardLevels(d: Pick<StandardDetail, 'id' | 'number' | 'tree' 
       code: r.mark, name: r.mark && !r.name.includes(r.mark) ? `${r.name} ${r.mark}` : r.name,
       level: r.role ?? r.definition?.name ?? (r.depth === minDepth ? 'Structure' : 'Row'),
       depth: r.depth, seq: r.lineNo ?? i, mark: r.mark,
-      hasDrawing: !!f, drawingId: f?.id ?? null, fileKind: f?.fileKind ?? null, fileName: f?.fileName ?? null,
+      hasDrawing: !!f, inModel: !!r.mark && drawn.has(r.mark.toUpperCase()), drawingId: f?.id ?? null, fileKind: f?.fileKind ?? null, fileName: f?.fileName ?? null,
       number: null, revision: null, status: null,
       isPlatePart: thicknessOf(r) != null && f?.fileKind === 'dxf', cutPlateIds: [],
     };

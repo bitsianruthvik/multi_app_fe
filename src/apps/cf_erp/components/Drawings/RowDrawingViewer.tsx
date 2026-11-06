@@ -21,7 +21,9 @@ import { ErrorNotice } from '../ui';
 
 export interface RowRef { orderId: number; lineId: number; rowId?: number | null; cutPlateId?: number | null; label?: string | null }
 
-const asDrawing = (r: DrawingTreeRow): ViewerDrawing => (r.hasDrawing || !r.sheet ? {
+// A level with no file that the line's one model draws: the viewer draws it from the model, so no file is fetched (id 0).
+const fromModel = (r: DrawingTreeRow): ViewerDrawing => ({ id: 0, mark: r.mark ?? r.code ?? r.name, fileName: `${r.mark ?? r.name} (drawn from the model)`, fileKind: 'dxf', drawing: null });
+const asDrawing = (r: DrawingTreeRow): ViewerDrawing => (!r.hasDrawing && r.inModel ? fromModel(r) : r.hasDrawing || !r.sheet ? {
   id: r.drawingId!, mark: r.mark ?? r.code ?? r.name, fileName: r.fileName ?? 'drawing', fileKind: r.fileKind ?? 'dxf',
   drawing: r.number ? { id: 0, code: null, number: r.number, revision: r.revision ?? 'A', status: r.status ?? 'issued', title: null, earlier: [] } : null,
 } : {
@@ -57,8 +59,8 @@ export function RowDrawingViewer({ target, onClose, large = false }: { target: R
   const shown = view?.shown ?? null;
   // A file to draw: the line's own, or the kept file of the register drawing that covers the row. A sheet kept only at
   // its issuer's site (an RDSO series PDF) is opened there, from the note below.
-  const sheet = shown && !shown.hasDrawing ? shown.sheet ?? null : null;
-  const drawing = useMemo(() => (shown && (shown.hasDrawing || shown.sheet?.hasFile) ? asDrawing(shown) : null), [shown]);
+  const sheet = shown && !shown.hasDrawing && !shown.inModel ? shown.sheet ?? null : null;
+  const drawing = useMemo(() => (shown && (shown.hasDrawing || shown.inModel || shown.sheet?.hasFile) ? asDrawing(shown) : null), [shown]);
   const levels = useMemo(() => (view ? { view, onGo: setAt } : undefined), [view]);
 
   if (view && drawing) {

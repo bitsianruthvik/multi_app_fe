@@ -64,6 +64,8 @@ export interface DrawingsView {
   rowsWithoutDrawing: { id: number; code: string | null; name: string; level: string; mark: string | null; pieces: number; isPlatePart: boolean }[];
   /** register drawings linked to rows of this line that have no file yet */
   waiting: { drawing: RegisterRef; rows: DrawingRow[] }[];
+  /** rows with no file that the line's ONE model draws (a level is drawn from the model, no file per level) */
+  modelRows?: number[];
   summary: DrawingsSummary;
 }
 
@@ -205,6 +207,8 @@ export async function blobAsText(blob: Blob): Promise<string> {
 export interface DrawingTreeRow {
   rowId: number; parentId: number | null; code: string | null; name: string; level: string; depth: number; seq: number; mark: string | null;
   hasDrawing: boolean;
+  /** the line's ONE model draws this row's level: it has a drawing without a file */
+  inModel?: boolean;
   /** the file's id, for `GET …/drawings/:id/file` */
   drawingId: number | null;
   fileKind: 'dxf' | 'pdf' | null; fileName: string | null;

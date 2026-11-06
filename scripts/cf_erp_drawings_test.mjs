@@ -478,6 +478,30 @@ await checkAsync('levels: a sheet alone is not a drawing — the viewer shows th
   assert.equal(d.levelView(globalThis.__tree, 9).shown.rowId, 9);
 });
 
+// ── 2026-11-06: "the drawings are only available at parts level" — a level the ONE model draws has a drawing, no file ──
+await checkAsync('2026-11-06: a level in the line\'s one model has a drawing without a file; the row icon opens the viewer', async () => {
+  const tree = { line: sheetView.line, rows: [
+    treeRow(1, null, 'Composite girder span', 'Composite Girder', { mark: 'JNPA-36M-P7P8', inModel: true }),
+    treeRow(2, 1, 'Girder line', 'Girder', { mark: 'G1', inModel: true }),
+    treeRow(3, 2, 'Girder segment', 'Segment', { mark: 'G1-S1', inModel: true }),
+    treeRow(9, 3, 'Top flange', 'Plate part', { mark: 'TF1', hasDrawing: true, drawingId: 5, fileKind: 'dxf', fileName: 'TF1.dxf' }),
+    treeRow(4, 1, 'Seismic stopper', 'Assembly', { mark: null }),
+  ] };
+  assert.equal(d.levelView(tree, 2).shown.rowId, 2, 'the girder line is drawn itself, not its parent');
+  assert.equal(d.levelView(tree, 2).inherited, false);
+  assert.deepEqual(d.levelView(tree, 3).crumbs.map((c) => c.hasDrawing), [true, true, true]);
+  assert.equal(d.levelView(tree, 4).shown.rowId, 1, 'a level the model does not have shows the nearest level above it');
+  const st = d.rowDrawing(view({ modelRows: [2] }), 2);
+  assert.equal(st.kind, 'model');
+  assert.equal(d.rowDrawing(view({ modelRows: [2] }), 4).kind, 'none');
+  let tool = 0, viewed = 0;
+  await act(() => root.render(React.createElement(d.RowDrawingCell, { name: 'Girder line', state: st, onClick: () => { tool++; }, onView: () => { viewed++; } })));
+  const cell = document.querySelector('[data-testid="row-drawing"]');
+  assert.match(cell.getAttribute('aria-label'), /drawn from the structure's model/);
+  await act(async () => { cell.click(); });
+  assert.deepEqual([tool, viewed], [0, 1], 'the viewer, not the upload');
+});
+
 await checkAsync('the Drawings dialog: a waiting register drawing with a link has "Open the sheet"', async () => {
   await act(() => root.render(React.createElement(d.DrawingsDialog, { open: true, onClose: () => {}, orderId: 1, lineId: 5, canManage: true, view: sheetView, error: null, loading: false, onView: () => {} })));
   const a = document.querySelector('[data-testid="waiting-open"]');
