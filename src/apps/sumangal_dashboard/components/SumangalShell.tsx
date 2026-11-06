@@ -12,7 +12,7 @@ export function SumangalShell({ children }: { children: ReactNode }) {
     <ThemeScope appSlug="sumangal_dashboard">
       <ToastProvider>
         <CommandPaletteProvider appSlug="sumangal_dashboard" sections={SECTIONS} actions={[]} placeholder="Jump to a screen">
-          <AppShell appSlug="sumangal_dashboard" sections={SECTIONS} brand={{ label: 'Sumangal Dashboard', initial: 'S' }} homePath="what-changed">
+          <AppShell appSlug="sumangal_dashboard" sections={SECTIONS} brand={{ label: 'Sumangal Dashboard', initial: 'S' }} homePath="key-metrics">
             <MetaContext.Provider value={data}>{children}</MetaContext.Provider>
           </AppShell>
         </CommandPaletteProvider>
@@ -24,5 +24,5 @@ export function SumangalShell({ children }: { children: ReactNode }) {
 /** The platform's landing URLs for this app open What changed. */
 export function ToHome() {
   const { company } = useParams();
-  return <Navigate to={`/${company}/sumangal_dashboard/what-changed`} replace />;
+  return <Navigate to={`/${company}/sumangal_dashboard/key-metrics`} replace />;
 }

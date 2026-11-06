@@ -6,7 +6,8 @@ export const SECTIONS: NavSection[] = [
     key: 'home',
     label: 'Home',
     screens: [
-      { label: 'What changed', path: 'what-changed', keywords: ['movers', 'compare', 'up', 'down', 'month', 'summary'] },
+      { label: 'Key metrics', path: 'key-metrics', keywords: ['summary', 'overview', 'kpi', 'main', 'dashboard'] },
+      { label: 'What changed', path: 'what-changed', keywords: ['movers', 'compare', 'up', 'down', 'month'] },
     ],
   },
   {

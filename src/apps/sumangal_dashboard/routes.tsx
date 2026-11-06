@@ -4,6 +4,7 @@ import { ListSkeleton } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { SumangalShell, ToHome } from './components/SumangalShell';
 
+const KeyMetrics = lazy(() => import('./pages/KeyMetrics'));
 const WhatChanged = lazy(() => import('./pages/WhatChanged'));
 const ActionList = lazy(() => import('./pages/ActionList'));
 const ProblemParts = lazy(() => import('./pages/ProblemParts'));
@@ -39,7 +40,7 @@ const STEPS: [string, string, string][] = [
 
 /**
  * sumangal_dashboard routes. **Paths must match navMeta.ts.** The platform's
- * landing URLs go to What changed; a literal segment outranks App.tsx's `:app` routes.
+ * landing URLs go to Key metrics; a literal segment outranks App.tsx's `:app` routes.
  */
 export function getSumangalDashboardRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -54,6 +55,7 @@ export function getSumangalDashboardRoutes(
     </ProtectedRoute>
   );
   const screens: [string, React.ReactNode][] = [
+    ['key-metrics', <KeyMetrics />],
     ['what-changed', <WhatChanged />],
     ['actions', <ActionList />],
     ['problem-parts', <ProblemParts />],
@@ -73,7 +75,7 @@ export function getSumangalDashboardRoutes(
     ['customers', <Customers />],
     ['vendors', <Vendors />],
   ];
-  // Old screens that were folded into others also land on What changed.
+  // Old screens that were folded into others also land on Key metrics.
   const landing = ['', 'home', 'dashboard', 'admin/dashboard', 'admin/dashboard/*', ':role/dashboard', 'overview', 'order-types', 'shipments'];
   return [
     ...screens.map(([p, el]) => ({ path: `/:company/sumangal_dashboard/${p}`, element: wrap(el) })),
