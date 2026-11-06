@@ -309,7 +309,25 @@ export function modelHasLevel(model: ModelFile, mark: string | null | undefined)
   return model.elements.some((e) => (e.in ?? []).some((x) => x.toUpperCase() === m));
 }
 
+/** Does the model have a piece (an element) with this mark — a part or a bought section it can draw alone? Pure. */
+export function modelHasPiece(model: ModelFile, mark: string | null | undefined): boolean {
+  if (!mark) return false;
+  const m = mark.toUpperCase();
+  return model.elements.some((e) => e.mark?.toUpperCase() === m);
+}
+
 export interface LevelDrawing { view: DxfView; pieces: number; levelName: string }
+
+/**
+ * The drawing of ONE piece with this mark, alone (user, 2026-11-07: a bracing angle with no DXF is drawn from the model):
+ * its first element, in elevation, plan and end view. null when the model has no piece with that mark. Pure.
+ */
+export function pieceDrawing(model: ModelFile, mark: string, codes: Record<string, string> = {}): LevelDrawing | null {
+  const m = mark.toUpperCase();
+  const one = expandModel(model).elements.find((e) => e.mark?.toUpperCase() === m);
+  if (!one) return null;
+  return levelDrawing({ ...model, elements: [{ ...one, in: [], n: [] }] } as ModelFile, mark, codes);
+}
 
 /**
  * The drawing of level `mark`. `codes` (normalised mark → the part's code on this line) labels what the Codes switch shows,

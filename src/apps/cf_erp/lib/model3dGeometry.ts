@@ -6,8 +6,26 @@ import type { Model3DElement } from '../api/drawings';
  * of one model element, merging many into one geometry, and a label sprite.
  */
 
-/** The meshes of one element, in model millimetres (z up). */
+const finite = (g: THREE.BufferGeometry) => {
+  const a = g.attributes.position?.array;
+  if (!a) return false;
+  for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return false;
+  return true;
+};
+const num = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+/**
+ * The meshes of one element, in model millimetres (z up). A mesh with a NaN corner is left out: one piece with a missing
+ * size must never blank the whole view (user, 2026-11-07: "nothing is coming in the 3D view" — the OWG's 4 POT bearings
+ * were boxes with no wall thickness, and the scene's bounds became NaN).
+ */
 export function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
+  let out: THREE.BufferGeometry[];
+  try { out = rawGeometries(e); } catch { return []; }
+  return out.filter(finite);
+}
+
+function rawGeometries(e: Model3DElement): THREE.BufferGeometry[] {
   if (e.plate) {
     const pl = e.plate;
     if (pl.pts.length < 3) return [];
@@ -43,6 +61,13 @@ export function elementGeometries(e: Model3DElement): THREE.BufferGeometry[] {
   const s = m.section;
   if (s.type === 'pipe') { const g = new THREE.CylinderGeometry(s.d / 2, s.d / 2, L, s.d < 40 ? 6 : 20, 1, false); g.rotateZ(-Math.PI / 2); return [place(g)]; }
   const h = s.h;
+  // A section given only by its outside sizes (a bearing block, a pedestal) is drawn solid.
+  const solid = s.type === 'box' ? ![s.tTop, s.tBot, s.tw].every(num) : s.type === 'I' ? ![s.tTop, s.tBot, s.tw, s.bTop, s.bBot].every(num) : false;
+  if (solid) {
+    const sw = s.type === 'box' ? s.w : undefined;
+    const w = num(sw) ? sw : num(s.bTop) ? s.bTop : h;
+    return num(h) && num(w) ? [plate(L, h, w, 0, 0)] : [];
+  }
   if (s.type === 'I') {
     const webH = h - s.tTop - s.tBot;
     return [plate(L, s.tTop, s.bTop, h / 2 - s.tTop / 2, 0), plate(L, s.tBot, s.bBot, -h / 2 + s.tBot / 2, 0), plate(L, webH, s.tw, (s.tBot - s.tTop) / 2, 0)];

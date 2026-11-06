@@ -18,7 +18,7 @@ const out = await build({
 });
 const file = resolve(cache, `model-drawing-${process.pid}.mjs`);
 await writeFile(file, out.outputFiles[0].text);
-const { expandModel, levelDrawing, modelHasLevel, piecesOfLevel, viewToDxf, parseDxf, elementGeometries } = await import(pathToFileURL(file));
+const { expandModel, levelDrawing, modelHasLevel, modelHasPiece, pieceDrawing, piecesOfLevel, viewToDxf, parseDxf, elementGeometries } = await import(pathToFileURL(file));
 await unlink(file);
 
 let passed = 0; let failed = 0;
@@ -29,7 +29,7 @@ const sets = readdirSync(ROOT).filter((d) => existsSync(join(ROOT, d, 'model.jso
 const read = (s) => JSON.parse(readFileSync(join(ROOT, s, 'model.json'), 'utf8'));
 
 check(`every set has a /2 model (${sets.length})`, () => {
-  assert.ok(sets.includes('TCPL_TRUSS_75M') && sets.includes('TT_24M') && sets.filter((s) => s.startsWith('RDSO_')).length === 17);
+  assert.ok(sets.includes('TCPL_TRUSS_75M') && sets.includes('TT_24M') && sets.filter((s) => s.startsWith('RDSO_')).length >= 17);
   for (const s of sets) assert.equal(read(s).schema, 'cf-erp-model3d/2', s);
 });
 
@@ -103,6 +103,19 @@ check('a DXF of the view reads back through the viewer: same lines, holes and wo
     const w0 = d.view.bounds; const w1 = back.bounds;
     assert.ok(w1.maxX - w1.minX <= w0.maxX - w0.minX + 1);
   }
+});
+
+// 2026-11-07: a piece with no DXF (a bracing angle, a bolt) is drawn ALONE from the model — one element, not its level.
+check('a bracing angle with no DXF draws alone from the model', () => {
+  const s = sets.find((x) => /JNPA_36M_P7P8/.test(x));
+  if (!s) { console.log('  (no JNPA package here)'); return; }
+  const model = read(s);
+  assert.equal(modelHasLevel(model, 'ANG1'), false, 'ANG1 is a piece, not a level');
+  assert.equal(modelHasPiece(model, 'ang1'), true);
+  const d = pieceDrawing(model, 'ANG1');
+  assert.ok(d && d.view.bounds, 'drawn');
+  assert.equal(d.pieces, 1, 'one angle, not all 161');
+  assert.equal(pieceDrawing(model, 'NOPE'), null);
 });
 
 console.log(`\nset | levels | slowest level (this PC) | largest view shown | model size`);

@@ -27,7 +27,7 @@ import { usePanZoom } from '../../hooks/usePanZoom';
 import { fmtCutM, fmtM2, fmtMm, fmtPct, holesTitle, REGISTER_STATUS_FAMILY, rowCodes, sizeText } from '../../lib/drawings';
 import { DxfError, parseDxf, type DxfLayer, type DxfView, type LayerRole } from '../../lib/dxfView';
 import { inheritedLabel, rowLabel, rowShows, type LevelView } from '../../lib/drawingLevels';
-import { levelDrawing, modelHasLevel, viewToDxf, type ModelFile } from '../../lib/modelDrawing';
+import { levelDrawing, modelHasLevel, modelHasPiece, pieceDrawing, viewToDxf, type ModelFile } from '../../lib/modelDrawing';
 import { useToast } from '../toastContext';
 import { Badge, CapsLabel, ErrorNotice, Mono } from '../ui';
 
@@ -376,7 +376,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const oneModel = model?.schema === 'cf-erp-model3d/2' ? (model as unknown as ModelFile) : null;
   const inModel = useCallback((mark: string | null | undefined) => !!oneModel && modelHasLevel(oneModel, mark), [oneModel]);
   const [sourcePick, setSourcePick] = useState<'model' | 'file'>('model');
-  const showModel = inModel(levelMark) && sourcePick === 'model';
+  // A row with no file whose mark is a PIECE of the model (a bracing angle, a bolt), not a level: drawn alone from the model.
+  const pieceOnly = drawing.id === 0 && !!oneModel && !modelHasLevel(oneModel, levelMark) && modelHasPiece(oneModel, levelMark);
+  const showModel = (inModel(levelMark) || pieceOnly) && sourcePick === 'model';
   // Until the model has been read the file of an assembly waits: it may not be needed (up to 3 MB). A plate part's does not.
   const waitForModel = !modelRead && !levels?.view.at.isPlatePart;
   const [drawn, setDrawn] = useState<DxfView | null>(null);
@@ -390,13 +392,13 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     setDrawn(null);
     // After a paint, so the person sees "Drawing…" and not a frozen window on a whole span.
     const t = setTimeout(() => {
-      const d = levelDrawing(oneModel, levelMark, codes);
+      const d = pieceOnly ? pieceDrawing(oneModel, levelMark, codes) : levelDrawing(oneModel, levelMark, codes);
       if (!d) { setSourcePick('file'); return; }
       drawnBefore.current.set(levelMark, d.view);
       setDrawn(d.view);
     }, 30);
     return () => clearTimeout(t);
-  }, [showModel, oneModel, levelMark, codes]);
+  }, [showModel, oneModel, levelMark, codes, pieceOnly]);
   // In 3D, the part's shape is read as soon as it can be (the DXF may still be loading on the first click).
   useEffect(() => { if (mode3d && part === null) void loadPart(); }, [mode3d, part, loadPart]);
   // The level to light up: the open row, then each level above it, deepest first.
