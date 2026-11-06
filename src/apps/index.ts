@@ -6,6 +6,8 @@ export { cfErpApp } from './cf_erp';
 export { cfHrmsApp } from './cf_hrms';
 export { cfCrmApp } from './cf_crm';
 export { karniDashboardApp } from './karni_dashboard';
+export { connectionsApp } from './connections';
+export { sumangalDashboardApp } from './sumangal_dashboard';
 
 import { audioIntelligenceApp } from './audio_intelligence';
 import { salesControlApp } from './sales_control';
@@ -15,8 +17,10 @@ import { cfErpApp } from './cf_erp';
 import { cfHrmsApp } from './cf_hrms';
 import { cfCrmApp } from './cf_crm';
 import { karniDashboardApp } from './karni_dashboard';
+import { connectionsApp } from './connections';
+import { sumangalDashboardApp } from './sumangal_dashboard';
 
-const appRegistry = [audioIntelligenceApp, salesControlApp, fabFlowApp, fabErpApp, cfErpApp, cfHrmsApp, cfCrmApp, karniDashboardApp];
+const appRegistry = [audioIntelligenceApp, salesControlApp, fabFlowApp, fabErpApp, cfErpApp, cfHrmsApp, cfCrmApp, karniDashboardApp, connectionsApp, sumangalDashboardApp];
 
 export function getApp(slug: string) {
   return appRegistry.find((a) => a.slug === slug) ?? null;

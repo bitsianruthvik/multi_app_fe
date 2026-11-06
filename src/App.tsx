@@ -23,6 +23,8 @@ import { getCfErpRoutes } from "@apps/cf_erp/routes";
 import { getCfHrmsRoutes } from "@apps/cf_hrms/routes";
 import { getCfCrmRoutes } from "@apps/cf_crm/routes";
 import { getKarniDashboardRoutes } from "@apps/karni_dashboard/routes";
+import { getConnectionsRoutes } from "@apps/connections/routes";
+import { getSumangalDashboardRoutes } from "@apps/sumangal_dashboard/routes";
 import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
 import { ErrorBoundary } from "@core/components/ErrorBoundary";
@@ -245,6 +247,16 @@ function App() {
 
                 {/* karni_dashboard routes (read-only SAP Business One dashboard) */}
                 {getKarniDashboardRoutes(ProtectedRoute).map(r => (
+                  <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
+                ))}
+
+                {/* connections routes (read-only links to outside data) */}
+                {getConnectionsRoutes(ProtectedRoute).map(r => (
+                  <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
+                ))}
+
+                {/* sumangal_dashboard routes (snapshot of the company ERP) */}
+                {getSumangalDashboardRoutes(ProtectedRoute).map(r => (
                   <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
                 ))}
 

@@ -62,6 +62,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onCfHrms           = !!useMatch('/:company/cf_hrms/*');
   const onCfCrm            = !!useMatch('/:company/cf_crm/*');
   const onKarniDashboard   = !!useMatch('/:company/karni_dashboard/*');
+  const onConnections      = !!useMatch('/:company/connections/*');
+  const onSumangal         = !!useMatch('/:company/sumangal_dashboard/*');
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
@@ -74,6 +76,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // karni_dashboard wraps every route in its own shell (KarniShell, the @shared/ui
   // kit), admin landing URLs included — the dispatcher only has to get out of the way.
   if (onKarniDashboard) return <>{children}</>;
+  if (onConnections) return <>{children}</>;
+  if (onSumangal) return <>{children}</>;
 
   // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
   // but an app's admin pages should still pick up that app's theme and tokens.
