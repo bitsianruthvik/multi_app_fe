@@ -245,7 +245,9 @@ export interface Model3DElement {
   /** a shaped plate: its outline (mm) extruded `t` along w; the outline's x runs along u, y along v, its (0,0) at o */
   plate?: { pts: [number, number][]; holes?: [number, number, number][]; cuts?: [number, number][][]; t: number; o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; w: [number, number, number] };
 }
-export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; levels?: Record<string, { name?: string; qty?: number }>; elements: Model3DElement[] }
+export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; levels?: Record<string, { name?: string; qty?: number }>; elements: Model3DElement[];
+  /** pieces with no position from the sheets yet, left out of the model (drawing_bom finish.mjs): mark → count */
+  unplaced?: Record<string, number> }
 type ModelAnswer = { fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> };
 /** A model is read once per line (or standard) and kept a few minutes: every level on screen is drawn from this one copy. */
 const MODEL_KEEP_MS = 5 * 60 * 1000;

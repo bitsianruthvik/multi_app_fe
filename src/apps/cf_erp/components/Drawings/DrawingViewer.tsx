@@ -566,6 +566,13 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography id="drawing-viewer-title" component="h2" sx={{ fontSize: large ? 20 : 16, fontWeight: 600, overflowWrap: 'anywhere' }}>{title}</Typography>
           <Box sx={{ fontSize: large ? 15 : 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.25, overflowWrap: 'anywhere' }} data-testid="viewer-source-line">{showModel ? 'Drawn from the structure’s model' : drawing.fileName}</Box>
+          {/* Pieces whose position is not read yet are not drawn (user, 2026-11-07: no guessed positions); say how many. */}
+          {model?.unplaced && Object.keys(model.unplaced).length > 0 && (showModel || mode3d) && (
+            <Box data-testid="viewer-unplaced" title={Object.entries(model.unplaced).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} ×${n}`).join(', ')}
+              sx={{ fontSize: 12.5, color: 'var(--c-warning-700, #a15c00)', mt: 0.25 }}>
+              {Object.values(model.unplaced).reduce((a, b) => a + b, 0).toLocaleString('en-IN')} pieces not yet positioned from the drawings, so not shown
+            </Box>
+          )}
           {uses && (
             <Box component="button" type="button" data-testid="viewer-used-by" onClick={() => setUsesOpen(true)}
               sx={{ all: 'unset', cursor: 'pointer', mt: 0.25, fontSize: large ? 15 : 13, color: 'var(--c-primary-700)', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)', borderRadius: 'var(--r-sm)' } }}>
