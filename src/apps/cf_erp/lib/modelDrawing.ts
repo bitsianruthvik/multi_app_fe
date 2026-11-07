@@ -67,6 +67,9 @@ const unit = (a: V3): V3 => mul(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
  * A `cf-erp-model3d/2` piece names its part (each part's shape is kept once) and says where it sits; everything that draws
  * a model reads `plate`, so this puts it back. A /1 model comes through as it is. Pure, and it leaves the input alone.
  */
+/** The model's bolts are kept for the physics and the bolt count; the screens do not draw them for now (user, 2026-11-07). */
+const DRAW_BOLTS = false;
+
 export function expandModel<T extends ModelFile>(model: T): T {
   if (!model.parts) return model;
   const { parts, boltSet, ...rest } = model;
@@ -82,7 +85,7 @@ export function expandModel<T extends ModelFile>(model: T): T {
         out.push({ ...head, id: `${e.id}.${i}.${j}`, member: { a, b: add(a, mul(g.up, g.h)), up: [1, 0, 0], section: { type: 'pipe', d: g.d, t: g.d / 2 } } });
       }
       return out;
-    }), ...boltElements(boltSet)],
+    }), ...(DRAW_BOLTS ? boltElements(boltSet) : [])],
   } as unknown as T;
 }
 

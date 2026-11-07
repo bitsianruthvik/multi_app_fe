@@ -38,7 +38,7 @@ for (const s of sets) {
   const model = read(s);
   check(`${s}: expanding gives every piece, plates with their shapes`, () => {
     const x = expandModel(model);
-    const want = model.elements.reduce((n, e) => n + (e.studs ? e.studs.ni * e.studs.nj : 1), 0) + 2 * (model.boltSet?.rows?.length ?? 0);   // each bolt: head and nut
+    const want = model.elements.reduce((n, e) => n + (e.studs ? e.studs.ni * e.studs.nj : 1), 0);   // bolts are not drawn (2026-11-07)
     assert.equal(x.elements.length, want);
     assert.equal(x.parts, undefined);
     for (const e of x.elements) if (e.part) assert.ok(e.plate?.pts?.length >= 3, `${e.id} has no outline`);
@@ -118,18 +118,11 @@ check('a bracing angle with no DXF draws alone from the model', () => {
   assert.equal(pieceDrawing(model, 'NOPE'), null);
 });
 
-// 2026-11-07: the model's bolts are pieces in 3D (a head and a nut each, lit with their joint) and stay off the 2D sheets.
-check('bolts: each row of boltSet is a head and a nut in the joint it bolts; the sheets leave them out', () => {
-  const s = sets.find((x) => /JNPA_36M_P7P8/.test(x)); if (!s) { console.log('  (no JNPA package here)'); return; }
-  const model = read(s); if (!model.boltSet?.rows?.length) { console.log('  (no bolts placed in JNPA yet)'); return; }
-  const x = expandModel(model);
-  const bolts = x.elements.filter((e) => e.bolt);
-  assert.equal(bolts.length, model.boltSet.rows.length * 2, 'head and nut per bolt');
-  assert.ok(bolts.every((e) => e.member && e.in?.length && e.member.section.d > 20), 'drawn as members, with the joint path');
-  assert.ok(bolts.every((e) => e.member.a.every(Number.isFinite) && e.member.b.every(Number.isFinite)));
-  const lvl = model.boltSet.levels[model.boltSet.rows[0][1]].split('<')[0];
-  const d = levelDrawing(model, lvl); assert.ok(d, `level ${lvl} still draws`);
-  assert.equal(d.pieces, piecesOfLevel(expandModel(model), lvl.toUpperCase()).filter((e) => !e.bolt).length, 'bolts not on the sheet');
+// 2026-11-07: the model's bolts are kept for the physics and the bolt count; the screens do not draw them for now (user).
+check('bolts are kept in the model but not drawn: no bolt pieces after expanding', () => {
+  const s = sets.find((x) => /JNPA_36M_P7P8/.test(x)); if (!s) return;
+  const model = read(s); if (!model.boltSet?.rows?.length) return;
+  assert.equal(expandModel(model).elements.filter((e) => e.bolt).length, 0);
 });
 
 console.log(`\nset | levels | slowest level (this PC) | largest view shown | model size`);
