@@ -236,6 +236,8 @@ export interface Model3DElement {
   id: string;
   /** the drawing mark of the BOM row it belongs to; `in` = the marks of the rows above it */
   mark: string | null; in?: string[]; label?: string;
+  /** a bolt of the model's boltSet, drawn as head and nut (lib/modelDrawing.ts boltElements) */
+  bolt?: boolean;
   /** placed by a stated rule, not read from a drawing */
   rule?: boolean;
   member?: { a: [number, number, number]; b: [number, number, number]; up: [number, number, number]; section: Model3DSection };

@@ -27,9 +27,34 @@ export interface ModelElement {
   studs?: { a: V3; di: V3; ni: number; dj: V3; nj: number; d: number; h: number; up: V3 };
   /** placed by a stated rule, not read from a drawing */
   rule?: boolean;
+  /** a bolt of the model's boltSet (drawn as its head and nut; never labelled one by one) */
+  bolt?: boolean;
 }
+/** The model's bolts (drawing_bom src/model2/bolts.mjs): rows [mark, level path, copies, x, y, z (head face), nx, ny, nz, grip, d]. */
+export interface ModelBoltSet { schema: string; marks: string[]; levels: string[]; rows: (number | string)[][] }
 export interface ModelPart { pts: V2[]; holes?: [number, number, number][]; cuts?: V2[][]; t: number }
-export interface ModelFile { schema: string; title?: string; parts?: Record<string, ModelPart>; levels?: Record<string, { name?: string; qty?: number }>; elements: ModelElement[] }
+export interface ModelFile { schema: string; title?: string; parts?: Record<string, ModelPart>; levels?: Record<string, { name?: string; qty?: number }>; elements: ModelElement[]; boltSet?: ModelBoltSet }
+
+/**
+ * The model's bolts as pieces (user, 2026-11-07: "wherever there are holes I don't see any bolts"): each a head and a nut, hexagon-ish
+ * cylinders 1.7 d across, on its own line through the plies it clamps; the shank is inside the holes. Level path and copies as the
+ * owning plate's, so a bolt lights with its joint. Pure.
+ */
+export function boltElements(set: ModelBoltSet | undefined): ModelElement[] {
+  if (!set?.rows?.length) return [];
+  const out: ModelElement[] = [];
+  set.rows.forEach((r, i) => {
+    const [mi, li, ci, x, y, z, nx, ny, nz, grip, d] = r as unknown as [number, number, string | number, number, number, number, number, number, number, number, number];
+    const lv = String(set.levels[li] ?? ''); const inn = lv ? lv.split('<') : [];
+    const cp = String(ci ?? '').split(',').filter((s) => s !== '').map(Number);
+    const head: V3 = [x, y, z]; const n: V3 = [nx, ny, nz]; const tail = add(head, mul(n, grip));
+    const up: V3 = Math.abs(nz) > 0.9 ? [1, 0, 0] : [0, 0, 1];
+    const base = { mark: set.marks[mi] ?? 'BOLT', in: inn, n: cp, bolt: true, label: set.marks[mi] };
+    out.push({ ...base, id: `bolt${i}h`, member: { a: add(head, mul(n, -0.65 * d)), b: head, up, section: { type: 'pipe', d: 1.7 * d, t: d } } });
+    out.push({ ...base, id: `bolt${i}n`, member: { a: tail, b: add(tail, mul(n, 0.8 * d)), up, section: { type: 'pipe', d: 1.7 * d, t: d } } });
+  });
+  return out;
+}
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -44,10 +69,10 @@ const unit = (a: V3): V3 => mul(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
  */
 export function expandModel<T extends ModelFile>(model: T): T {
   if (!model.parts) return model;
-  const { parts, ...rest } = model;
+  const { parts, boltSet, ...rest } = model;
   return {
     ...rest,
-    elements: model.elements.flatMap((e): ModelElement[] => {
+    elements: [...model.elements.flatMap((e): ModelElement[] => {
       const p = e.part ? parts[e.part] : null;
       if (p) return [{ ...e, plate: { pts: p.pts, holes: p.holes, cuts: p.cuts, t: p.t, o: e.o!, u: e.u!, v: e.v!, w: e.w! } }];
       if (!e.studs) return [e];
@@ -57,7 +82,7 @@ export function expandModel<T extends ModelFile>(model: T): T {
         out.push({ ...head, id: `${e.id}.${i}.${j}`, member: { a, b: add(a, mul(g.up, g.h)), up: [1, 0, 0], section: { type: 'pipe', d: g.d, t: g.d / 2 } } });
       }
       return out;
-    }),
+    }), ...boltElements(boltSet)],
   } as unknown as T;
 }
 
@@ -336,7 +361,8 @@ export function pieceDrawing(model: ModelFile, mark: string, codes: Record<strin
 export function levelDrawing(modelIn: ModelFile, mark: string, codes: Record<string, string> = {}): LevelDrawing | null {
   const model = expandModel(modelIn);
   const m = mark.toUpperCase();
-  const pieces = piecesOfLevel(model, m);
+  // A sheet shows a bolt by its hole, as a shop drawing does: the model's bolts are for the 3D view and the physics.
+  const pieces = piecesOfLevel(model, m).filter((e) => !e.bolt);
   if (!pieces.length) return null;
   // Each piece is named by what is directly under this level, so a span says "MTA", not its 3,000 plates.
   const nameOf = (e: ModelElement) => {

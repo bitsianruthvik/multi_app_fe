@@ -162,7 +162,7 @@ export function Model3DView({ model, part, marks, codes = {}, scope, onScope, se
     if (model && !showPart) {
       const seen: { mark: string; p: THREE.Vector3 }[] = [];
       for (const e of model.elements) {
-        if (!e.mark || (lit ? !isLit(e, lit) : !e.member)) continue;
+        if (!e.mark || e.bolt || (lit ? !isLit(e, lit) : !e.member)) continue;
         const c = boxOf(elementGeometries(e)).getCenter(new THREE.Vector3());
         if (seen.some((s) => s.mark === e.mark && s.p.distanceTo(c) < textH * 8)) continue;
         seen.push({ mark: e.mark, p: c });
