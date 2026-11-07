@@ -18,8 +18,27 @@ export function createOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement): 
   // Middle drag pans (three's default is dolly); OrbitControls turns a left drag with Ctrl / Shift / ⌘ into a pan itself.
   c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
   c.zoomToCursor = true;
+  // Zoom in as far as you like (user, 2026-11-07: "it is not letting me zoom beyond this"). Two things stopped it: the near
+  // plane stayed where the first fit put it (1/300 of a whole span's distance, about 270 mm, so close steel was cut away),
+  // and a dolly only halves the distance to the orbit centre, so it stalls there. The near plane now follows the camera,
+  // and close to the centre a wheel step in carries the centre forward with the camera.
+  c.addEventListener('change', () => {
+    const d = camera.position.distanceTo(c.target);
+    const near = Math.max(1, Math.min(d / 50, camera.far / 1000));
+    if (Math.abs(near - camera.near) / camera.near > 0.2) { camera.near = near; camera.updateProjectionMatrix(); }
+  });
+  dom.addEventListener('wheel', (ev) => {
+    if (ev.deltaY >= 0) return;
+    const d = camera.position.distanceTo(c.target);
+    if (d > CLOSE_MM) return;
+    const step = camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(Math.max(20, d * 0.6));
+    c.target.add(step); camera.position.add(step);
+  }, { passive: true, capture: true });
   return c;
 }
+
+/** Closer than this to the orbit centre, zooming in moves the centre forward too. */
+const CLOSE_MM = 400;
 
 /**
  * Frame a box: the camera looks at its centre from `dir` (default: the current viewing direction, so a double-click
