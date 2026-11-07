@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { getLineModel3d, getStandardModel3d } from '../../api/drawings';
+import { getLineModel3d, getStandardModel3d, linePhysics, standardPhysics } from '../../api/drawings';
 import { standardFileBlob, type StandardDetail, type StandardFile } from '../../api/standards';
 import { levelView } from '../../lib/drawingLevels';
 import { rowOfFile, rowsOfFile, standardLevels } from '../../lib/standardLevels';
@@ -35,11 +35,13 @@ export function StandardDrawingViewer({ standard, file, onClose }: { standard: S
   }), [shownFile, view, levels, standard.drawing]);
   const viewerLevels = useMemo(() => (view ? { view, onGo: setAt } : undefined), [view]);
   const line = standard.lines[0] ?? null;
+  // The physics view: the newest line's (same standard, same page), else the standard's own.
+  const physics = useMemo(() => (line ? linePhysics(line.orderId, line.id) : standardPhysics(standard.id)), [line, standard.id]);
   const loadModel = useCallback(async () => (line ? getLineModel3d(line.orderId, line.id).catch(() => getStandardModel3d(standard.id)) : getStandardModel3d(standard.id)), [line, standard.id]);
   return (
     <DrawingViewer orderId={0} lineId={0} drawing={drawing} levels={viewerLevels} onClose={onClose}
       fetchFile={() => standardFileBlob(shownFile.id)} downloadFile={() => saveFile(shownFile)}
-      loadModel={loadModel} modelKey={`standard:${standard.id}:${line?.id ?? 0}`}
+      physics={physics} loadModel={loadModel} modelKey={`standard:${standard.id}:${line?.id ?? 0}`}
       readFacts={{ lengthMm: shownFile.lengthMm, widthMm: shownFile.widthMm, areaMm2: shownFile.areaMm2, holes: shownFile.holes }} />
   );
 }

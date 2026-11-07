@@ -544,6 +544,32 @@ await checkAsync('a heavy drawing (over 2,000 lines and curves) is drawn without
   await unmount();
 });
 
+// 2026-11-07: the physics view is in the app — offered beside 3D when the structure has one, shown in a sandboxed frame.
+await checkAsync('2026-11-07: Physics is offered when the line has a physics view; it opens in a sandboxed frame, with its counts', async () => {
+  reply((path) => {
+    if (path.endsWith('/physics')) return { fileId: 7, savedAt: '2026-11-07', set: 'OWG_30M5', generated: '2026-11-07', stale: true, summary: { findings: { look: 10, pass: 28 } } };
+    if (path.endsWith('/physics/page')) return new Blob(['<html><body>PHYSICS PAGE</body></html>'], { type: 'text/plain' });
+    return dxfBlob();
+  });
+  await mount();
+  const btn = q('[data-testid="viewer-physics-toggle"]');
+  assert.ok(btn, 'the Physics button is there');
+  await act(async () => { btn.click(); });
+  for (let k = 0; k < 20 && !q('[data-testid="physics-frame"]'); k++) await flush();
+  const frame = q('[data-testid="physics-frame"]');
+  assert.ok(frame, 'the frame is there: ' + (q('[data-testid="physics-view"]')?.textContent ?? 'no physics view') );
+  assert.equal(frame.getAttribute('sandbox'), 'allow-scripts', 'scripts only: never the app origin');
+  assert.match(frame.getAttribute('srcdoc'), /PHYSICS PAGE/);
+  assert.match(q('[data-testid="physics-view"]').textContent, /10 to look at, 28 pass/);
+  assert.ok(q('[data-testid="physics-stale"]'), 'out of date is said');
+  await unmount();
+  reply((path) => { if (/\/physics/.test(path)) throw new Error('API request failed: 404 Not Found - {"message":"Physics view not found"}'); return dxfBlob(); });
+  await mount();
+  assert.equal(q('[data-testid="viewer-physics-toggle"]'), null, 'no physics run: no button');
+  await unmount();
+  reply(() => dxfBlob());
+});
+
 // the entry points
 const view = (drawings, over = {}) => ({
   line: { id: 5, lineNo: 1, orderId: 1, orderCode: 'SO-1', released: false }, drawings, waiting: [],

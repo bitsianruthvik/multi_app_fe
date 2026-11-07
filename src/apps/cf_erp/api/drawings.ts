@@ -259,3 +259,25 @@ function readModel(path: string): Promise<ModelAnswer> {
 export const getLineModel3d = (orderId: number, lineId: number) => readModel(`/orders/${orderId}/lines/${lineId}/model3d`);
 /** A standard drawing's own 3D model (no order, so no codes) — the Drawings tab of a standard. */
 export const getStandardModel3d = (standardId: number) => readModel(`/standard-drawings/${standardId}/model3d`);
+
+/**
+ * THE PHYSICS VIEW kept with a structure (backend physicsService; user, 2026-11-07: "build it into the app"): its facts, and the
+ * page itself (self-contained HTML made by drawing_bom's physics screen), shown in a sandboxed frame.
+ */
+export interface PhysicsSummary { findings?: { fail?: number; look?: number; pass?: number }; type?: string | null; [k: string]: unknown }
+export interface PhysicsInfo { fileId: number; savedAt: string; set: string | null; generated: string | null; summary: PhysicsSummary | null; stale: boolean }
+export interface PhysicsSource { info: () => Promise<PhysicsInfo>; page: () => Promise<string>; key: string }
+/** A Blob as UTF-8 text (the physics page is UTF-8; older engines have no Blob.text). */
+const utf8 = (b: Blob): Promise<string> => (typeof b.text === 'function' ? b.text() : new Promise((resolve, reject) => {
+  const r = new FileReader(); r.onload = () => resolve(String(r.result ?? '')); r.onerror = () => reject(r.error ?? new Error('Could not read the page.')); r.readAsText(b, 'utf-8');
+}));
+export const linePhysics = (orderId: number, lineId: number): PhysicsSource => ({
+  key: `line:${orderId}:${lineId}`,
+  info: () => cfApi.get<PhysicsInfo>(`/orders/${orderId}/lines/${lineId}/physics`),
+  page: () => cfApi.getBlob(`/orders/${orderId}/lines/${lineId}/physics/page`, { timeoutMs: LONG_WRITE_MS }).then(utf8),
+});
+export const standardPhysics = (standardId: number): PhysicsSource => ({
+  key: `standard:${standardId}`,
+  info: () => cfApi.get<PhysicsInfo>(`/standard-drawings/${standardId}/physics`),
+  page: () => cfApi.getBlob(`/standard-drawings/${standardId}/physics/page`, { timeoutMs: LONG_WRITE_MS }).then(utf8),
+});

@@ -213,7 +213,7 @@ await writeFile(stub, [
   'export const deleteDrawing = async () => null; export const startDrawing = async () => null;',
   'export const downloadDrawing = async () => {}; export const downloadRegisterFile = async () => {};',
   'export const fetchDrawingBlob = async () => new Blob([]); export const blobAsText = async () => "";',
-  'export const getDrawingTree = async () => globalThis.__tree; export const fetchRegisterBlob = async () => new Blob([]); export const getLineModel3d = async () => { throw new Error("no model"); };',
+  'export const getDrawingTree = async () => globalThis.__tree; export const fetchRegisterBlob = async () => new Blob([]); export const getLineModel3d = async () => { throw new Error("no model"); }; export const linePhysics = () => ({ key: "none", info: async () => { throw new Error("no physics"); }, page: async () => "" }); export const standardPhysics = linePhysics;',
 ].join('\n'));
 const domBuilt = await build({
   alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') },
