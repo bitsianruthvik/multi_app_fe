@@ -60,6 +60,7 @@ import { ChoiceCell } from './ChoiceCell';
 import { nextTarget, unchosenTargets } from './selectionChoice';
 import { arrangedRows, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
 import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
+import { ModelPanel } from '../Values/ModelPanel';
 import type { SheetGridHandle } from '@shared/ui';
 import { codeOrName, displayCode, isDefinitionKind } from '../../lib/displayCode';
 import { ValueReasonsDialog } from '../ValueReasonsDialog';
@@ -1077,6 +1078,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         )}>
         {why && <Alert severity="info" sx={{ mb: 0.5, py: 0, fontSize: 12.5, '& .MuiAlert-icon': { py: '6px', fontSize: 18 }, '& .MuiAlert-message': { py: '6px' } }}>{why}</Alert>}
         {gapsOn && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 0.5, py: 0, fontSize: 12.5, '& .MuiAlert-icon': { py: '6px', fontSize: 18 }, '& .MuiAlert-message': { py: '6px' } }}>{gridValues.data.lock.message}</Alert>}
+        {gapsOn && !why && gridLineId != null && gridValues.data && !gridValues.data.lock && (
+          <ModelPanel lineId={gridLineId} model={gridValues.data.model} disabled={dirty || !!busy} onChanged={gridValues.reload} onError={toast.error} />
+        )}
         <Box data-testid="grid-toolbar" sx={orderGrid ? { display: 'flex', columnGap: 0.75, rowGap: 0.25, alignItems: 'center', flexWrap: 'wrap', mb: 0.25, '& .MuiFormControlLabel-root': { height: 28 }, '& .MuiSwitch-root': { my: '-5px' }, '& .MuiButton-root': { minHeight: 28, py: 0.25 } } : { display: 'contents' }}>
         {orderGrid && (
           <Box component="h2" sx={{ m: 0, fontSize: 14, fontWeight: 600, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>

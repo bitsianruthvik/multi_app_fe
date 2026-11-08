@@ -242,6 +242,26 @@ await check('…a worked-out one says it can be typed over; one from the drawing
 });
 await check('…and the summary counts them', () => assert.equal(m.reasons.reasonSummary(data), '6 values asked: 1 from its flow, 3 typed over a calculated value, 2 worked out.'));
 
+// Values from the 3D model (2026-11-08, modelValueService): a value the model gave says so; an empty one waits for it.
+await check('a value from the 3D model says so, and can be typed over (no way-back button)', () => {
+  const mk = m.sourceMark({ from: 'model', calculated: null, noCalc: null }, true);
+  assert.equal(mk.label, 'from the 3D model');
+  assert.equal(mk.title, 'From the 3D model — type over it to set it by hand.');
+  assert.equal(mk.canGoBack, false);
+});
+await check('an empty value the model will fill says it waits for the model, and may still be typed', () => {
+  const w = m.waitingModelMark();
+  assert.equal(w.label, 'waiting for the 3D model');
+  assert.match(w.title, /You can type it now/);
+});
+await check('the Values view carries waitingModel onto the effective cell', () => {
+  const col = { code: 'LENGTH', name: 'Length', dataType: 'number', unit: 'mm', decimals: 0, rule: 'entered', required: true, editable: true };
+  const row = { id: 1, cells: {} };
+  const view = { editable: true, optionLists: {} };
+  assert.equal(m.values.effectiveCell(view, col, row, { waitingModel: true, missing: true }, true).waitingModel, true);
+  assert.equal(m.values.effectiveCell(view, col, row, {}, true).waitingModel, false);
+});
+
 await React.act(() => root.render(null));
 await React.act(() => root.unmount());
 dom.window.close();

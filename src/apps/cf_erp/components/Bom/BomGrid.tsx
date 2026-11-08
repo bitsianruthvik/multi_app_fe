@@ -18,7 +18,7 @@ import { isDimension, sheetLabel } from '../../lib/stripLayout';
 import { CODE_NUMBERS_TITLE, codeWithNumbers, hasNumbers, ownCodePart, type CodeSegment } from '../../lib/codeSegments';
 import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewUses } from '../../lib/bomGridLayout';
 import { codeOrName, displayCode } from '../../lib/displayCode';
-import { orderMark, sourceMark, sourceOfDerived, type OrderCellSource, type ValueSource } from '../../lib/valueSource';
+import { orderMark, sourceMark, sourceOfDerived, waitingModelMark, type OrderCellSource, type ValueSource } from '../../lib/valueSource';
 import { ValueSourceMark } from './ValueSourceMark';
 import { CodeText } from './CodeText';
 import { splitAiNote } from '../../lib/addLine';
@@ -32,7 +32,7 @@ const listText = (input: string, shown: string | null | undefined): string => {
 };
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
-type Cell = { text: string; input: string; saved: string; editable: boolean; /** A list: its rows open in a dialog (never typed in the cell). */ list?: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; options?: { id: number; value: string; label?: string | null }[] };
+type Cell = { text: string; input: string; saved: string; editable: boolean; /** A list: its rows open in a dialog (never typed in the cell). */ list?: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; /** Empty, and the 3D model would fill it (none attached yet). */ waitingModel?: boolean; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
@@ -165,6 +165,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     return { text: isList ? listText(vc.input, vc.input === '' ? vc.text : vc.cell.display) : vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, list: isList, type: vc.type, options: vc.options,
       source: vc.cell.from ? { from: vc.cell.from, calculated: vc.cell.calculated, noCalc: vc.cell.noCalc } : null,
       order: vc.cell.inherit || vc.cell.override ? { inherit: vc.cell.inherit, override: vc.cell.override, orderDisplay: vc.cell.orderDisplay, display: vc.cell.defaultDisplay } : null,
+      waitingModel: !!vc.cell.waitingModel,
       why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? vc.cell.why ?? (vc.cell.missing ? 'Required value is missing.' : undefined) };
   };
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
@@ -183,7 +184,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     const gap = !!gaps?.get(n.id)?.includes(col.code);
     // A formula's value says where it comes from (worked out · from the drawing · typed by hand over it); a cell being changed says "changed" instead.
     // … and a value from the order or line says so ("O" / "L"); a row value over it is a button back to it.
-    const src = changed ? null : sourceMark(c.source, c.editable) ?? orderMark(c.order, c.editable);
+    const src = changed ? null : sourceMark(c.source, c.editable) ?? orderMark(c.order, c.editable) ?? (c.waitingModel && c.text === '' ? waitingModelMark() : null);
     const typed = src?.from === 'typed';
     return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : typed ? 'strong' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,
       kind: c.type === 'number' ? 'number' : c.type === 'option' ? 'option' : c.type === 'boolean' ? 'bool' : c.type === 'date' ? 'date' : 'text',
@@ -193,7 +194,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       state: src?.from,
       // Undo of a number typed over a calculated value empties the cell again, rather than typing the calculated one.
       restore: src && !typed && c.editable && c.input === '' ? '' : undefined,
-      title: gap ? `Missing — ${c.why ?? 'a required value'}` : src && (typed || !c.why) ? src.title : c.why ?? c.text };
+      title: gap ? `Missing — ${c.waitingModel && c.text === '' ? 'waiting for the 3D model (or type it)' : c.why ?? 'a required value'}` : src && (typed || !c.why) ? src.title : c.why ?? c.text };
   };
   const onSheetWrites = (writes: SheetWrite[]) => onWrites(writes.flatMap((w) => {
     const row = rowByKey.get(w.rowKey), col = colByKey.get(w.colKey);

@@ -51,6 +51,8 @@ export interface ValuesCell {
   calculated?: string;
   /** On a cell a formula could not fill: what it waits for, or why it has no answer. */
   noCalc?: string;
+  /** Empty, and the 3D model would fill it — the structure has no model yet (modelValueService). */
+  waitingModel?: boolean;
   /** Order and line values (init.sql §65): the value shown (defaultDisplay) is the order's or the line's. */
   inherit?: 'order' | 'line';
   /** The row's own value stands over the order's / line's value — `orderDisplay` is that value. */
@@ -103,7 +105,25 @@ export interface ValuesView {
   groups: ValuesGroup[];
   /** Which rows are copies of each other ("same design"), by record id. Absent on an older server. */
   links?: LinksBlock;
+  /** The 3D model (init.sql §100): attached or not, and where its values differ from typed ones. Absent on an older server. */
+  model?: ModelState | null;
 }
+
+/** A typed value the 3D model says otherwise (modelValueService.applyModel's disagreements still standing). */
+export interface ModelDisagreement {
+  recordId: number;
+  mark: string | null;
+  row: string | null;
+  code: string;
+  heldText: string;
+  modelText: string;
+  /** The model's value, as it is written when accepted (a number, or a hole list's rows). */
+  model: number | Array<Record<string, unknown>>;
+  /** False for a drawing fact its part file wrote — said, not accepted. */
+  acceptable: boolean;
+  by: 'typed' | 'drawing';
+}
+export interface ModelState { attached: boolean; ranAt: string | null; disagreements: ModelDisagreement[] }
 
 /** A cell with its column's shared fields put back, and whether it can be typed right now. */
 export interface EffectiveCell {
@@ -122,6 +142,8 @@ export interface EffectiveCell {
   /** Typed over a calculated value: that value, in words (null when there is none yet). */
   calculated: string | null;
   noCalc: string | null;
+  /** Empty, and the 3D model would fill it — none attached yet. */
+  waitingModel: boolean;
   /** Order and line values (init.sql §65): from the order / line, or a row value standing over it. */
   inherit: 'order' | 'line' | null;
   override: 'order' | 'line' | null;
@@ -154,6 +176,7 @@ export function effectiveCell(view: ValuesView, col: ValuesColumn, row: ValuesRo
     from: ('from' in cell ? cell.from : col.from) ?? null,
     calculated: cell.calculated ?? null,
     noCalc: cell.noCalc ?? null,
+    waitingModel: !!cell.waitingModel,
     inherit: cell.inherit ?? null,
     override: cell.override ?? null,
     orderDisplay: cell.orderDisplay ?? null,

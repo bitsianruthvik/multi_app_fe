@@ -8,7 +8,7 @@
  * drawing; 'typed' — a person typed over the calculated value, which is given beside it. Pure: no
  * React, no requests — scripts/cf_erp_value_source_test.mjs reads these sentences.
  */
-export type ValueFrom = 'calculated' | 'drawing' | 'typed';
+export type ValueFrom = 'calculated' | 'drawing' | 'typed' | 'model';
 
 export interface ValueSource {
   from: ValueFrom;
@@ -34,9 +34,10 @@ export const SOURCE_LABEL: Record<ValueFrom, string> = {
   calculated: 'worked out',
   drawing: 'from the drawing',
   typed: 'typed by hand',
+  model: 'from the 3D model',
 };
 
-const GLYPH: Record<ValueFrom, string> = { calculated: 'ƒ', drawing: '▱', typed: '✎' };
+const GLYPH: Record<ValueFrom, string> = { calculated: 'ƒ', drawing: '▱', typed: '✎', model: '◈' };
 
 /** The sentence for a value typed over a calculated one. */
 export function typedTitle(s: Pick<ValueSource, 'calculated' | 'noCalc'>, editable: boolean): string {
@@ -48,8 +49,17 @@ export function typedTitle(s: Pick<ValueSource, 'calculated' | 'noCalc'>, editab
 export function sourceMark(s: ValueSource | null | undefined, editable: boolean): SourceMark | null {
   if (!s?.from) return null;
   if (s.from === 'typed') return { from: 'typed', glyph: GLYPH.typed, label: SOURCE_LABEL.typed, title: typedTitle(s, editable), canGoBack: editable };
-  const what = s.from === 'drawing' ? 'From the drawing' : 'Worked out';
+  const what = s.from === 'drawing' ? 'From the drawing' : s.from === 'model' ? 'From the 3D model' : 'Worked out';
   return { from: s.from, glyph: GLYPH[s.from], label: SOURCE_LABEL[s.from], title: `${what}${editable ? ' — type over it to set it by hand' : ''}.`, canGoBack: false };
+}
+
+/**
+ * An empty value the 3D model will fill, while the structure has no model yet (2026-11-08, modelValueService: "until then
+ * only manual fill"): a quiet marker — a person may still type it.
+ */
+export const WAITING_MODEL_TITLE = 'Waiting for the 3D model — it fills this when the model is attached. You can type it now.';
+export function waitingModelMark(): SourceMark {
+  return { from: 'model', glyph: '◌', label: 'waiting for the 3D model', title: WAITING_MODEL_TITLE, canGoBack: false };
 }
 
 /** The same, read off a resolved specification (a record's own page, a catalog BOM). */
