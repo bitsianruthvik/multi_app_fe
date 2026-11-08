@@ -236,6 +236,8 @@ export interface Model3DElement {
   id: string;
   /** the drawing mark of the BOM row it belongs to; `in` = the marks of the rows above it */
   mark: string | null; in?: string[]; label?: string;
+  /** a `cf-erp-model3d/2` plate names its part (lib/modelDrawing.ts expandModel keeps it): its shape is built once */
+  part?: string;
   /** a bolt of the model's boltSet, drawn as head and nut (lib/modelDrawing.ts boltElements) */
   bolt?: boolean;
   /** placed by a stated rule, not read from a drawing */

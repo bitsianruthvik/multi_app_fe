@@ -4,8 +4,10 @@ import * as THREE from 'three';
 import { getLineModel3d, type Model3D } from '../../api/drawings';
 import { getRowProgress, type RowProgress } from '../../api/rowProgress';
 import { lookOf, legendOf, marksOf, rowOfElement, type Look } from '../../lib/progress3d';
-import { elementGeometries, merge } from '../../lib/model3dGeometry';
-import { GESTURES_3D, ownerAt } from '../../lib/model3d';
+import { GESTURES_3D } from '../../lib/model3d';
+import type { PreparedModel } from '../../lib/model3dPrep';
+import { prepared } from '../../lib/model3dPrepare';
+import { cutPieces, edgeLines, HOLE_MIN_PX, holeMarkers, instancedMeshes, largestHole, pickTags, pieceBox, piecesBox, pixelsOf, type Placement } from '../../lib/model3dInstanced';
 import { bindClicks, createOrbit, frameBox, highlightMaterial, VIEW_DIR } from '../../lib/orbit3d';
 
 /**
@@ -15,6 +17,7 @@ import { bindClicks, createOrbit, frameBox, highlightMaterial, VIEW_DIR } from '
  * ghosts; a step being worked pulses). Lines with no 3D model are listed, not drawn. Refreshes every minute.
  * Gestures as the drawing viewer's 3D (lib/orbit3d.ts): Ctrl / Shift / middle / right drag pans, double-click a piece
  * to turn about it; a clicked piece is outlined in the highlight colour (its own small mesh — no rebuild).
+ * Drawn as the drawing viewer's 3D is (2026-11-08): each distinct shape once, instanced per look; holes as markers.
  */
 
 interface LineData { lineId: number; model: Model3D | null; progress: RowProgress | null; error?: string }
@@ -58,29 +61,41 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const api = useRef<{ fit: () => void } | null>(null);
-  // Every element of every copy and its look — worked out once per data change.
+  // Each line's model made ready to draw (lib/model3dPrepare.ts: built once, off the page's thread, kept in the browser).
+  const [preps, setPreps] = useState<{ lines: LineData[]; list: PreparedModel[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.all(lines.map((l) => prepared(l.model as Model3D)))
+      .then((list) => { if (live) setPreps({ lines, list }); })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [lines]);
+  const list = preps?.lines === lines ? preps.list : null;
+  // Every element of every copy and its look — worked out once per data change. A copy is the line's pieces moved along y.
   const placed = useMemo(() => {
-    const out: { geos: THREE.BufferGeometry[]; look: Look }[] = [];
+    const out: { line: number; el: number; pre: THREE.Matrix4; look: Look }[] = [];
+    if (!list) return out;
     let yAt = 0;
-    for (const l of lines) {
-      const model = l.model as Model3D; const prog = l.progress as RowProgress;
+    lines.forEach((l, li) => {
+      const model = l.model as Model3D; const prog = l.progress as RowProgress; const prep = list[li];
       const byMark = marksOf(prog);
-      const geosOf = model.elements.map((e) => elementGeometries(e).map((g) => (g.index ? g.toNonIndexed() : g)));
-      const box = new THREE.Box3(); for (const gs of geosOf) for (const g of gs) box.union(new THREE.Box3().setFromBufferAttribute(g.attributes.position as THREE.BufferAttribute));
+      const box = piecesBox(prep, model.elements.keys());
       const span = box.isEmpty() ? 10000 : box.max.y - box.min.y;
       for (let u = 0; u < prog.quantity; u++) {
         const shift = new THREE.Matrix4().makeTranslation(0, yAt - (box.isEmpty() ? 0 : box.min.y), 0);
         model.elements.forEach((e, i) => {
+          if (prep.elGeom[i] < 0) return;
           const row = rowOfElement(e, byMark);
           const look = lookOf(prog, row, u);
           const words = `${prog.orderCode} line ${prog.lineId}${prog.quantity > 1 ? ` · unit ${u + 1}` : ''} · ${e.label ?? e.mark ?? ''} — ${look.words}`;
-          out.push({ geos: geosOf[i].map((g) => g.clone().applyMatrix4(shift)), look: { ...look, words } });
+          out.push({ line: li, el: i, pre: shift, look: { ...look, words } });
         });
         yAt += span + Math.max(3000, span * 0.25);
       }
-    }
+    });
     return out;
-  }, [lines]);
+  }, [lines, list]);
   const legend = useMemo(() => {
     const looks = placed.map((p) => p.look);
     const seen = new Map<string, { colour: string; label: string; ghost?: boolean }>();
@@ -90,7 +105,7 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
 
   useEffect(() => {
     const el = host.current;
-    if (!el) return undefined;
+    if (!el || !list) return undefined;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const size = () => ({ w: Math.max(el.clientWidth, 10), h: Math.max(el.clientHeight, 10) });
@@ -105,61 +120,65 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
     scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.1));
     const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(0.4, -1, 1.2); scene.add(sun);
 
-    // One mesh per look (colour × ghost × faint × pulse): few draw calls whatever the size.
-    const buckets = new Map<string, { look: Look; geos: THREE.BufferGeometry[] }>();
-    const owner: { start: number; count: number }[] = []; const pickList: THREE.BufferGeometry[] = [];
-    let at = 0;
-    for (const p of placed) {
-      const k = `${p.look.colour}|${p.look.ghost}|${p.look.faint}|${p.look.pulse}`;
-      if (!buckets.has(k)) buckets.set(k, { look: p.look, geos: [] });
-      buckets.get(k)?.geos.push(...p.geos);
-      const n = p.geos.reduce((s, g) => s + g.attributes.position.count, 0);
-      owner.push({ start: at, count: n }); pickList.push(...p.geos); at += n;
-    }
-    const pulsing: THREE.MeshLambertMaterial[] = [];
+    // One set of InstancedMeshes per line and look (colour × ghost × faint × pulse): each distinct shape drawn once per look.
+    const buckets = new Map<string, { line: number; look: Look; items: Placement[] }>();
+    const holeItems = new Map<number, Placement[]>();
+    placed.forEach((p, i) => {
+      const k = `${p.line}|${p.look.colour}|${p.look.ghost}|${p.look.faint}|${p.look.pulse}`;
+      if (!buckets.has(k)) buckets.set(k, { line: p.line, look: p.look, items: [] });
+      const it: Placement = { el: p.el, tag: i, pre: p.pre };
+      buckets.get(k)?.items.push(it);
+      if (!p.look.ghost && !p.look.faint) { const h = holeItems.get(p.line); if (h) h.push(it); else holeItems.set(p.line, [it]); }
+    });
+    const pulsing: THREE.MeshLambertMaterial[] = []; const meshes: THREE.InstancedMesh[] = [];
+    const geos = list.map(() => new Map<number, THREE.BufferGeometry>());
     const all = new THREE.Box3();
-    for (const { look, geos } of buckets.values()) {
-      const g = merge(geos); if (!g) continue;
-      all.union(new THREE.Box3().setFromBufferAttribute(g.attributes.position as THREE.BufferAttribute));
+    for (const { line, look, items } of buckets.values()) {
+      const prep = list[line];
       const see = look.ghost ? 0.22 : look.faint ? 0.18 : 1;
       const mat = new THREE.MeshLambertMaterial({ color: look.colour, transparent: see < 1, opacity: see, depthWrite: see === 1, side: THREE.DoubleSide, emissive: new THREE.Color(look.colour), emissiveIntensity: 0 });
-      scene.add(new THREE.Mesh(g, mat));
+      for (const m of instancedMeshes(prep, items, mat, geos[line])) { scene.add(m); meshes.push(m); if (m.boundingBox) all.union(m.boundingBox); }
       if (look.pulse) pulsing.push(mat);
+      const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(edgeLines(prep, items), 3));
       if (look.ghost) {
         // The steel that is not there yet: dashed outline.
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineDashedMaterial({ color: 0x5b6878, dashSize: 60, gapSize: 50 }));
+        const edges = new THREE.LineSegments(eg, new THREE.LineDashedMaterial({ color: 0x5b6878, dashSize: 60, gapSize: 50 }));
         edges.computeLineDistances(); scene.add(edges);
-      } else if (!look.faint) scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: 0x3b4754, transparent: true, opacity: 0.35 })));
+      } else if (!look.faint) scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x3b4754, transparent: true, opacity: 0.35 })));
+      else eg.dispose();
     }
-    const pickGeo = merge(pickList);
-    const pickMesh = pickGeo ? new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })) : null;
-    if (pickMesh) scene.add(pickMesh);
+    // The holes of the steel that is there: small dark markers, drawn once they are big enough on screen to see.
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x2b3138 });
+    const holes: THREE.InstancedMesh[] = []; let holeMm = 0;
+    for (const [line, items] of holeItems) {
+      const h = holeMarkers(list[line], items, holeMat);
+      if (h) { scene.add(h); holes.push(h); }
+      holeMm = Math.max(holeMm, largestHole(list[line], items));
+    }
 
     const controls = createOrbit(camera, renderer.domElement);
     const fit = () => frameBox(camera, controls, all, { dir: VIEW_DIR, margin: 1.1 });
     fit(); api.current = { fit };
 
-    // The picked piece: its own highlight mesh, swapped on each pick.
+    // The picked piece: its own highlight mesh (holes cut), swapped on each pick.
     const sel = new THREE.Group(); scene.add(sel);
     const highlight = (i: number) => {
       for (const c of [...sel.children]) { const m = c as THREE.Mesh; m.geometry?.dispose?.(); (m.material as THREE.Material | undefined)?.dispose?.(); sel.remove(c); }
-      const g = i >= 0 ? merge(placed[i].geos.map((x) => x.clone())) : null;
-      if (g) { sel.add(new THREE.Mesh(g, highlightMaterial())); sel.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: 0x6b0f45 }))); }
+      const p = i >= 0 ? placed[i] : null;
+      const cut = p ? cutPieces(list[p.line], lines[p.line].model as Model3D, [{ el: p.el, tag: i, pre: p.pre }]) : null;
+      if (cut) { sel.add(new THREE.Mesh(cut.mesh, highlightMaterial())); sel.add(new THREE.LineSegments(cut.edges, new THREE.LineBasicMaterial({ color: 0x6b0f45 }))); }
     };
     const ray = new THREE.Raycaster();
     const pick = (ndc: THREE.Vector2) => {
-      if (!pickMesh) return -1;
       ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObject(pickMesh, false)[0];
-      return hit && hit.faceIndex != null ? ownerAt(owner, hit.faceIndex * 3) : -1;
+      return pickTags(ray, meshes)[0] ?? -1;
     };
     const unbind = bindClicks(renderer.domElement, {
       click: (ndc) => { const i = pick(ndc); highlight(i); setPicked(i >= 0 ? placed[i].look.words : null); },
       dblclick: (ndc) => {
         const i = pick(ndc);
         if (i < 0) { fit(); return; }
-        const bb = new THREE.Box3(); for (const g of placed[i].geos) bb.union(new THREE.Box3().setFromBufferAttribute(g.attributes.position as THREE.BufferAttribute));
-        frameBox(camera, controls, bb, { margin: 2.2 });
+        frameBox(camera, controls, pieceBox(list[placed[i].line], placed[i].el, placed[i].pre), { margin: 2.2 });
       },
     });
     const ro = new ResizeObserver(() => { const s = size(); renderer.setSize(s.w, s.h); camera.aspect = s.w / s.h; camera.updateProjectionMatrix(); });
@@ -169,22 +188,24 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
       // A step being worked right now breathes (a soft glow, about once a second).
       const glow = 0.25 + 0.25 * Math.sin(((performance.now() - t0) / 1000) * Math.PI * 2);
       for (const m of pulsing) m.emissiveIntensity = glow;
+      const holesSeen = pixelsOf(holeMm, camera.position.distanceTo(controls.target), camera, renderer.domElement.clientHeight || 500) >= HOLE_MIN_PX;
+      for (const h of holes) h.visible = holesSeen;
       controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(loop);
     };
     loop();
     const readyAt = requestAnimationFrame(() => setReady(true));
     return () => {
       cancelAnimationFrame(raf); cancelAnimationFrame(readyAt); ro.disconnect(); controls.dispose(); unbind();
-      scene.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); (m.material as THREE.Material | undefined)?.dispose?.(); });
+      scene.traverse((o) => { const m = o as THREE.Mesh; if (!m.userData?.keepGeometry) m.geometry?.dispose?.(); (m.material as THREE.Material | undefined)?.dispose?.(); });
       renderer.dispose(); renderer.domElement.remove(); api.current = null;
     };
-  }, [placed]);
+  }, [placed, list, lines]);
 
   return (
     <Box sx={{ display: 'grid', gap: 1 }}>
       <Box sx={{ position: 'relative', height, borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--c-border)' }}>
         <Box ref={host} sx={{ position: 'absolute', inset: 0, cursor: 'grab', '&:active': { cursor: 'grabbing' }, touchAction: 'none' }} />
-        {!ready && <Box role="status" sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Building the 3D view…</Box>}
+        {failed ? <Box role="alert" sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--c-text-2)' }}>The 3D view could not be built.</Box> : (!ready || !list) && <Box role="status" sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Building the 3D view…</Box>}
         <Box sx={{ position: 'absolute', right: 10, top: 8 }}><Button size="small" variant="outlined" onClick={() => api.current?.fit()} sx={{ background: 'var(--c-surface)' }}>Fit</Button></Box>
         <Typography data-testid="progress3d-picked" sx={{ position: 'absolute', left: 10, bottom: 8, fontSize: 12.5, color: picked ? 'var(--c-text-1)' : 'var(--c-text-3)', background: 'var(--c-surface)', px: 1, borderRadius: 'var(--r-sm)', maxWidth: 'calc(100% - 20px)' }}>
           {picked ?? `${GESTURES_3D} · click a piece to see where it is`}
