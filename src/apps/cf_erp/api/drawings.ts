@@ -11,8 +11,14 @@ export interface DrawingGeometry {
   piercings: number;
   holes: number; holeDiameters: number[];
   innerCuts: number;
-  /** [[ [x,y], ... ], ...] mm, origin at the rectangle's corner; ring 0 is the outline, then cut-outs, then holes. */
-  rings: number[][][];
+  /**
+   * [[ [x,y], ... ], ...] mm, origin at the rectangle's corner; ring 0 is the outline, then cut-outs, then holes.
+   * NOT in the drawings list since 2026-11-09 (it was most of its bytes): read with getDrawingShapes when an outline is
+   * drawn. An upload's dry run still carries it.
+   */
+  rings?: number[][][];
+  /** In the list: the file has an outline to read (getDrawingShapes). */
+  hasShape?: boolean;
 }
 
 export interface DrawingRow {
@@ -150,6 +156,14 @@ const base = (orderId: number, lineId: number) => `/orders/${orderId}/lines/${li
 
 export const getDrawings = (orderId: number, lineId: number) =>
   cfApi.get<DrawingsView>(base(orderId, lineId));
+
+/** The outlines (rings) of some saved drawings of the line — all of them when `ids` is empty. Null rings: no shape. */
+export const getDrawingShapes = (orderId: number, lineId: number, ids: number[] = []) =>
+  cfApi.get<{ shapes: { id: number; rings: number[][][] | null }[] }>(`${base(orderId, lineId)}/shapes${ids.length ? `?ids=${ids.join(',')}` : ''}`);
+
+/** A drawing's geometry with its outline put in (from getDrawingShapes), when there is one. */
+export const withRings = <D extends { id: number; geometry: DrawingGeometry | null }>(d: D, rings: Map<number, number[][][] | null>): D =>
+  (d.geometry && !d.geometry.rings && rings.get(d.id) ? { ...d, geometry: { ...d.geometry, rings: rings.get(d.id)! } } : d);
 
 /** All the files in ONE request (the server takes up to 50 MB). `dryRun` reads and matches; nothing is written. */
 export const uploadDrawings = (orderId: number, lineId: number, files: DrawingFileBody[], dryRun: boolean) =>

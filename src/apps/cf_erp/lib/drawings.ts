@@ -31,7 +31,7 @@ export function ringsPath(rings: number[][][], widthMm: number): string {
 }
 
 export function outlineShape(g: DrawingGeometry): { d: string; viewBox: string } {
-  return { d: ringsPath(g.rings, g.widthMm), viewBox: `0 0 ${g.lengthMm} ${g.widthMm}` };
+  return { d: ringsPath(g.rings ?? [], g.widthMm), viewBox: `0 0 ${g.lengthMm} ${g.widthMm}` };
 }
 
 /** The size check on one matched row: ✓ matches, ⚠ differs, · not compared. `text` is the tooltip. */

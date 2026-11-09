@@ -110,8 +110,30 @@ async function call<T>(method: Method, path: string, body?: unknown, opts: CallO
   }
 }
 
+/**
+ * A READ STARTED BEFORE ITS SCREEN ASKS (2026-11-09): the order page starts a line's structure, values and drawings
+ * while it still waits for the process, and the screens that then ask for the same path get that answer. Each one
+ * is handed out ONCE (the next read of the path goes to the server, so a reload after an edit is never stale) and only
+ * within PREFETCH_KEEP_MS of being started. A failed one is dropped: the screen's own read then asks the server.
+ */
+export const PREFETCH_KEEP_MS = 20_000;
+const prefetched = new Map<string, { at: number; answer: Promise<unknown> }>();
+export function prefetchGet(path: string): void {
+  const kept = prefetched.get(path);
+  if (kept && Date.now() - kept.at < PREFETCH_KEEP_MS) return;
+  const answer = call<unknown>('GET', path);
+  answer.catch(() => { if (prefetched.get(path)?.answer === answer) prefetched.delete(path); });
+  prefetched.set(path, { at: Date.now(), answer });
+}
+function takePrefetched<T>(path: string): Promise<T> | null {
+  const kept = prefetched.get(path);
+  if (!kept) return null;
+  prefetched.delete(path);
+  return Date.now() - kept.at < PREFETCH_KEEP_MS ? kept.answer as Promise<T> : null;
+}
+
 export const cfApi = {
-  get: <T>(path: string, opts?: CallOptions) => call<T>('GET', path, undefined, opts),
+  get: <T>(path: string, opts?: CallOptions) => (!opts && takePrefetched<T>(path)) || call<T>('GET', path, undefined, opts),
   getBlob: (path: string, opts?: CallOptions) => call<Blob>('GET', path, undefined, { ...opts, responseType: 'blob' }),
   post: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('POST', path, body ?? {}, opts),
   put: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PUT', path, body ?? {}, opts),

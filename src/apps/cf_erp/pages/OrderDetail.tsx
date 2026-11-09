@@ -8,7 +8,9 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
-import { cfApi, CfApiError, LONG_WRITE_MS, qs } from '../api/client';
+import { cfApi, CfApiError, LONG_WRITE_MS, prefetchGet, qs } from '../api/client';
+import { lineReadPaths } from '../api/linePrefetch';
+import { openGroupsAtStart, readOpenGroups } from '../lib/orderStructure';
 import { lineLock } from '../api/lock';
 import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStage, OrderStatus, Party, ReleaseSummary, SalesOrder } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -281,6 +283,23 @@ export default function OrderDetail() {
     if (answered && tab && tabParam !== tab) setTab(tab);
   }, [lineParam, answered, tab, tabParam, pickLine, setParams, setTab]);
 
+  /*
+   * WHILE THE PROCESS IS STILL BEING READ (speed, 2026-11-09). A link that names Structure & values draws it at once
+   * (below). A link that names no tab lands where the process says — most often that same step — so the reads its open
+   * lines will make (values, drawings, codes, banners: reads only, never the structure itself, which may choose
+   * selections) are started now, beside /process, and the screens take those answers (api/client prefetchGet).
+   */
+  const prefetchFor = !o || view || processView.error || asked ? null : o;
+  useEffect(() => {
+    if (!prefetchFor) return;
+    const ls = prefetchFor.lines ?? [];
+    const open = readOpenGroups(prefetchFor.id) ?? openGroupsAtStart(ls);
+    for (const l of ls) {
+      if (l.lineType !== 'custom' || !l.item || !open.has(l.id)) continue;
+      for (const path of lineReadPaths(prefetchFor.id, l.id, { hasStandard: !!l.standard })) prefetchGet(path);
+    }
+  }, [prefetchFor]);
+
   // Walking on from the foot of a long screen brings the tabs back into view,
   // so the next stage starts at its top. Wherever the tabs can be seen already,
   // nothing moves.
@@ -409,7 +428,16 @@ export default function OrderDetail() {
   // ── the body ──
   const stage = model?.stages.find((s) => s.stageKey === tab) ?? null;
   let body: ReactNode = null;
-  if (!settled && !PROCESS_FREE_TABS.includes(tab)) {
+  // Structure & values asked for by name: drawn before the process answers, keyed as the stage will be (StageBody).
+  const early = !settled && tab === 'structure';
+  if (early) {
+    body = (
+      <>
+        <StageBody key="structure:order" view={null} stage={null} line={null} order={o} production={production.data} productionError={production.error}
+          onPickLine={pickLine} onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onGoStage={goStage} />
+      </>
+    );
+  } else if (!settled && !PROCESS_FREE_TABS.includes(tab)) {
     body = <SkeletonRows rows={4} height={72} />;
   } else if (model && stage) {
     body = (
@@ -465,7 +493,7 @@ export default function OrderDetail() {
       // With stages the tab row above is the tabs; without, the plain ones draw here.
       tabs={model || !settled ? undefined : tabs}
       // A new line is a new screen too, so switching it cross-fades like a tab.
-      active={model && stage ? `${tab}:${model.perLine ? model.line?.lineId ?? 'order' : 'order'}` : tab || 'loading'}
+      active={model && stage ? `${tab}:${model.perLine ? model.line?.lineId ?? 'order' : 'order'}` : early ? 'structure:order' : tab || 'loading'}
       onTab={setTab}>
       {body}
 

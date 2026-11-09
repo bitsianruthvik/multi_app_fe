@@ -336,7 +336,7 @@ await checkAsync('2D: Esc clears the selection first and the viewer stays open; 
   assert.equal(closed, 1, 'a second Esc with nothing selected closes');
 });
 
-await checkAsync("a standard's part opens in the same tool: levels, its file from the standard's route, its rows and facts, the 3D switch from the standard's line model", async () => {
+await checkAsync("a standard's part opens in the same tool: on 3D first when its line has the model (no file read), 2D on a click — levels, its file from the standard's route, its rows and facts", async () => {
   const seen = [];
   globalThis.__apiFetch = async (path) => {
     seen.push(path);
@@ -349,13 +349,24 @@ await checkAsync("a standard's part opens in the same tool: levels, its file fro
     plugins: [{ name: 'stub-core', setup(b) {
       b.onResolve({ filter: /^@core\/(api\/client|contexts\/AuthContext)$/ }, (x) => ({ path: x.path, namespace: 'stub' }));
       b.onLoad({ filter: /.*/, namespace: 'stub' }, (x) => ({ loader: 'js', resolveDir: process.cwd(), contents: x.path.endsWith('client') ? 'export async function apiFetch(path, opts) { return globalThis.__apiFetch(path, opts); }' : 'export const useAuth = () => ({ user: null });' }));
+      // No WebGL in jsdom: the 3D view is a marker here.
+      b.onResolve({ filter: /\/Model3DView$/ }, (x) => ({ path: x.path, namespace: 'stub3d' }));
+      b.onLoad({ filter: /.*/, namespace: 'stub3d' }, () => ({ loader: 'js', resolveDir: process.cwd(), contents: 'import { createElement } from "react"; export default function Model3DView() { return createElement("div", { "data-testid": "model3d-stub" }); }' }));
     } }],
   });
   const detail = { ...std, drawing: { id: 9, code: null, number: 'RDSO-1', revision: 'C', title: null, url: null, status: 'issued' }, lines: [{ id: 33, lineNo: 1, orderId: 4, orderCode: 'SO1', orderStatus: 'open', versionNo: 1 }], versions: [], version: null };
   await act(() => root.render(React.createElement(S.StandardDrawingViewer, { standard: detail, file: std.files[1], onClose: () => {} })));
   await flush();
-  assert.ok(seen.some((x) => x.endsWith('/standard-drawings/files/501')), 'the file from the standard');
   assert.ok(seen.some((x) => x.endsWith('/orders/4/lines/33/model3d')), 'the model through the line made from it');
+  // The one JSON is there: 3D first, and the part's file is not read until 2D is asked for (user, 2026-11-09).
+  assert.equal(q('[data-testid="viewer-3d-toggle"]').getAttribute('aria-pressed'), 'true', 'opens on 3D');
+  await flush();
+  assert.ok(q('[data-testid="model3d-stub"]'), 'the 3D view is shown');
+  assert.ok(!seen.some((x) => x.endsWith('/standard-drawings/files/501')), 'no file read in 3D');
+  await act(async () => { q('[data-testid="viewer-3d-toggle"]').click(); });
+  await flush();
+  assert.equal(q('[data-testid="viewer-3d-toggle"]').getAttribute('aria-pressed'), 'false', '2D on the click');
+  assert.ok(seen.some((x) => x.endsWith('/standard-drawings/files/501')), 'the file from the standard, read now');
   const crumbs = [...document.querySelectorAll('[data-testid="viewer-crumb"]')].map((b) => b.textContent);
   assert.deepEqual(crumbs, ['Span', 'Girder G1', 'Plate TF1']);
   assert.ok(q('[data-testid="viewer-3d-toggle"]'), 'the 3D switch');

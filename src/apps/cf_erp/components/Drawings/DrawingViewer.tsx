@@ -13,7 +13,7 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
-import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getLineModel3d, linePhysics, type Drawing, type Model3D, type PhysicsInfo, type PhysicsSource } from '../../api/drawings';
+import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getDrawingShapes, getLineModel3d, linePhysics, type Drawing, type Model3D, type PhysicsInfo, type PhysicsSource } from '../../api/drawings';
 import ScienceRounded from '@mui/icons-material/ScienceRounded';
 import { litMark, selectionFacts, settleScope, thicknessFromName, type Part3D, type Scope3D, type Selection3D } from '../../lib/model3d';
 import { partOfView, pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
@@ -331,7 +331,17 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const [model, setModel] = useState<Model3D | null>(null);
   const [modelRead, setModelRead] = useState(false);
   const [codes, setCodes] = useState<Record<string, string>>({});
-  const [mode3d, setMode3d] = useState(false);
+  /*
+   * 3D FIRST (user, 2026-11-09: "first open 3D and when they click on 2D load that specific image"). When the line or
+   * standard has its model (the one JSON) the viewer opens on 3D, and nothing of 2D is read or drawn — the file, or the
+   * level drawn from the model — until 2D is asked for. Without a model it opens on 2D as before. null = not decided
+   * yet (the model is still being read); the person's own choice then holds while they step through the levels.
+   */
+  const [pick3d, setPick3d] = useState<boolean | null>(null);
+  const mode3d = pick3d ?? false;
+  /** 2D has been shown (or its file is needed for a part's shape in 3D): from then on it is read and kept. */
+  const [want2d, setWant2d] = useState(false);
+  useEffect(() => { if (pick3d === false) setWant2d(true); }, [pick3d]);
   // THE PHYSICS VIEW of the structure (components/Drawings/PhysicsView.tsx): offered when one was run for it.
   const physicsSrc = useMemo(() => physics ?? (lineId > 0 ? linePhysics(orderId, lineId) : null), [physics, orderId, lineId]);
   const [physicsInfo, setPhysicsInfo] = useState<PhysicsInfo | null>(null);
@@ -358,31 +368,42 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     };
     const here = of(drawing as Drawing);
     if (here) { setPart(here); return; }
-    // The line's drawings carry the server's shape of the part.
+    // The server's shape of the part: its outline read for this one file (the list carries none since 2026-11-09), and
+    // the list's facts and rows only when this drawing came without them (opened from the level tree).
     if (lineId > 0 && !askedServer.current) {
       askedServer.current = true;
       setPart('loading');
       try {
-        const found = of((await getDrawings(orderId, lineId)).drawings.find((d) => d.id === drawing.id));
+        const [list, shapes] = await Promise.all([
+          drawing.geometry && drawing.rows ? null : getDrawings(orderId, lineId),
+          getDrawingShapes(orderId, lineId, [drawing.id]),
+        ]);
+        const d = list ? list.drawings.find((x) => x.id === drawing.id) : (drawing as Drawing);
+        const rings = shapes.shapes.find((x) => x.id === drawing.id)?.rings ?? null;
+        const found = d?.geometry && rings ? of({ ...d, geometry: { ...d.geometry, rings } }) : null;
         if (found) { setPart(found); return; }
       } catch { /* read it from the file below */ }
     }
     // No shape from the server (a standard's part file): a plate part's shape is read from its own DXF (lib/dxfPick.ts).
     const plate = !!drawing.rows?.some((r) => r.isPlatePart) || thicknessFromName(drawing.fileName) != null;
     if (!plate || loaded.state === 'error' || loaded.state === 'pdf') { setPart('none'); return; }
-    if (loaded.state !== 'dxf') { setPart(null); return; }
+    // In 3D the file is not read until it is needed. Without a model the part is all 3D has: read it now. With one, the
+    // whole model shows and the part is read from the file once 2D has been opened.
+    if (loaded.state !== 'dxf') { if (!model) setWant2d(true); setPart(null); return; }
     const t = drawing.rows?.find((r) => r.thicknessMm)?.thicknessMm ?? thicknessFromName(drawing.fileName) ?? 10;
     setPart(partOfView(loaded.view, drawing.mark, Number(t)) ?? 'none');
-  }, [part, canPart, drawing, orderId, lineId, loaded]);
+  }, [part, canPart, drawing, orderId, lineId, loaded, model]);
   const loadModelRef = useRef(loadModel);
   useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
   useEffect(() => {
     let live = true;
     setModel(null); setCodes({}); setModelRead(false);
     const read = loadModelRef.current ? loadModelRef.current() : lineId > 0 ? getLineModel3d(orderId, lineId) : Promise.resolve(null);
-    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); } }).catch(() => { /* no model: 2D only */ }).finally(() => { if (live) setModelRead(true); });
+    // 3D or 2D is decided once, when the model has been read (or given up on): the person's own pick is never overridden.
+    const decide = (has: boolean) => setPick3d((p) => p ?? has);
+    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); decide(true); } }).catch(() => { /* no model: 2D only */ }).finally(() => { if (live) { setModelRead(true); decide(false); } });
     // A slow or failing model never holds back a line's file for long; if it comes later, the level still draws from it.
-    const giveUp = setTimeout(() => { if (live) setModelRead(true); }, MODEL_WAIT_MS);
+    const giveUp = setTimeout(() => { if (live) { setModelRead(true); decide(false); } }, MODEL_WAIT_MS);
     return () => { live = false; clearTimeout(giveUp); };
   }, [orderId, lineId, modelKey]);
   // A LEVEL IS DRAWN FROM THE ONE MODEL (lib/modelDrawing.ts; user, 2026-11-02): no file is fetched for it. Part rows keep
@@ -394,13 +415,14 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // A row with no file whose mark is a PIECE of the model (a bracing angle, a bolt), not a level: drawn alone from the model.
   const pieceOnly = drawing.id === 0 && !!oneModel && !modelHasLevel(oneModel, levelMark) && modelHasPiece(oneModel, levelMark);
   const showModel = (inModel(levelMark) || pieceOnly) && sourcePick === 'model';
-  // Until the model has been read the file of an assembly waits: it may not be needed (up to 3 MB). A plate part's does not.
-  const waitForModel = !modelRead && !levels?.view.at.isPlatePart;
+  // Until the model has been read the file waits: it may not be needed (up to 3 MB) — with a model the viewer opens on
+  // 3D, and 2D is read only when it is asked for (want2d).
+  const waitForModel = !modelRead || !want2d;
   const [drawn, setDrawn] = useState<DxfView | null>(null);
   const drawnBefore = useRef(new Map<string, DxfView>());
   useEffect(() => { drawnBefore.current.clear(); }, [model, codes]);
   useEffect(() => {
-    if (!showModel || !oneModel) { setDrawn(null); return undefined; }
+    if (!showModel || !oneModel || !want2d) { setDrawn(null); return undefined; }
     const before = drawnBefore.current.get(levelMark);
     setHidden(new Set(['HIDDEN']));
     if (before) { setDrawn(before); return undefined; }
@@ -413,7 +435,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       setDrawn(d.view);
     }, 30);
     return () => clearTimeout(t);
-  }, [showModel, oneModel, levelMark, codes, pieceOnly]);
+  }, [showModel, oneModel, levelMark, codes, pieceOnly, want2d]);
   // In 3D, the part's shape is read as soon as it can be (the DXF may still be loading on the first click).
   useEffect(() => { if (mode3d && part === null) void loadPart(); }, [mode3d, part, loadPart]);
   // The level to light up: the open row, then each level above it, deepest first.
@@ -631,8 +653,8 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           </ToggleButtonGroup>
         )}
         {(model || canPart) && (
-          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => { if (!mode3d) void loadPart(); setModePhysics(false); setMode3d((x) => (modePhysics ? true : !x)); }}
-            data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? 'Back to 2D' : '3D'}</Button>
+          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => { if (!mode3d) void loadPart(); setModePhysics(false); setPick3d(modePhysics ? true : !mode3d); }}
+            data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? '2D drawing' : '3D'}</Button>
         )}
         {physicsInfo && (
           <Button size={large ? 'large' : 'small'} variant={modePhysics ? 'contained' : 'outlined'} startIcon={<ScienceRounded />} onClick={() => setModePhysics((x) => !x)}

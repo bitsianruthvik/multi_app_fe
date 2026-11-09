@@ -3,7 +3,7 @@ import type { LinkChoiceValue, LinksAnswer } from './links';
 
 export type BomSheetSource =
   | { kind: 'record'; recordId: number }
-  | { kind: 'orderLine'; lineId: number };
+  | { kind: 'orderLine'; lineId: number; orderId?: number };
 
 /**
  * Two sheets share this shape. A catalog item's or definition's BOM is one row per line, and its upload may add and

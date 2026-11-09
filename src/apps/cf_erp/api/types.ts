@@ -531,6 +531,8 @@ export interface LineStructure extends Explosion {
     /** Locked (design frozen), not released: only a row with NO flow may still be given one (2026-10-12). */
     flowsFillOnly?: boolean;
   };
+  /** How many selections this read chose (its values were refreshed): a screen that read the values beside it reads them again. */
+  autofilled?: number;
 }
 
 export interface WhereUsedRow {

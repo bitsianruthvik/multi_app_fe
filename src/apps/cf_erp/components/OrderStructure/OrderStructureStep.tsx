@@ -248,7 +248,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                                 );
                               })()}
                               <Box data-testid={`line-grid-${l.lineNo}`} sx={{ minWidth: 0, scrollMarginTop: 72 }}>
-                                <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
+                                <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id, orderId: order.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
                               </Box>
                             </>
                           )

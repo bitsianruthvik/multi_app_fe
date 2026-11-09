@@ -9,7 +9,8 @@ import { bomAsTree, bomTypeOfKind } from './bomModel';
 /** Where a BOM is read from: a record's own, or the structure an order line sells. */
 export type BomSource =
   | { kind: 'record'; recordId: number }
-  | { kind: 'orderLine'; lineId: number };
+  /** orderId, when the caller knows it: the line's drawings are read at once, beside the structure (speed, 2026-11-09). */
+  | { kind: 'orderLine'; lineId: number; orderId?: number };
 
 /** One BOM, whichever endpoint answered. */
 export interface BomState {
@@ -195,6 +196,8 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
 
   return {
     state,
+    /** Selections the line's structure read chose (0 when none, or not an order line). */
+    autofilled: structure.data?.autofilled ?? 0,
     /** A row's placeholder, by its BOM line (or by item for what the line sells). */
     placeholderOf: (node: StructureNode) => placeholderRows.get(placeholderKey(node.lineId, node.id)) ?? null,
     /** A record BOM row's position code, by its tree node key — null on an order line. */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
@@ -15,7 +15,7 @@ import { CfApiError } from '../../api/client';
 import { useToast } from '../toastContext';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  deleteDrawing, downloadDrawing, downloadRegisterFile, getDrawings, startDrawing, uploadDrawings,
+  deleteDrawing, downloadDrawing, downloadRegisterFile, getDrawings, getDrawingShapes, startDrawing, uploadDrawings, withRings,
   type Drawing, type DrawingFileBody, type DrawingGeometry, type DrawingRow, type DrawingsUpload, type DrawingsView, type RegisterRef,
 } from '../../api/drawings';
 import {
@@ -510,6 +510,23 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   const [withoutOpen, setWithoutOpen] = useState(false);
   const [tooBig, setTooBig] = useState<string[]>([]);
   const toast = useToast();
+  // The outlines are not in the list (speed, 2026-11-09): read once the dialog is open, for the files it shows.
+  const [rings, setRings] = useState<Map<number, number[][][] | null>>(() => new Map());
+  useEffect(() => {
+    if (!open || !view) return undefined;
+    const shaped = view.drawings.filter((d) => d.geometry && !d.geometry.rings && d.geometry.hasShape !== false);
+    const want = shaped.filter((d) => !rings.has(d.id)).map((d) => d.id);
+    if (!want.length) return undefined;
+    let live = true;
+    getDrawingShapes(orderId, lineId, want.length === shaped.length ? [] : want).then((r) => {
+      if (!live) return;
+      setRings((m) => { const n = new Map(m); for (const x of r.shapes) n.set(x.id, x.rings); for (const id of want) if (!n.has(id)) n.set(id, null); return n; });
+    }).catch(() => { /* the outlines stay empty; every fact is still shown */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, view, orderId, lineId]);
+  const savedDrawings = useMemo(() => (view?.drawings ?? []).map((d) => withRings(d, rings)), [view, rings]);
+  const enlargedShown = enlarged ? withRings(enlarged, rings) : null;
 
   const released = view?.line.released ?? false;
   const mayUpload = canManage && !released;
@@ -697,7 +714,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
           {view && view.drawings.length > 0 && (
             <SectionCard title="Saved drawings" subtitle={`${view.drawings.length} on this line`} flush>
               <Box sx={{ p: 1.5 }}>
-                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onOpen={setViewing} onDelete={setToDelete} onDownload={download} onDownloadEarlier={downloadEarlier} />
+                <DrawingsTable drawings={savedDrawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onOpen={setViewing} onDelete={setToDelete} onDownload={download} onDownloadEarlier={downloadEarlier} />
               </Box>
             </SectionCard>
           )}
@@ -742,22 +759,22 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
       </DialogContent>
       <DialogActions><Button onClick={onClose} disabled={busy != null}>Close</Button></DialogActions>
 
-      <Dialog open={!!enlarged?.geometry} onClose={() => setEnlarged(null)} maxWidth="md" fullWidth aria-labelledby="drawing-large-title">
-        {enlarged?.geometry && (
+      <Dialog open={!!enlargedShown?.geometry} onClose={() => setEnlarged(null)} maxWidth="md" fullWidth aria-labelledby="drawing-large-title">
+        {enlargedShown?.geometry && (
           <>
-            <DialogHeader title={<span id="drawing-large-title">{enlarged.mark}</span>} subtitle={`${sizeText(enlarged.geometry!.lengthMm, enlarged.geometry!.widthMm)} · uses ${fmtPct(enlarged.geometry!.usePct)} of its rectangle`} onClose={() => setEnlarged(null)} />
+            <DialogHeader title={<span id="drawing-large-title">{enlargedShown.mark}</span>} subtitle={`${sizeText(enlargedShown.geometry!.lengthMm, enlargedShown.geometry!.widthMm)} · uses ${fmtPct(enlargedShown.geometry!.usePct)} of its rectangle`} onClose={() => setEnlarged(null)} />
             <DialogContent dividers>
               <Box sx={{ display: 'grid', gap: 1.5, justifyItems: 'center' }}>
                 <Box sx={{ width: '100%', maxHeight: '60vh', display: 'flex', justifyContent: 'center' }}>
-                  <Outline geometry={enlarged.geometry!} w={720} h={400} />
+                  <Outline geometry={enlargedShown.geometry!} w={720} h={400} />
                 </Box>
                 <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                  <Fact label="Cut length">{fmtCutM(enlarged.geometry!.cutLengthMm)} ({fmtMm(enlarged.geometry!.cutLengthMm)} mm)</Fact>
-                  <Fact label="Piercings">{enlarged.geometry!.piercings}</Fact>
-                  <Fact label="Holes">{enlarged.geometry!.holes}{enlarged.geometry!.holes ? ` · ${holesTitle(enlarged.geometry!)}` : ''}</Fact>
-                  <Fact label="Cut-outs">{enlarged.geometry!.innerCuts}</Fact>
+                  <Fact label="Cut length">{fmtCutM(enlargedShown.geometry!.cutLengthMm)} ({fmtMm(enlargedShown.geometry!.cutLengthMm)} mm)</Fact>
+                  <Fact label="Piercings">{enlargedShown.geometry!.piercings}</Fact>
+                  <Fact label="Holes">{enlargedShown.geometry!.holes}{enlargedShown.geometry!.holes ? ` · ${holesTitle(enlargedShown.geometry!)}` : ''}</Fact>
+                  <Fact label="Cut-outs">{enlargedShown.geometry!.innerCuts}</Fact>
                 </Box>
-                {enlarged.warnings.length > 0 && <Box sx={{ color: 'var(--c-warning-800)', fontSize: 13 }}><CapsLabel>Warnings</CapsLabel>{enlarged.warnings.join(' · ')}</Box>}
+                {enlargedShown.warnings.length > 0 && <Box sx={{ color: 'var(--c-warning-800)', fontSize: 13 }}><CapsLabel>Warnings</CapsLabel>{enlargedShown.warnings.join(' · ')}</Box>}
               </Box>
             </DialogContent>
           </>

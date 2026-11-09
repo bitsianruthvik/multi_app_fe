@@ -168,10 +168,13 @@ export function StageBody({
   view, stage, line, order,
   onPickLine, onOrderSaved, onReloadAll, onGoStage,
 }: {
-  view: OrderProcessView;
+  /** null with `stage` null: the process has not answered yet (see below). */
+  view: OrderProcessView | null;
   /** The stage being worked, as it stands for the chosen line. production / productionError / onReleaseChanged: kept for
-   *  the callers; the Production step reads its production orders itself since §76. */
-  stage: OrderStage;
+   *  the callers; the Production step reads its production orders itself since §76.
+   *  NULL = the process has not answered yet and the page asked for Structure & values: that step is drawn at once,
+   *  in the very place it takes once the stage is known, so it is not drawn (and read) twice (speed, 2026-11-09). */
+  stage: OrderStage | null;
   /** The line being worked on — null only while the order has no lines. */
   line: OrderProcessLine | null;
   order: SalesOrder;
@@ -185,6 +188,19 @@ export function StageBody({
   onGoStage: (stageKey: string) => void;
 }) {
   const isPermitted = useIsPermitted();
+  if (!stage || !view) {
+    // The same four places as below (help, notice, waiting-on, body), the first three still empty.
+    return (
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+        {null}
+        {null}
+        {null}
+        <Suspense fallback={<PanelLoading />}>
+          <OrderStructureStep order={order} view={null} onOrderSaved={onOrderSaved} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} onGoStage={onGoStage} />
+        </Suspense>
+      </Box>
+    );
+  }
   const wide = isOrderWide(stage);
 
   let body: ReactNode;

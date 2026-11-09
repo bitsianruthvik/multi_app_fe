@@ -152,13 +152,25 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const state = bom.state;
   const orderGrid = source.kind === 'orderLine';
   const gridLineId = source.kind === 'orderLine' ? source.lineId : null;
-  // Read once the structure has answered, and again after each reload of it (speed, 2026-10-19): it was also read
-  // on mount, before the structure — a second full read whose answer the structure's own (which may choose
-  // selections first) always replaced.
-  const gridValues = useLoad(() => gridLineId == null || state?.root == null ? Promise.resolve(null) : cfApi.get<ValuesView>(`/order-lines/${gridLineId}/values`), [gridLineId, state?.root]);
+  // Read BESIDE the structure, not after it (speed, 2026-11-09: values and drawings waited for the structure's answer,
+  // ~1.7 s on production), and again after each reload of the structure. The structure's read may choose selections
+  // first (autofill): then its answer says so (`autofilled`) and the values and drawings read beside it are read again.
+  const gridValues = useLoad(() => (gridLineId == null ? Promise.resolve(null) : cfApi.get<ValuesView>(`/order-lines/${gridLineId}/values`)), [gridLineId]);
   // The line's drawings: the toolbar button and every row's drawing cell read the same answer.
-  const drawingsOrderId = state?.order?.id ?? null;
+  const drawingsOrderId = (source.kind === 'orderLine' ? source.orderId : null) ?? state?.order?.id ?? null;
   const drawings = useLoad(() => (drawingsOrderId == null || gridLineId == null ? Promise.resolve(null) : getDrawings(drawingsOrderId, gridLineId)), [drawingsOrderId, gridLineId]);
+  const structureRoot = state?.root ?? null;
+  const rootsSeen = useRef(0);
+  const { reload: reloadValues } = gridValues;
+  const { reload: reloadDrawings } = drawings;
+  useEffect(() => {
+    if (gridLineId == null || structureRoot == null) return;
+    rootsSeen.current += 1;
+    // The first answer: the values were read beside it — again only when it chose something. Every later one: again.
+    if (rootsSeen.current > 1) reloadValues();
+    else if (bom.autofilled > 0) { reloadValues(); reloadDrawings(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridLineId, structureRoot]);
   /** Files dropped on the tab (a row, or the background) waiting for the dialog to read them. */
   const [dropped, setDropped] = useState<{ files: File[]; rowId: number | null; seq: number } | null>(null);
   const dropSeq = useRef(0);

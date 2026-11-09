@@ -209,6 +209,7 @@ const { MemoryRouter } = await import('react-router-dom');
 const stub = resolve('node_modules/.cache', `drawings-api-stub-${process.pid}.mjs`);
 await writeFile(stub, [
   'export const getDrawings = async () => null;',
+  'export const getDrawingShapes = async () => ({ shapes: [] }); export const withRings = (d) => d;',
   'export const uploadDrawings = async (o, l, files, dryRun) => { (globalThis.__calls ??= []).push({ o, l, files, dryRun }); return globalThis.__reply(files, dryRun); };',
   'export const deleteDrawing = async () => null; export const startDrawing = async () => null;',
   'export const downloadDrawing = async () => {}; export const downloadRegisterFile = async () => {};',
