@@ -1,5 +1,6 @@
 import { cfApi, LONG_WRITE_MS } from './client';
 import type { CutPiecesFollowUp } from './cutPieces';
+import { forgetLineModel } from './drawings';
 import type { LinkChoiceValue, LinksAnswer } from './links';
 
 /**
@@ -112,5 +113,8 @@ export interface BomChangesResponse {
  * and a person who saves again gets two copies. So this call waits longer.
  */
 export function postBomChanges(body: BomChangesRequest): Promise<BomChangesResponse> {
-  return cfApi.post<BomChangesResponse>('/bom-changes', body, { timeoutMs: LONG_WRITE_MS });
+  const p = cfApi.post<BomChangesResponse>('/bom-changes', body, { timeoutMs: LONG_WRITE_MS });
+  // A removed or added row changes the line's 3D diagram: read it again next time it is opened.
+  if (!body.dryRun && 'orderLineId' in body.scope) { const lineId = body.scope.orderLineId; void p.finally(() => forgetLineModel(lineId)).catch(() => {}); }
+  return p;
 }

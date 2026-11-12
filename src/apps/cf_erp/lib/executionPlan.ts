@@ -3,6 +3,50 @@ import type {
   ProductionLevel,
 } from '../api/executionPlan';
 
+/* ── CUSTOM (user, 2026-11-12) ─────────────────────────────────────────────────
+ * "In custom show the entire BOM and let them select a bunch (if selected at the node level, then assume it and the children
+ * together) and create a production order. Then don't show that part of the BOM … if they select a production order chip
+ * … show that also in the bom but with different colour." The picker's tree: every made line's rows, each with the custom
+ * production order holding it (its own pick, or the nearest picked row above it).
+ */
+export interface CustomRow { key: string; parent: string | null; label: string; qty: number; depth: number; children: string[]; group: number | null }
+export interface CustomTree {
+  byKey: Map<string, CustomRow>;
+  roots: string[];
+  /** the lines that still have a "rest" production order (their own row not picked) */
+  restLines: { lineId: number; lineNo: number }[];
+  /** some line's BOM was too big to send whole */
+  cut: boolean;
+  /** whether row `k` lies under row `above` */
+  isUnder: (k: string, above: string) => boolean;
+}
+export function customTree(view: Pick<ExecutionPlanView, 'lines'>, groups: PlanGroup[]): CustomTree {
+  const byKey = new Map<string, CustomRow>();
+  const roots: string[] = [];
+  const pickedBy = new Map<string, number>();
+  groups.forEach((g, i) => g.keys.forEach((k) => { if (!pickedBy.has(k)) pickedBy.set(k, i); }));
+  let cut = false;
+  for (const l of view.lines) {
+    if (!l.made) continue;
+    if (l.nodesTotal === null) cut = true;
+    for (const n of l.nodes ?? []) {
+      byKey.set(n.key, { ...n, children: [], group: null });
+      if (n.parent == null) roots.push(n.key);
+    }
+  }
+  for (const r of byKey.values()) if (r.parent) byKey.get(r.parent)?.children.push(r.key);
+  const walk = (key: string, inherited: number | null) => {
+    const r = byKey.get(key);
+    if (!r) return;
+    r.group = pickedBy.get(key) ?? inherited;
+    for (const k of r.children) walk(k, r.group);
+  };
+  for (const k of roots) walk(k, null);
+  const restLines = view.lines.filter((l) => l.made && !pickedBy.has(`L${l.lineId}`)).map((l) => ({ lineId: l.lineId, lineNo: l.lineNo }));
+  const isUnder = (k: string, above: string) => { for (let p = byKey.get(k)?.parent ?? null; p; p = byKey.get(p)?.parent ?? null) if (p === above) return true; return false; };
+  return { byKey, roots, restLines, cut, isUnder };
+}
+
 /**
  * Words and list maths for the EXECUTION PLAN step (components/OrderStructure/ExecutionPlanPanel.tsx, init.sql §72).
  * The rules themselves are the server's (executionPlanModel.js): this file only encodes choices for the selects,
@@ -14,12 +58,14 @@ export const PRODUCTION_WORDS: Record<ProductionLevel, string> = {
   line: 'Per line',
   unit: 'Per unit',
   assembly: 'Per sub-assembly',
+  custom: 'Custom',
 };
 export const PRODUCTION_HELP: Record<ProductionLevel, string> = {
   order: 'One production order for every line together.',
   line: 'One production order for each line. The usual choice.',
   unit: 'One production order for each unit of a line — each span of a line of 3.',
   assembly: 'One production order for each sub-assembly (e.g. each Girder line), and one for the rest of each unit.',
+  custom: 'Production orders of BOM rows you pick; one more per line for the rest.',
 };
 export const DISPATCH_WORDS: Record<DispatchLevel, string> = {
   same: 'Same as production orders',
@@ -28,7 +74,7 @@ export const DISPATCH_WORDS: Record<DispatchLevel, string> = {
   assembly: 'Per sub-assembly',
 };
 
-const RANK: Record<string, number> = { order: 0, line: 1, unit: 2, assembly: 3 };
+const RANK: Record<string, number> = { order: 0, line: 1, unit: 2, assembly: 3, custom: 4 };
 
 /** A dispatch level that can never fit inside the production order (per line when production is per unit). */
 export const dispatchTooBig = (production: ProductionLevel, dispatch: DispatchLevel) =>

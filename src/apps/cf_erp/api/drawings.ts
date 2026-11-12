@@ -167,10 +167,12 @@ export const withRings = <D extends { id: number; geometry: DrawingGeometry | nu
 
 /** All the files in ONE request (the server takes up to 50 MB). `dryRun` reads and matches; nothing is written. */
 export const uploadDrawings = (orderId: number, lineId: number, files: DrawingFileBody[], dryRun: boolean) =>
-  cfApi.post<DrawingsUpload>(base(orderId, lineId), { files, dryRun }, { timeoutMs: LONG_WRITE_MS });
+  cfApi.post<DrawingsUpload>(base(orderId, lineId), { files, dryRun }, { timeoutMs: LONG_WRITE_MS })
+    // A part's new DXF changes the line's diagram (lib/lineModelEdits.js on the server).
+    .finally(() => { if (!dryRun) forgetLineModel(lineId); });
 
 export const deleteDrawing = (orderId: number, lineId: number, drawingId: number) =>
-  cfApi.del<DrawingsView>(`${base(orderId, lineId)}/${drawingId}`, { timeoutMs: LONG_WRITE_MS });
+  cfApi.del<DrawingsView>(`${base(orderId, lineId)}/${drawingId}`, { timeoutMs: LONG_WRITE_MS }).finally(() => forgetLineModel(lineId));
 
 /** Start a register drawing from rows before any file exists; it then waits for a file. */
 export const startDrawing = (orderId: number, lineId: number, body: StartDrawingBody) =>
@@ -256,6 +258,8 @@ export interface Model3DElement {
   bolt?: boolean;
   /** placed by a stated rule, not read from a drawing */
   rule?: boolean;
+  /** this order line's own change (lib/lineModelEdits.js on the server): a new row's box (`rowId`), or a part given a new DXF */
+  added?: boolean; replaced?: boolean; rowId?: number;
   member?: { a: [number, number, number]; b: [number, number, number]; up: [number, number, number]; section: Model3DSection };
   box?: { c: [number, number, number]; size: [number, number, number] };
   /** a shaped plate: its outline (mm) extruded `t` along w; the outline's x runs along u, y along v, its (0,0) at o */
@@ -264,7 +268,18 @@ export interface Model3DElement {
 export interface Model3D { schema: string; units: 'mm'; up?: 'z'; title?: string; notes?: string[]; levels?: Record<string, { name?: string; qty?: number }>; elements: Model3DElement[];
   /** pieces with no position from the sheets yet, left out of the model (drawing_bom finish.mjs): mark → count */
   unplaced?: Record<string, number> }
-type ModelAnswer = { fileId: number; fileName: string; model: Model3D; codes?: Record<string, string> };
+/**
+ * What this order line changed from its standard's model (user, 2026-11-12; backend lib/lineModelEdits.js): rows removed in
+ * the Structure step (their pieces hidden), new rows with sizes (boxes beside their parent, movable), rows still lacking a
+ * size, and parts given a new DXF since the model was saved.
+ */
+export interface LineModelEdits {
+  hidden: { marks: string[]; pieces: number };
+  added: { rowId: number; name: string | null; mark: string | null; size: [number, number, number]; at: [number, number, number]; moved: boolean; parentMark: string | null }[];
+  waiting: { rowId: number; name: string | null; mark: string | null; missing: string[] }[];
+  replaced: { mark: string; drawingId: number; fileName: string | null; pieces: number; swapped: boolean }[];
+}
+type ModelAnswer = { fileId: number; fileName: string; model: Model3D; codes?: Record<string, string>; edits?: LineModelEdits };
 /** A model is read once per line (or standard) and kept a few minutes: every level on screen is drawn from this one copy. */
 const MODEL_KEEP_MS = 5 * 60 * 1000;
 const modelsRead = new Map<string, { at: number; answer: Promise<ModelAnswer> }>();
@@ -277,6 +292,15 @@ function readModel(path: string): Promise<ModelAnswer> {
   return answer;
 }
 export const getLineModel3d = (orderId: number, lineId: number) => readModel(`/orders/${orderId}/lines/${lineId}/model3d`);
+/** A line's model is read again next time (after its BOM or a part's DXF changed). Every order's copy of that line. */
+export function forgetLineModel(lineId: number | null | undefined) {
+  if (!lineId) return;
+  for (const k of [...modelsRead.keys()]) if (k.endsWith(`/lines/${lineId}/model3d`)) modelsRead.delete(k);
+}
+/** Where a new row's cuboid sits: its left-front-bottom corner in model mm, or null to put it back beside its parent. */
+export const placeAddedRow = (orderId: number, lineId: number, rowId: number, at: [number, number, number] | null) =>
+  cfApi.put<{ rowId: number; at: [number, number, number] | null }>(`/orders/${orderId}/lines/${lineId}/model3d/place`, { rowId, at })
+    .finally(() => forgetLineModel(lineId));
 /** A standard drawing's own 3D model (no order, so no codes) — the Drawings tab of a standard. */
 export const getStandardModel3d = (standardId: number) => readModel(`/standard-drawings/${standardId}/model3d`);
 

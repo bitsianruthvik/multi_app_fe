@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Box, Button, Checkbox, CircularProgress, Dialog, DialogTitle, FormControlLabel, IconButton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, CircularProgress, Dialog, DialogTitle, FormControlLabel, IconButton, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import FitScreenRounded from '@mui/icons-material/FitScreenRounded';
@@ -13,7 +13,9 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
-import { blobAsText, downloadDrawing, fetchDrawingBlob, getDrawings, getDrawingShapes, getLineModel3d, linePhysics, type Drawing, type Model3D, type PhysicsInfo, type PhysicsSource } from '../../api/drawings';
+import { blobAsText, downloadDrawing, fetchDrawingBlob, forgetLineModel, getDrawings, getDrawingShapes, getLineModel3d, linePhysics, placeAddedRow, type Drawing, type LineModelEdits, type Model3D, type PhysicsInfo, type PhysicsSource } from '../../api/drawings';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { editsWords } from '../../lib/model3d';
 import ScienceRounded from '@mui/icons-material/ScienceRounded';
 import { litMark, selectionFacts, settleScope, thicknessFromName, type Part3D, type Scope3D, type Selection3D } from '../../lib/model3d';
 import { partOfView, pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
@@ -31,7 +33,7 @@ import { DxfError, parseDxf, type DxfLayer, type DxfView, type LayerRole } from 
 import { inheritedLabel, rowLabel, rowShows, type LevelView } from '../../lib/drawingLevels';
 import { levelDrawing, modelHasLevel, modelHasPiece, pieceDrawing, viewToDxf, type ModelFile } from '../../lib/modelDrawing';
 import { useToast } from '../toastContext';
-import { Badge, CapsLabel, ErrorNotice, Mono } from '../ui';
+import { Badge, CapsLabel, ErrorNotice, InfoTip, Mono } from '../ui';
 
 /**
  * THE DRAWING VIEWER — a pop-up for ONE saved drawing (a DXF drawn as SVG, a PDF in the browser's own viewer).
@@ -127,8 +129,36 @@ function SelectedHead({ onClear }: { onClear: () => void }) {
 }
 
 /** A piece picked in 3D: what it is, where it is, and the "just this part / in the whole structure" toggle. */
-function Selected3D({ sel, scope, onScope, allOfMark, onAllOfMark, onClear }: {
+/** A new row's box (this order's own): where its left-front-bottom corner is, in mm — typed and saved, or put back beside its parent. */
+function MoveAdded({ at, moved, onMove }: { at: [number, number, number]; moved: boolean; onMove: (at: [number, number, number] | null) => Promise<void> }) {
+  const [v, setV] = useState(at.map((x) => String(Math.round(x))));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setV(at.map((x) => String(Math.round(x)))); }, [at]);
+  const okNums = v.every((x) => x.trim() !== '' && Number.isFinite(Number(x)));
+  const go = async (to: [number, number, number] | null) => { setBusy(true); try { await onMove(to); } finally { setBusy(false); } };
+  return (
+    <Box sx={{ mt: 1, p: 1, borderRadius: 'var(--r-md)', border: '1px solid var(--c-border)' }} data-testid="viewer-move-added">
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Position (mm)</Typography>
+        <InfoTip text="A new row is drawn as a box of its length × width × thickness, beside its parent. Type where its left-front-bottom corner goes, in the structure's own axes, and press Move." />
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.5 }}>
+        {(['X', 'Y', 'Z'] as const).map((k, i) => (
+          <TextField key={k} size="small" label={k} value={v[i]} onChange={(e) => setV((o) => o.map((x, j) => (j === i ? e.target.value : x)))}
+            inputProps={{ inputMode: 'decimal', 'data-testid': `viewer-move-${k.toLowerCase()}` }} />
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 1, mt: 0.75, flexWrap: 'wrap' }}>
+        <Button size="small" variant="contained" disabled={busy || !okNums} onClick={() => void go(v.map(Number) as [number, number, number])} data-testid="viewer-move-save">Move</Button>
+        {moved && <Button size="small" disabled={busy} onClick={() => void go(null)} data-testid="viewer-move-reset">Back beside its parent</Button>}
+      </Box>
+    </Box>
+  );
+}
+
+function Selected3D({ sel, scope, onScope, allOfMark, onAllOfMark, onClear, added, onMove }: {
   sel: Selection3D; scope: Scope3D; onScope: (s: Scope3D) => void; allOfMark: boolean; onAllOfMark: (v: boolean) => void; onClear: () => void;
+  added?: { at: [number, number, number]; moved: boolean } | null; onMove?: (at: [number, number, number] | null) => Promise<void>;
 }) {
   return (
     <Box data-testid="viewer-selected" data-kind="3d">
@@ -152,6 +182,8 @@ function Selected3D({ sel, scope, onScope, allOfMark, onAllOfMark, onClear }: {
           control={<Checkbox size="small" checked={allOfMark} onChange={(e) => onAllOfMark(e.target.checked)} inputProps={{ 'aria-label': 'Select all pieces of this mark' }} data-testid="viewer-selected-all-mark" />}
           label={`All ${sel.sameMark} pieces marked ${sel.mark}`} />
       )}
+      {added && <Row label="Added">On this order, not on the standard</Row>}
+      {added && onMove && <MoveAdded at={added.at} moved={added.moved} onMove={onMove} />}
     </Box>
   );
 }
@@ -331,6 +363,10 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const [model, setModel] = useState<Model3D | null>(null);
   const [modelRead, setModelRead] = useState(false);
   const [codes, setCodes] = useState<Record<string, string>>({});
+  // This order line's own changes to the standard's model (removed rows, new boxes, new part DXFs); a move reads it again.
+  const [edits, setEdits] = useState<LineModelEdits | null>(null);
+  const [modelTick, setModelTick] = useState(0);
+  const canEdit = useIsPermitted()('cf_erp_orders_manage');
   /*
    * 3D FIRST (user, 2026-11-09: "first open 3D and when they click on 2D load that specific image"). When the line or
    * standard has its model (the one JSON) the viewer opens on 3D, and nothing of 2D is read or drawn — the file, or the
@@ -397,15 +433,15 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   useEffect(() => { loadModelRef.current = loadModel; }, [loadModel]);
   useEffect(() => {
     let live = true;
-    setModel(null); setCodes({}); setModelRead(false);
+    setModel(null); setCodes({}); setModelRead(false); setEdits(null);
     const read = loadModelRef.current ? loadModelRef.current() : lineId > 0 ? getLineModel3d(orderId, lineId) : Promise.resolve(null);
     // 3D or 2D is decided once, when the model has been read (or given up on): the person's own pick is never overridden.
     const decide = (has: boolean) => setPick3d((p) => p ?? has);
-    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); decide(true); } }).catch(() => { /* no model: 2D only */ }).finally(() => { if (live) { setModelRead(true); decide(false); } });
+    read.then((r) => { if (live && r) { setModel(r.model); setCodes(r.codes ?? {}); setEdits((r as { edits?: LineModelEdits }).edits ?? null); decide(true); } }).catch(() => { /* no model: 2D only */ }).finally(() => { if (live) { setModelRead(true); decide(false); } });
     // A slow or failing model never holds back a line's file for long; if it comes later, the level still draws from it.
     const giveUp = setTimeout(() => { if (live) { setModelRead(true); decide(false); } }, MODEL_WAIT_MS);
     return () => { live = false; clearTimeout(giveUp); };
-  }, [orderId, lineId, modelKey]);
+  }, [orderId, lineId, modelKey, modelTick]);
   // A LEVEL IS DRAWN FROM THE ONE MODEL (lib/modelDrawing.ts; user, 2026-11-02): no file is fetched for it. Part rows keep
   // their files for now, and "Customer sheet" still opens the file kept on the row.
   const levelMark = levels?.view.at.mark ?? drawing.mark;
@@ -451,6 +487,19 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const sel3d = useMemo(() => (model && selIdx != null ? selectionFacts(model, selIdx, allOfMark, codes) : null), [model, selIdx, allOfMark, codes]);
   const scope3d = settleScope(scopePick ?? (model && (lit3d || !partObj) ? 'whole' : 'part'), { hasModel: !!model, hasPart: !!partObj, lit: lit3d, selected: !!sel3d });
   const selIndices = sel3d?.indices;
+  // A new row's box picked: where it is, and a move (its own order line's edit).
+  const selEl = model && selIdx != null ? model.elements[selIdx] : null;
+  const addedRow = selEl?.added && selEl.rowId ? edits?.added.find((a) => a.rowId === selEl.rowId) ?? null : null;
+  const addedSel = useMemo(() => (addedRow ? { at: addedRow.at, moved: addedRow.moved } : null), [addedRow]);
+  const moveAdded = useCallback(async (at: [number, number, number] | null) => {
+    if (!addedRow) return;
+    try {
+      await placeAddedRow(orderId, lineId, addedRow.rowId, at);
+      forgetLineModel(lineId);
+      setModelTick((t) => t + 1);
+      toast.success(at ? 'Moved.' : 'Put back beside its parent.');
+    } catch (e) { toast.error((e as Error)?.message ?? 'It could not be moved.'); }
+  }, [addedRow, orderId, lineId, toast]);
   const selected3d = useMemo(() => selIndices ?? [], [selIndices]);
   const onPick3d = useCallback((i: number | null) => {
     setSelIdx(i);
@@ -595,6 +644,16 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
               {Object.values(model.unplaced).reduce((a, b) => a + b, 0).toLocaleString('en-IN')} pieces not yet positioned from the drawings, so not shown
             </Box>
           )}
+          {edits && editsWords(edits) && (showModel || mode3d) && (
+            <Box data-testid="viewer-edits" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
+              <Box component="span" sx={{ width: 10, height: 10, borderRadius: '2px', background: '#1f9e89', flexShrink: 0 }} aria-hidden />
+              <span>Changed on this order: {editsWords(edits)}</span>
+              <InfoTip testId="viewer-edits-info" text={<>
+                The diagram follows this order's BOM. A row removed in the Structure step is taken out; a new row with length, width and thickness is drawn as a box beside its parent — select it to move it; a part given a new DXF is drawn with that shape. Changed pieces are teal. Reordering rows changes nothing. The standard itself is not changed.
+                {edits.waiting.length > 0 && <><br />Waiting for sizes: {edits.waiting.map((w) => `${w.name ?? w.mark ?? `row ${w.rowId}`} (${w.missing.join(', ')})`).join('; ')}.</>}
+              </>} />
+            </Box>
+          )}
           {uses && (
             <Box component="button" type="button" data-testid="viewer-used-by" onClick={() => setUsesOpen(true)}
               sx={{ all: 'unset', cursor: 'pointer', mt: 0.25, fontSize: large ? 15 : 13, color: 'var(--c-primary-700)', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)', borderRadius: 'var(--r-sm)' } }}>
@@ -735,7 +794,8 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         {strip && !modePhysics && (
           <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} readFacts={readFacts} inModel={inModel}
             selected={mode3d
-              ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)} />
+              ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)}
+                  added={addedSel} onMove={canEdit && lineId > 0 && addedSel ? moveAdded : undefined} />
               : facts2d && shape2d && <Selected2D facts={facts2d} onZoom={() => pz.zoomToBox(shape2d)} onClear={() => setSel2d(null)} />} />
         )}
       </Box>

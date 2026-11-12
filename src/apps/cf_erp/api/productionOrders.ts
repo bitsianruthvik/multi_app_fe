@@ -14,7 +14,7 @@ export interface ProductionOrder {
   label: string;
   seq: number;
   order: { id: number; code: string; status: string; type: string; title: string | null; customer: { id: number; name: string | null } | null };
-  level: 'order' | 'line' | 'unit' | 'assembly';
+  level: 'order' | 'line' | 'unit' | 'assembly' | 'custom';
   levelId: number | null;
   line: { id: number; lineNo: number } | null;
   lineIds: number[];

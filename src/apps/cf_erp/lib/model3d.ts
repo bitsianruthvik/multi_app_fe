@@ -1,4 +1,4 @@
-import type { Model3D, Model3DElement } from '../api/drawings';
+import type { LineModelEdits, Model3D, Model3DElement } from '../api/drawings';
 
 /** The first of `marks` (deepest level first) that the model has — the level the 3D view lights up. Pure. */
 export function litMark(model: Model3D, marks: (string | null | undefined)[]): string | null {
@@ -149,3 +149,18 @@ export function shownIn(scope: Scope3D, e: Model3DElement, i: number, lit: strin
 
 /** The 3D views' mouse gestures, for their hint line. */
 export const GESTURES_3D = 'Drag to turn · Ctrl / Shift + drag, middle or right drag to pan · scroll to zoom at the cursor · double-click a piece to turn about it, empty space to fit';
+
+/**
+ * This order line's changes to its standard's model in a few words (user, 2026-11-12; backend lib/lineModelEdits.js):
+ * "2 rows removed · 1 new part · 1 new drawing · 1 waiting for sizes". Empty when nothing changed. Pure.
+ */
+export function editsWords(e: LineModelEdits | null | undefined): string {
+  if (!e) return '';
+  const p = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const out: string[] = [];
+  if (e.hidden.pieces) out.push(`${p(e.hidden.pieces, 'piece', 'pieces')} removed`);
+  if (e.added.length) out.push(p(e.added.length, 'new part', 'new parts'));
+  if (e.replaced.length) out.push(p(e.replaced.length, 'new part drawing', 'new part drawings'));
+  if (e.waiting.length) out.push(`${p(e.waiting.length, 'row', 'rows')} waiting for sizes`);
+  return out.join(' · ');
+}

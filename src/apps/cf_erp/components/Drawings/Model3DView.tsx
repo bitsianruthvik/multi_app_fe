@@ -34,6 +34,8 @@ import { bindClicks, createOrbit, frameBox, highlightMaterial, VIEW_DIR } from '
 const LIT = 0xd9822b;
 const STEEL = 0x8a99ab;
 const FAINT = 0xb9c2cc;
+/** A piece this order line changed from the standard's model: a new row's box, or a part given a new DXF (lib/lineModelEdits.js). */
+const CHANGED = 0x1f9e89;
 const DIM = 0x1f6feb;
 const HOLE = 0x2b3138;
 
@@ -140,7 +142,7 @@ export function Model3DView({ model, part, marks, codes = NO_CODES, scope, onSco
 
     // The part on its own (one mesh, holes cut), or the model: one InstancedMesh per shape, lit and plain apart.
     let partMesh: THREE.Mesh | null = null;
-    const litMeshes: THREE.InstancedMesh[] = []; const plainMeshes: THREE.InstancedMesh[] = [];
+    const litMeshes: THREE.InstancedMesh[] = []; const plainMeshes: THREE.InstancedMesh[] = []; const changedMeshes: THREE.InstancedMesh[] = [];
     let litHoles: THREE.InstancedMesh | null = null; let plainHoles: THREE.InstancedMesh | null = null;
     const labelGroup = new THREE.Group(); const dimGroup = new THREE.Group();
     const focus = new THREE.Box3(); const all = new THREE.Box3();
@@ -148,6 +150,7 @@ export function Model3DView({ model, part, marks, codes = NO_CODES, scope, onSco
     const faintMat = new THREE.MeshLambertMaterial({ color: FAINT, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
     const litMat = new THREE.MeshLambertMaterial({ color: showPart ? STEEL : LIT, side: THREE.DoubleSide });
     const plainMat = new THREE.MeshLambertMaterial({ color: lit ? FAINT : STEEL, transparent: !!lit, opacity: lit ? 0.28 : 1, depthWrite: !lit, side: THREE.DoubleSide });
+    const changedMat = new THREE.MeshLambertMaterial({ color: CHANGED, side: THREE.DoubleSide });
     const holeMat = new THREE.MeshBasicMaterial({ color: HOLE });
     const holeFaintMat = new THREE.MeshBasicMaterial({ color: HOLE, transparent: true, opacity: 0.25, depthWrite: false });
     let litEdges: THREE.LineSegments | null = null;
@@ -161,15 +164,16 @@ export function Model3DView({ model, part, marks, codes = NO_CODES, scope, onSco
         litEdges = new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), new THREE.LineBasicMaterial({ color: 0x3b4754 })); scene.add(litEdges);
       }
     } else if (model && prep) {
-      const litItems: Placement[] = []; const plainItems: Placement[] = [];
+      const litItems: Placement[] = []; const plainItems: Placement[] = []; const changedItems: Placement[] = [];
       model.elements.forEach((e, i) => {
         if (prep.elGeom[i] < 0) return;
-        (isLit(e, lit) ? litItems : plainItems).push({ el: i, tag: i });
+        (e.added || e.replaced ? changedItems : isLit(e, lit) ? litItems : plainItems).push({ el: i, tag: i });
       });
       const geos = new Map<number, THREE.BufferGeometry>();
       litMeshes.push(...instancedMeshes(prep, litItems, litMat, geos));
       plainMeshes.push(...instancedMeshes(prep, plainItems, plainMat, geos));
-      for (const m of [...plainMeshes, ...litMeshes]) scene.add(m);
+      changedMeshes.push(...instancedMeshes(prep, changedItems, changedMat, geos));
+      for (const m of [...plainMeshes, ...litMeshes, ...changedMeshes]) scene.add(m);
       litHoles = holeMarkers(prep, litItems, holeMat);
       plainHoles = holeMarkers(prep, plainItems, lit ? holeFaintMat : holeMat);
       if (litHoles) scene.add(litHoles);
@@ -249,7 +253,7 @@ export function Model3DView({ model, part, marks, codes = NO_CODES, scope, onSco
 
     // Picking: the nearest hit on a piece that is shown in the current scope (each instance knows its piece).
     const ray = new THREE.Raycaster();
-    const pickable = [...litMeshes, ...plainMeshes];
+    const pickable = [...litMeshes, ...plainMeshes, ...changedMeshes];
     const pick = (ndc: THREE.Vector2): number | null => {
       ray.setFromCamera(ndc, camera);
       if (showPart) return partMesh && ray.intersectObject(partMesh, false).length ? 0 : null;
@@ -283,6 +287,7 @@ export function Model3DView({ model, part, marks, codes = NO_CODES, scope, onSco
         const plainOn = sc === 'whole' || (sc === 'level' && !litMeshes.length); const litOn = sc === 'whole' || sc === 'level';
         for (const m of plainMeshes) { m.visible = plainOn; m.material = behind ? faintMat : plainMat; }
         for (const m of litMeshes) { m.visible = litOn; m.material = behind ? faintMat : litMat; }
+        for (const m of changedMeshes) { m.visible = plainOn || litOn; m.material = behind ? faintMat : changedMat; }
         // The holes go with their steel; behind a selection they are left out (the faint steel shows the shape), and so
         // are holes too small to see from here (a whole span: each would be under a pixel).
         const holesSeen = pixelsOf(holeMm, camera.position.distanceTo(controls.target), camera, renderer.domElement.clientHeight || 600) >= HOLE_MIN_PX;

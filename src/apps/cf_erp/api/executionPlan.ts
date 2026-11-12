@@ -10,7 +10,8 @@ import type { SalesOrder } from './types';
  *
  * A dry run is the screen's live preview: nothing is written, and problems come back in the answer.
  */
-export type ProductionLevel = 'order' | 'line' | 'unit' | 'assembly';
+/** 'custom' (2026-11-12): production orders of BOM rows the person picked — the order's choice only. */
+export type ProductionLevel = 'order' | 'line' | 'unit' | 'assembly' | 'custom';
 export type DispatchLevel = 'same' | 'line' | 'unit' | 'assembly';
 
 export interface PlanChoice<L extends string = string> { level: L; levelId: number | null }
@@ -52,10 +53,18 @@ export interface ExecutionPlanLine {
   piecesTotal?: number;
   /** The line's batches (from its own plan, or its share of the order's). */
   groups?: PlanGroup[];
+  /**
+   * Custom (2026-11-12): the line's BOM rows in tree order — "L<line>" the line itself, "L<line>N<bom line id>" a row (all
+   * its copies, with everything under it). nodesTotal null: the BOM is bigger than what was sent.
+   */
+  nodes?: PlanNode[];
+  nodesTotal?: number | null;
   problems: string[];
   /** The line's selects, labelled by result (null for a line from stock; absent from an older server). */
   options?: { production: PlanOptionGroup<ProductionLevel>; dispatch: PlanOptionGroup<DispatchLevel> } | null;
 }
+
+export interface PlanNode { key: string; parent: string | null; label: string; qty: number; depth: number }
 
 export interface PlanPreviewPart { count: number; items: string[]; more: number; sentence: string }
 

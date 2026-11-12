@@ -16,6 +16,7 @@ import RemoveCircleOutlineRounded from '@mui/icons-material/RemoveCircleOutlineR
 import InboxRounded from '@mui/icons-material/InboxRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import type { CfApiError } from '../api/client';
 import type { Kind, OrderStatus, OrderType, RecordStatus, ValueRule } from '../api/types';
 import { useCountUp } from '../hooks/useCountUp';
@@ -356,5 +357,23 @@ export function Fact({ label, children }: { label: string; children: ReactNode }
       <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.25 }}>{label}</Typography>
       <Box sx={{ fontSize: 14, color: 'var(--c-text)' }}>{children}</Box>
     </Box>
+  );
+}
+
+/**
+ * THE "i" BUTTON (user, 2026-11-12: "If you need to add any text to describe things, just give an i button and add text in
+ * that instead of making the whole screen filled with text"). A small info icon; its words show on hover, focus or a tap.
+ */
+export function InfoTip({ text, label = 'More about this', size = 17, testId }: { text: ReactNode; label?: string; size?: number; testId?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip title={<Box sx={{ fontSize: 12.5, lineHeight: 1.45, maxWidth: 340 }}>{text}</Box>} open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)}
+      arrow placement="bottom-start" enterTouchDelay={0} leaveTouchDelay={6000}>
+      <Box component="button" type="button" aria-label={label} data-testid={testId} onClick={() => setOpen((o) => !o)}
+        sx={{ all: 'unset', cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--c-text-3)', borderRadius: '50%', verticalAlign: 'middle',
+          '&:hover': { color: 'var(--c-primary-600)' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)' } }}>
+        <InfoOutlined sx={{ fontSize: size }} aria-hidden />
+      </Box>
+    </Tooltip>
   );
 }
