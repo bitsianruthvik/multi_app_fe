@@ -47,8 +47,8 @@ export interface MrScreenLine {
 export interface PrSummary { id: number; code: string; status: PrStatus; statusLabel: string }
 
 /** §79: what an MR is for — the cost follows it. */
-export type MrFor = 'sales_order' | 'maintenance_order' | 'stock' | 'general';
-export const MR_FOR_LABEL: Record<MrFor, string> = { sales_order: 'Sales order', maintenance_order: 'Maintenance order', stock: 'Stock', general: 'General' };
+export type MrFor = 'sales_order' | 'maintenance_order' | 'stock' | 'general' | 'machine';
+export const MR_FOR_LABEL: Record<MrFor, string> = { sales_order: 'Sales order', maintenance_order: 'Maintenance order', stock: 'Stock', general: 'General', machine: 'New machine' };
 /** §79: the 'For' of an MR, and whether it was raised by hand (no order line; may have no order). */
 export interface MrForFields {
   forType: MrFor; forLabel: string; manual: boolean; maintenanceOrderId: number | null; notes: string | null;
@@ -142,6 +142,9 @@ export interface PurchaseRequest {
   order: { id: number; code: string; status: string; customer: { id: number; name: string } | null } | null;
   line: { id: number; lineNo: number; name: string } | null;
   canEdit: boolean;
+  /** §103: a new machine's PR waits for Maintenance, then the MD, before Purchase may quote it. */
+  approval?: { state: 'maintenance' | 'md' | 'approved' | 'rejected'; label: string } | null;
+  machineRequest?: MachineRequestInfo | null;
   createdAt: string;
   notes: string | null;
   lines: PrLine[];
@@ -196,6 +199,16 @@ export const issueMaterialRequest = (id: number, body: { lines?: { lineId: numbe
 export const listPurchaseRequests = (q: { status?: string; search?: string; orderId?: number | null } = {}) =>
   cfApi.get<{ rows: PrRow[]; counts: Record<PrStatus | 'notClosed' | 'all', number> }>(`/purchase-requests${qs({ status: q.status || undefined, search: q.search?.trim() || undefined, orderId: q.orderId ?? undefined })}`);
 export const getPurchaseRequest = (id: number) => cfApi.get<PurchaseRequest>(`/purchase-requests/${id}`);
+
+// ---- §103 buying a new machine ------------------------------------------------------------------
+export interface MachineRequestInfo { purpose: string; needBy: string | null; machineTypeId: number | null; machineTypeName: string | null; modelId: number; createdModel: boolean; quantity: number; notes: string | null }
+export interface MachineModel { id: number; code: string | null; name: string; status: string }
+export interface MachineRequestResult { requisition: { id: number; code: string }; modelId: number; createdModel: boolean }
+export const listMachineModels = (search: string) => cfApi.get<MachineModel[]>(`/machine-models${qs({ search: search || undefined })}`);
+export const requestMachine = (body: { itemId?: number; newModel?: { name: string; description?: string }; machineTypeId?: number | null; quantity: number; needBy?: string | null; purpose: string; notes?: string | null }) =>
+  cfApi.post<MachineRequestResult>('/machine-requests', body);
+/** Stores asks again after a send-back (Maintenance first). */
+export const askPrApprovalAgain = (prId: number) => cfApi.post<PurchaseRequest>(`/purchase-requests/${prId}/ask-approval`, {});
 export const addVendor = (prId: number, supplierId: number) => cfApi.post<PurchaseRequest>(`/purchase-requests/${prId}/vendors`, { supplierId });
 export const setVendor = (vendorId: number, supplierId: number) => cfApi.put<PurchaseRequest>(`/purchase-request-vendors/${vendorId}`, { supplierId });
 export const removeVendor = (vendorId: number) => cfApi.del<PurchaseRequest>(`/purchase-request-vendors/${vendorId}`);

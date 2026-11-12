@@ -402,7 +402,7 @@ await check('PO: Purchase sends / closes / cancels but does not receive; Stores 
   assert.match(detail, /const canBuy = isPermitted\('cf_erp_purchase'\)/);
   assert.match(detail, /const canReceive = isPermitted\('cf_erp_inventory_manage'\)/);
   assert.match(src('pages/PurchaseOrders.tsx'), /useIsPermitted\(\)\('cf_erp_purchase'\)/);
-  assert.match(src('pages/PurchaseRequestDetail.tsx'), /useIsPermitted\(\)\('cf_erp_purchase'\)/);
+  assert.match(src('pages/PurchaseRequestDetail.tsx'), /const canManage = permitted\('cf_erp_purchase'\)/);   // 2026-11-12: §103 — Stores' "Ask again" reads its own tag beside it
   assert.match(src('components/shell/TopNav.tsx'), /label: 'New purchase order', permission: 'cf_erp_purchase'/);
 });
 

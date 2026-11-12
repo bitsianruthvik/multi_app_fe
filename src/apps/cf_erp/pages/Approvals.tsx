@@ -5,7 +5,7 @@ import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 import { useAuth } from '@core/contexts/AuthContext';
 import { CfApiError } from '../api/client';
 import {
-  decideApproval, setOwnAllowed, listApprovals, type AcceptanceContext, type Approval, type ApprovalList, type ApprovalType, type PoContext,
+  decideApproval, NOTE_TO_APPROVE, setOwnAllowed, listApprovals, type AcceptanceContext, type Approval, type ApprovalList, type ApprovalType, type PoContext,
 } from '../api/approvals';
 import { useCompanySlug } from '../hooks/useLoad';
 import { useUrlParam } from '../hooks/useUrlState';
@@ -248,12 +248,12 @@ export default function Approvals() {
         <DialogHeader title={asking?.d === 'approve' ? 'Approve?' : 'Send back?'} subtitle={asking?.a.title} onClose={() => setAsking(null)} busy={busy} />
         <DialogContent>
           <ErrorNotice error={decideError} />
-          <TextField fullWidth multiline minRows={2} sx={{ mt: 1 }} label={asking?.d === 'approve' ? 'Note (optional)' : 'Why — the person who asked reads it'} value={note} onChange={(e) => setNote(e.target.value)}
+          <TextField fullWidth multiline minRows={2} sx={{ mt: 1 }} label={asking?.d === 'approve' ? (asking && NOTE_TO_APPROVE[asking.a.type]) || 'Note (optional)' : 'Why — the person who asked reads it'} value={note} onChange={(e) => setNote(e.target.value)}
             inputProps={{ 'data-testid': 'approval-note' }} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAsking(null)} disabled={busy}>Cancel</Button>
-          <Button variant="contained" color={asking?.d === 'reject' ? 'error' : 'primary'} disabled={busy || (asking?.d === 'reject' && !note.trim())} onClick={() => void decide()} data-testid="approval-confirm">
+          <Button variant="contained" color={asking?.d === 'reject' ? 'error' : 'primary'} disabled={busy || ((asking?.d === 'reject' || (!!asking && !!NOTE_TO_APPROVE[asking.a.type])) && !note.trim())} onClick={() => void decide()} data-testid="approval-confirm">
             {asking?.d === 'approve' ? 'Approve' : 'Send back'}
           </Button>
         </DialogActions>

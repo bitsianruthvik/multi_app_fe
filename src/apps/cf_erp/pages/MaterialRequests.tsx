@@ -20,7 +20,7 @@ import { useToast } from '../components/toastContext';
 import { FadeIn, FlashOnChange } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
-const FOR_CHIPS: (MrFor | 'all')[] = ['all', 'sales_order', 'maintenance_order', 'stock', 'general'];
+const FOR_CHIPS: (MrFor | 'all')[] = ['all', 'sales_order', 'maintenance_order', 'stock', 'general', 'machine'];
 
 /**
  * Stores › MR INBOX (§79, user 2026-10-18 — was Purchase › Material requests). An MR is a REQUEST TO STORES (user

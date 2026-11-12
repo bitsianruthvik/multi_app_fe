@@ -28,7 +28,9 @@ const QUICK_CREATE: { label: string; permission: string; slug: string }[] = [
   { label: 'New item', permission: 'cf_erp_catalog_manage', slug: 'items?new=1' },
   { label: 'Receive stock', permission: 'cf_erp_inventory_manage', slug: 'stock?new=receipt' },
   { label: 'New purchase order', permission: 'cf_erp_purchase', slug: 'purchase-orders?new=1' },
-  { label: 'New machine', permission: 'cf_erp_production_manage|cf_erp_maintenance', slug: 'machines?new=1' },
+  // §103 (2026-11-12): New machine registers one you have (Maintenance); a machine to BUY is requested (planning or Maintenance).
+  { label: 'New machine', permission: 'cf_erp_maintenance', slug: 'machines?new=1' },
+  { label: 'Request a new machine', permission: 'cf_erp_production_manage|cf_erp_maintenance', slug: 'machines?new=request' },
   { label: 'New customer', permission: 'cf_erp_parties_manage', slug: 'customers?new=1' },
 ];
 

@@ -6,7 +6,7 @@ roles: [management, admin]
 routes: ["/:company/cf_erp/approvals"]
 order: 10
 ---
-One inbox for everything that waits for Management's yes: customer acceptances, rate changes, purchase orders, contractor POs, closing a PO short and re-baselines of the plan. You see only the kinds you are allowed to approve.
+One inbox for everything that waits for Management's yes: customer acceptances, rate changes, purchase orders, contractor POs, closing a PO short, re-baselines of the plan and new machines to buy. You see only the kinds you are allowed to approve.
 
 ## What you see
 - Filter chips: **Waiting** (with the count) and **Decided**. Next come **All kinds** and one chip per kind you approve, each with its own count.
@@ -16,6 +16,7 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
   - **Purchase order** and **Contractor PO**: the PO (a link), vendor, order and expected date. Each line shows Material, Quantity, Rate and Amount, the **Other quotes on its PR**, and how it **Compared** (for example *the lowest quote*).
   - **Close a PO short**: the reason, the amount that would not come, and Ordered / Received / Pending per line.
   - **Re-baseline**: what moves if the saved plan becomes the baseline, line by line, with the days gained or lost.
+  - **New machine — Maintenance** and **New machine — MD**: the machine, how many and what it is for. The MD's card carries Maintenance's comment. Maintenance must write a comment to approve. See [Buying a new machine](help:maintenance-new-machine).
 
 ## How to approve or send back
 1. Open **Management › Approvals**. The **Waiting** chip is on.
@@ -28,6 +29,7 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
 - A customer acceptance confirms the order. Its billing cards appear in Accounts › Billing, and the advance moves to *Due to bill* by itself.
 - An approved purchase order is placed. Stores can then receive goods against it.
 - An approved contractor PO issues the work order to the contractor.
+- A new machine approved by Maintenance goes to the MD. Once the MD approves, Purchase may quote and raise its PO.
 
 ## Good to know
 - **One approval type per permission.** Each kind needs its own permission (for example, approving purchase orders). A person may hold any mix of them, and the menu shows **Approvals** to anyone who holds at least one.

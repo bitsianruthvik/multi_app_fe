@@ -144,9 +144,9 @@ await check('(2) Management holds Dashboard (/management), Plan health, Approval
   assert.ok(sec('accounts').screens.some((s) => s.path === 'order-costing' && s.permission === 'cf_erp_accounts_view'));
   // Shared screens in Management need what the page needs AND an approval tag.
   const dash = mg.screens[0].permission.split('|');
-  assert.equal(dash.length, 6); assert.ok(dash.every((alt) => alt.startsWith('cf_erp_production_view&cf_erp_approve_')));
+  assert.equal(dash.length, 7); assert.ok(dash.every((alt) => alt.startsWith('cf_erp_production_view&cf_erp_approve_')));
   assert.ok(mg.screens[3].permission.split('|').every((alt) => alt.startsWith('cf_erp_accounts_view&cf_erp_approve_')));
-  assert.equal(mg.screens[1].permission.split('|').length, 6, 'Plan health: any approval tag, as before');
+  assert.equal(mg.screens[1].permission.split('|').length, 7, 'Plan health: any approval tag (a new machine purchase too, 2026-11-12)');
 });
 
 const probe = (tags) => {

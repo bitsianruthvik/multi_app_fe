@@ -41,6 +41,7 @@ Use this when Stores itself needs something bought — refilling stock, Stores' 
 5. Click **Raise PR** (or press Ctrl+Enter). The purchase request opens. The app keeps a material request under it; it is not listed here, and you reach it from the PR.
 
 ## Good to know
+- **New machine** MRs come from Request a new machine. Save one to raise its PR. That PR waits for Maintenance and the MD before Purchase quotes it, and **Ask again** on the PR restarts a sent-back one. See [Buying a new machine](help:maintenance-new-machine).
 - A sales order's MR is created from the order's Material required step (once the MD has accepted the order); a maintenance order's MR from the maintenance order (**Material request** button). Both arrive here.
 - **New MR** is open to Stores, maintenance and whoever manages orders. **New PR**, and saving MRs, need the Stores permission (or the older inventory manage permission). Others can look but not change.
 - The forms refuse: no item, a quantity of zero or less, a Sales order MR with no order, or a Stock MR that names an order.

@@ -41,5 +41,9 @@ To raise a job yourself (the machine stays up until the work starts), click **Ne
 - Each machine's **Tools & spares** tab — the tools, spares and consumables it needs, with a typical quantity. Every maintenance MR starts from this list.
 - [Stop reasons](help:production-stop-reasons) — what operators tap when a machine stands still.
 
+## Buying a new machine
+- Planning or you ask with **Request a new machine** on the register. Stores raises the PR. You approve it under **Maintenance › New machine approvals** with a comment on what you checked, and then it goes to the MD. See [Buying a new machine](help:maintenance-new-machine).
+- **New machine** on the register is only for a machine you already have.
+
 ## Permissions
 The Maintenance permission opens the Maintenance tab and lets you raise and work orders, plans and downtime. Raising a fault also works with the machine log or production manage permission. A machine's **Tools & spares** list can be kept with the Maintenance permission or production manage. Editing the machine itself and its shifts needs production manage. The register needs the production view permission and Tools the inventory view permission, as before. The Test login holds all of these in the testing phase.

@@ -48,7 +48,8 @@ const ACTIONS: PaletteAction[] = [
   // anywhere, the way the item form does, so nothing has to be abandoned.
   { id: 'new-classification', label: 'New classification', hint: 'A family, subfamily or variant for items', permission: 'cf_erp_catalog_manage', slug: '', dialog: 'classification' },
   { id: 'receive', label: 'Receive stock', hint: 'Post a receipt into a stocking area', permission: 'cf_erp_inventory_manage', slug: 'stock?new=receipt' },
-  { id: 'new-machine', label: 'New machine', hint: 'Add a machine on its machine type', permission: 'cf_erp_production_manage', slug: 'machines?new=1' },
+  { id: 'new-machine', label: 'New machine', hint: 'Add a machine you have to the register', permission: 'cf_erp_maintenance', slug: 'machines?new=1' },
+  { id: 'request-machine', label: 'Request a new machine', hint: 'Buy one: an MR to Stores, approved by Maintenance and the MD', permission: 'cf_erp_production_manage|cf_erp_maintenance', slug: 'machines?new=request' },
   { id: 'new-flow', label: 'New flow', hint: 'Put operations in order', permission: 'cf_erp_production_manage', slug: 'flows?new=1' },
   { id: 'new-customer', label: 'New customer', hint: 'Or a supplier', permission: 'cf_erp_parties_manage', slug: 'customers?new=1' },
 ];

@@ -27,6 +27,7 @@ The PR is the request for quotation (RFQ). Rows are what is to buy; columns are 
 5. Click **Raise PO**. The toast says it waits for Management approval.
 
 ## Good to know
+- **A new machine's PR** first shows **Waiting for Maintenance**, then **Waiting for the MD**. Vendors, quotes and POs wait until both approve. If it is **Sent back**, Stores clicks **Ask again** once it is sorted. See [Buying a new machine](help:maintenance-new-machine).
 - Every PO waits for Management approval before it is placed.
 - **PO raised** per line is what live POs hold for it. A PO closed short gives the rest back, and you can raise a new PO for it.
 - A rate must be a number, like 62.5.

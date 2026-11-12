@@ -45,7 +45,7 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
  */
-const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline';
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase';
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
 /**
  * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page
@@ -214,6 +214,8 @@ export const SECTIONS: NavSection[] = [
       // 2026-10-24: the machines register and Tools, as in Production / Stores (same routes, same permissions as there).
       // 2026-11-12: machines live here — the register is Maintenance's to change (production manage too); Stores sees it.
       { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: MAINTENANCE_READ, countKey: 'machines', keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types', 'calendar', 'equipment', 'classification'] },
+      // §103 (2026-11-12): Maintenance approves a new machine's PR (with a comment) before the MD — the same inbox, its kind only.
+      { key: 'maint-approvals', label: 'New machine approvals', path: 'approvals', permission: MAINTENANCE, keywords: ['new machine', 'buy a machine', 'capex', 'approve', 'purchase request'] },
       { key: 'maint-tools', label: 'Tools', path: 'tools', permission: STORES_WORK, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
     ],
   },

@@ -8,7 +8,7 @@ import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import { CfApiError } from '../api/client';
 import type { Party } from '../api/types';
 import {
-  addVendor, getPurchaseRequest, pendingPosOfVendor, raisePurchaseOrder, removeVendor, setQuotes, setVendor,
+  addVendor, askPrApprovalAgain, getPurchaseRequest, pendingPosOfVendor, raisePurchaseOrder, removeVendor, setQuotes, setVendor,
   type PrLine, type PrVendor, type PurchaseRequest,
 } from '../api/purchaseRequests';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -63,7 +63,10 @@ export default function PurchaseRequestDetail() {
   const toast = useToast();
   const navigate = useNavigate();
   // Vendors, quotes and raising the PO are Purchase's (2026-10-19 — the same tag as the routes: cf_erp_purchase).
-  const canManage = useIsPermitted()('cf_erp_purchase');
+  const permitted = useIsPermitted();
+  const canManage = permitted('cf_erp_purchase');
+  // §103: Stores asks a sent-back machine purchase again (the MR's own permission).
+  const canAskAgain = permitted('cf_erp_inventory_manage|cf_erp_stores');
   const pr = useLoad(() => getPurchaseRequest(id), [id]);
   const full = useFullScreen('pr-grid');
   const p = pr.data;
@@ -112,6 +115,15 @@ export default function PurchaseRequestDetail() {
         />
       }
     >
+      {p.approval && p.approval.state !== 'approved' && (
+        <Alert severity={p.approval.state === 'rejected' ? 'error' : 'info'} data-testid="pr-approval" sx={{ mb: 1.5 }}
+          action={p.approval.state === 'rejected' && canAskAgain && <Button size="small" color="inherit" data-testid="pr-ask-again" onClick={() => void run(() => askPrApprovalAgain(p.id), 'Asked again — Maintenance first.')}>Ask again</Button>}>
+          <Box sx={{ fontWeight: 600 }}>New machine · {p.approval.label}</Box>
+          <Box sx={{ fontSize: 13 }}>{p.approval.state === 'rejected' ? 'Sent back — the reason is in Approvals. Stores asks again once it is sorted.' : 'Quotes and the PO wait until Maintenance and then the MD approve.'}</Box>
+          {p.machineRequest && <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{p.machineRequest.purpose}{p.machineRequest.needBy ? ` · needed by ${p.machineRequest.needBy}` : ''}</Box>}
+        </Alert>
+      )}
+      {p.approval?.state === 'approved' && <Typography data-testid="pr-approved" sx={{ fontSize: 13, color: 'var(--c-success-700)', mb: 1.5 }}>New machine — approved by Maintenance and the MD.</Typography>}
       {!canManage && <Typography data-testid="pr-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>You can see this PR. Vendors, quotes and raising purchase orders need the Purchase permission.</Typography>}
       {error && (
         <Alert severity="warning" data-testid="pr-refusal" sx={{ mb: 1.5 }} onClose={() => setError(null)}>

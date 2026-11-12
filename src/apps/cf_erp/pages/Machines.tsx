@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import { cfApi, qs } from '../api/client';
 import type { Machine, Tree } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -18,6 +19,7 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { ClassificationPicker } from '../components/ClassificationPicker';
 import { MachineDialog } from '../components/MachineDialog';
 import { MachineTypeDialog } from '../components/MachineTypeDialog';
+import { RequestMachineDialog } from '../components/RequestMachineDialog';
 import { ClassificationManager } from '../components/ClassificationManager';
 import { screenTreePath } from '../lib/classificationScreens';
 import { useToast } from '../components/toastContext';
@@ -32,7 +34,12 @@ export default function Machines() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_production_manage|cf_erp_maintenance');
+  const permitted = useIsPermitted();
+  const canManage = permitted('cf_erp_production_manage|cf_erp_maintenance');
+  // §103 (2026-11-12): New machine (one you have) is Maintenance's; buying one is requested — planning or Maintenance.
+  const canRegister = permitted('cf_erp_maintenance');
+  const canRequest = canManage;
+  const [requesting, setRequesting] = useState(false);
   const [params, setParams] = useSearchParams();
   const [status, setStatus] = useUrlParam('status', '');
   // Default: the machines that do production work. The asset register (vehicles, panels, tools) is one click away.
@@ -43,7 +50,7 @@ export default function Machines() {
   const [typesOpen, setTypesOpen] = useState(false);
   const [managing, setManaging] = useState(false);
   const typeId = Number(params.get('classificationId')) || null;
-  useNewParam(() => { if (canManage) setCreating(true); });
+  useNewParam((v) => { if (v === 'request') { if (canRequest) setRequesting(true); } else if (canRegister) setCreating(true); });
   useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
   // The Machines screen's part of the tree: the machine families (readable with the production grant).
   const tree = useLoad(() => cfApi.get<Tree>(screenTreePath('machines')), []);
@@ -108,7 +115,8 @@ export default function Machines() {
           <>
             <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={() => setManaging(true)}>Classification</Button>
             {canManage && <Button variant="outlined" onClick={() => setTypesOpen(true)}>Machine types</Button>}
-            {canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New machine</Button>}
+            {canRequest && <Button variant={canRegister ? 'outlined' : 'contained'} startIcon={<ShoppingCartRounded />} onClick={() => setRequesting(true)} data-testid="request-machine-open">Request a new machine</Button>}
+            {canRegister && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New machine</Button>}
           </>
         )} />
       <StatStrip stats={stats} />
@@ -132,11 +140,13 @@ export default function Machines() {
           action={!filtered && canManage && (
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
               <Button variant={types.length === 0 ? 'contained' : 'outlined'} startIcon={<AccountTreeRounded />} onClick={() => setTypesOpen(true)}>Machine types</Button>
-              <Button variant={types.length === 0 ? 'outlined' : 'contained'} onClick={() => setCreating(true)}>New machine</Button>
+              {canRegister && <Button variant={types.length === 0 ? 'outlined' : 'contained'} onClick={() => setCreating(true)}>New machine</Button>}
             </Box>
           )} />} />
       <MachineDialog open={creating} existing={null} tree={tree.data} onClose={() => setCreating(false)} onTypesChanged={tree.reload}
         onSaved={(m) => { invalidateNavCounts(); toast.success(`${m.code} created.`); open(m); }} />
+      <RequestMachineDialog open={requesting} tree={tree.data} onClose={() => setRequesting(false)}
+        onSent={(r) => { setRequesting(false); invalidateNavCounts(); toast.success(`${r.requisition.code} sent to Stores${r.createdModel ? ' — the model is in the catalog as a draft' : ''}.`); }} />
       <MachineTypeDialog open={typesOpen} canManage={canManage} onClose={closeTypes} />
       <ClassificationManager open={managing} screen="machines" onClose={() => { setManaging(false); list.reload(); }} onChanged={tree.reload} />
     </Box>

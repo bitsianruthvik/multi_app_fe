@@ -7,7 +7,8 @@ import type { Estimate, Terms } from './acceptance';
  * decide their own). A rejection needs a reason.
  */
 
-export type ApprovalType = 'order_acceptance' | 'rate_change' | 'purchase_order' | 'contractor_po' | 'po_close_short' | 'rebaseline';
+export type ApprovalType = 'order_acceptance' | 'rate_change' | 'purchase_order' | 'contractor_po' | 'po_close_short' | 'rebaseline'
+  | 'machine_pr_maintenance' | 'machine_pr_md';
 
 /** Each approval type and its permission tag — the same table as the backend's APPROVAL_TYPES. */
 export const APPROVAL_TAGS: Record<ApprovalType, string> = {
@@ -17,9 +18,14 @@ export const APPROVAL_TAGS: Record<ApprovalType, string> = {
   contractor_po: 'cf_erp_approve_contractor_po',
   po_close_short: 'cf_erp_approve_po_close_short',
   rebaseline: 'cf_erp_approve_rebaseline',
+  // §103 (2026-11-12): a new machine's PR — Maintenance first (a comment is required), then the MD.
+  machine_pr_maintenance: 'cf_erp_maintenance',
+  machine_pr_md: 'cf_erp_approve_machine_purchase',
 };
+/** Approval types whose approve needs a note (the backend refuses COMMENT_REQUIRED). */
+export const NOTE_TO_APPROVE: Partial<Record<ApprovalType, string>> = { machine_pr_maintenance: 'What did Maintenance check? (required — the MD reads it)' };
 /** Any one of them opens the Management tab (navMeta). */
-export const ANY_APPROVAL = Object.values(APPROVAL_TAGS).join('|');
+export const ANY_APPROVAL = Object.entries(APPROVAL_TAGS).filter(([k]) => k !== 'machine_pr_maintenance').map(([, t]) => t).join('|');
 
 export interface PoContextLine {
   id: number;
