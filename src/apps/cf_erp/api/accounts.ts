@@ -115,6 +115,9 @@ export interface CostRow {
   order: { id: number; code: string; title: string | null; status: string; customer: string | null };
   contract: number; charged: number; invoiced: number; received: number;
   material: number; consumables: number; contractor: number; credits: number; creditsScrap: number; creditsOffcuts: number;
+  /** §104: machine use — depreciation of the days machines worked on the order (shared by run hours). */
+  machineUse?: number;
+  machineUseDetail?: { id: number; code: string; name: string; kind: string; days: number; amount: number; ratePerDay: number }[];
   customerMaterial: { rows: number; quantity: number }; uncostedRows: number;
   margin: number; marginPct: number | null;
   /** The list only (2026-10-18): actual scrap / offcut kg, what scrap & offcut charges earned, and how many things are not costed. */
@@ -122,7 +125,7 @@ export interface CostRow {
 }
 export interface CostingList {
   rows: CostRow[];
-  totals: { contract: number; charged: number; material: number; consumables: number; contractor: number; credits: number; margin: number };
+  totals: { contract: number; charged: number; material: number; consumables: number; contractor: number; machineUse?: number; credits: number; margin: number };
   generalThisMonth: { value: number; uncostedRows: number };
 }
 export interface CostSheet extends CostRow {

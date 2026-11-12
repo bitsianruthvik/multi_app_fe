@@ -8,7 +8,7 @@ import { cfApi, qs } from './client';
 export const MAINTENANCE = 'cf_erp_maintenance';
 
 export type MoStatus = 'open' | 'in_progress' | 'waiting_parts' | 'done' | 'cancelled';
-export type MoSource = 'fault' | 'preventive' | 'manual';
+export type MoSource = 'fault' | 'preventive' | 'manual' | 'setup';
 export type BoardStatus = 'down' | 'planned' | 'stopped' | 'running' | 'idle';
 
 export interface StopReason { id: number; code: string; label: string; sortOrder: number; needsNote: boolean; status: string }

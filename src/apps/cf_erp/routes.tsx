@@ -28,6 +28,7 @@ const Floor = lazy(() => import('./pages/Floor'));
 const Operators = lazy(() => import('./pages/Operators'));
 const StopReasons = lazy(() => import('./pages/StopReasons'));
 const Machines = lazy(() => import('./pages/Machines'));
+const MachineCustody = lazy(() => import('./pages/MachineCustody'));
 const MachineDetail = lazy(() => import('./pages/MachineDetail'));
 const Tools = lazy(() => import('./pages/Tools'));
 // Maintenance (§82): machines board, maintenance orders, preventive plans, planned downtime.
@@ -140,6 +141,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/operators', element: wrap(<Operators />) },
     { path: '/:company/cf_erp/stop-reasons', element: wrap(<StopReasons />) },
     { path: '/:company/cf_erp/machines', element: wrap(<Machines />) },
+    { path: '/:company/cf_erp/machine-custody', element: wrap(<MachineCustody />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
     { path: '/:company/cf_erp/tools', element: wrap(<Tools />) },
     { path: '/:company/cf_erp/maintenance', element: wrap(<MaintenanceBoard />) },

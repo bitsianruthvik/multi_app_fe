@@ -16,6 +16,7 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
   - **Purchase order** and **Contractor PO**: the PO (a link), vendor, order and expected date. Each line shows Material, Quantity, Rate and Amount, the **Other quotes on its PR**, and how it **Compared** (for example *the lowest quote*).
   - **Close a PO short**: the reason, the amount that would not come, and Ordered / Received / Pending per line.
   - **Re-baseline**: what moves if the saved plan becomes the baseline, line by line, with the days gained or lost.
+  - **Condemn a machine**: the machine, why Maintenance wants it condemned, how long it has been live, its book value and its maintenance cost so far. See [A machine's life](help:maintenance-machine-life).
   - **New machine — Maintenance** and **New machine — MD**: the machine, how many and what it is for. The MD's card carries Maintenance's comment. Maintenance must write a comment to approve. See [Buying a new machine](help:maintenance-new-machine).
 
 ## How to approve or send back
@@ -29,6 +30,7 @@ One inbox for everything that waits for Management's yes: customer acceptances, 
 - A customer acceptance confirms the order. Its billing cards appear in Accounts › Billing, and the advance moves to *Due to bill* by itself.
 - An approved purchase order is placed. Stores can then receive goods against it.
 - An approved contractor PO issues the work order to the contractor.
+- A condemned machine leaves planning and check-out; its disposal is recorded next.
 - A new machine approved by Maintenance goes to the MD. Once the MD approves, Purchase may quote and raise its PO.
 
 ## Good to know

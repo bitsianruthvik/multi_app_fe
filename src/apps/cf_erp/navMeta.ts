@@ -45,7 +45,7 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
  */
-const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase';
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn';
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
 /**
  * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page
@@ -197,6 +197,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: STORES_WORK, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
       // 2026-11-12: every machine, to look at (Maintenance keeps the register).
       { key: 'store-machines', label: 'Machines', path: 'machines', hasDetail: true, permission: STORES_WORK, keywords: ['machines', 'equipment', 'assets', 'register'] },
+      // §104 (2026-11-12): machines and tools out to people, contractors, orders and areas; what arrived, to register.
+      { key: 'machine-custody', label: 'Check-in / out', path: 'machine-custody', permission: STORES_WORK, keywords: ['check out', 'check in', 'issue tool', 'return tool', 'who has', 'register machine', 'serial', 'overdue', 'custody'] },
     ],
   },
   {

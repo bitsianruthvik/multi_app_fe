@@ -688,6 +688,12 @@ export interface Machine {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  /** §104 the lifecycle: a machine or a durable tool, its stage, where it is and who has it. */
+  kind?: 'machine' | 'tool';
+  stage?: 'setup' | 'live' | 'condemn_requested' | 'condemned';
+  stageLabel?: string;
+  area?: { id: number; code: string; name: string } | null;
+  withWhom?: { kind: string; kindLabel: string; id: number; code: string | null; name: string | null; takenBy: string | null; dueOn: string | null } | null;
 }
 
 /**
@@ -914,7 +920,7 @@ export interface MachineCalendar { machine: { id: number; code: string; name: st
 
 // ---- Inventory -----------------------------------------------------------------------
 
-export type AreaPurpose = 'storage' | 'wip' | 'quarantine' | 'dispatch' | 'scrap';
+export type AreaPurpose = 'storage' | 'wip' | 'quarantine' | 'dispatch' | 'scrap' | 'maintenance';
 export type BatchStatus = 'available' | 'on_hold' | 'rejected';
 export type MovementType = 'receipt' | 'issue' | 'transfer' | 'adjustment' | 'scrap';
 /** A posted movement can also be a return to a customer (customer material), which is not keyed in on the stock screens. */

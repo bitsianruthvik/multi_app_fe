@@ -10,8 +10,8 @@ The register of machines — what does the work. It is **Maintenance › Machine
 
 ## What you see
 - Figures: **Production machines** (or **All machines**), **Active**, and **Machine types** (click to manage them).
-- Chips: **Production machines** (machines that can run an operation) or **All machines** (the whole asset register); **Any status**, **Active**, **Inactive**; a **Machine type or group** picker; search.
-- Columns: **Code**, **Name**, **Machine type** (click to open the type), **Serial**, **Status**; hidden: **Bought as**, **Production** ("Yes", or "Asset" for a machine with no operation to run).
+- Chips: **Production machines** (machines that can run an operation), **All machines** (the whole asset register) or **Tools** (durable tools); the stage — **In use** (everything not condemned), **Setup**, **Live**, **Condemn asked**, **Condemned**; a **Machine type or group** picker; search.
+- Columns: **Code**, **Name**, **Machine type** (click to open the type), **Serial**, **Place**, **With** (who has it, and when it is due back), **Stage**; hidden: **Bought as**, **Production** ("Yes", or "Asset" for a machine with no operation to run).
 
 ## How to add a machine you have
 1. Make sure its type exists — **Machine types** at the top.
@@ -28,6 +28,8 @@ To **buy** one, click **Request a new machine** instead — see [Buying a new ma
 - **New machine** needs the Maintenance permission; **Request a new machine** needs Maintenance or production manage.
 
 ## Related
+- [A machine's life](help:maintenance-machine-life)
+- [Check-in / out](help:stores-check-in-out)
 - [Buying a new machine](help:maintenance-new-machine)
 - [A machine](help:maintenance-machine)
 - [Machine types](help:maintenance-machine-types)

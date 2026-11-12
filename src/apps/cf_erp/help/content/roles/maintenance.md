@@ -45,5 +45,10 @@ To raise a job yourself (the machine stays up until the work starts), click **Ne
 - Planning or you ask with **Request a new machine** on the register. Stores raises the PR. You approve it under **Maintenance › New machine approvals** with a comment on what you checked, and then it goes to the MD. See [Buying a new machine](help:maintenance-new-machine).
 - **New machine** on the register is only for a machine you already have.
 
+## A machine's life
+- A machine received and registered by Stores comes to you as a **setup ticket**. Raise an MR on the ticket for what it needs, move it to your maintenance bay and back, and close the ticket — it goes live.
+- On the machine's **Life** tab, mark each setup item as installation (capitalised) or consumable (expense), and keep its cost and life.
+- To retire one, use **Condemn…** with the reason. The MD approves it, then record the disposal. See [A machine's life](help:maintenance-machine-life).
+
 ## Permissions
 The Maintenance permission opens the Maintenance tab and lets you raise and work orders, plans and downtime. Raising a fault also works with the machine log or production manage permission. A machine's **Tools & spares** list can be kept with the Maintenance permission or production manage. Editing the machine itself and its shifts needs production manage. The register needs the production view permission and Tools the inventory view permission, as before. The Test login holds all of these in the testing phase.

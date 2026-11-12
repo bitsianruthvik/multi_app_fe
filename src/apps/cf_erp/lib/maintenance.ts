@@ -10,7 +10,7 @@ export const MO_STATUS: Record<MoStatus, { label: string; family: Family }> = {
   done: { label: 'Done', family: 'success' },
   cancelled: { label: 'Cancelled', family: 'neutral' },
 };
-export const SOURCE_LABEL: Record<MoSource, string> = { fault: 'Fault', preventive: 'Preventive', manual: 'Raised by maintenance' };
+export const SOURCE_LABEL: Record<MoSource, string> = { fault: 'Fault', preventive: 'Preventive', manual: 'Raised by maintenance', setup: 'Setup of a new machine' };
 
 export const BOARD_STATUS: Record<BoardStatus, { label: string; family: Family; order: number }> = {
   down: { label: 'Down', family: 'danger', order: 0 },

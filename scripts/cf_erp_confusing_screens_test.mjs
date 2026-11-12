@@ -144,9 +144,9 @@ await check('(2) Management holds Dashboard (/management), Plan health, Approval
   assert.ok(sec('accounts').screens.some((s) => s.path === 'order-costing' && s.permission === 'cf_erp_accounts_view'));
   // Shared screens in Management need what the page needs AND an approval tag.
   const dash = mg.screens[0].permission.split('|');
-  assert.equal(dash.length, 7); assert.ok(dash.every((alt) => alt.startsWith('cf_erp_production_view&cf_erp_approve_')));
+  assert.equal(dash.length, 8); assert.ok(dash.every((alt) => alt.startsWith('cf_erp_production_view&cf_erp_approve_')));
   assert.ok(mg.screens[3].permission.split('|').every((alt) => alt.startsWith('cf_erp_accounts_view&cf_erp_approve_')));
-  assert.equal(mg.screens[1].permission.split('|').length, 7, 'Plan health: any approval tag (a new machine purchase too, 2026-11-12)');
+  assert.equal(mg.screens[1].permission.split('|').length, 8, 'Plan health: any approval tag (a new machine purchase and condemning one too, 2026-11-12)');
 });
 
 const probe = (tags) => {
@@ -221,7 +221,9 @@ await check('(4) MachineDetail: editing, shifts and Tools & spares with producti
   assert.match(s, /const canResources = isPermitted\('cf_erp_production_manage\|cf_erp_maintenance'\);/);
   assert.match(s, /<MachineResourcesCard machineId=\{id\} canManage=\{canResources\} \/>/);
   assert.match(s, /const canManage = isPermitted\('cf_erp_production_manage\|cf_erp_maintenance'\);/);
-  assert.match(s, /actions=\{canManage && \(/, 'edit / delete: production manage or maintenance');
+  // 2026-11-12 §104: the stage's buttons sit beside Edit / Delete, which stay on production manage or maintenance.
+  assert.ok(s.includes('{canManage && <Button variant="outlined" startIcon={<EditRounded />}'), 'edit: production manage or maintenance');
+  assert.ok(s.includes('{canManage && <Tooltip title="Delete'), 'delete: production manage or maintenance');
 });
 
 // ── (5) tax and scrap-rate permissions ───────────────────────────────────────────────

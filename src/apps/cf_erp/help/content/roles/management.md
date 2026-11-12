@@ -41,6 +41,7 @@ This guide is for the MD and the managers who approve, watch the plant and the m
 - The scrap rate is on the same page.
 
 ## Good to know
+- **Machines to condemn** on Home: Maintenance asks to condemn these; the card shows age, book value and maintenance cost. See [A machine's life](help:maintenance-machine-life).
 - **New machines to approve** on Home: Maintenance has reviewed them (its comment is on the card). Once you approve, Purchase takes quotes. Its PO then comes back to you like any other. See [Buying a new machine](help:maintenance-new-machine).
 - You see only the approval kinds you hold. Each kind is its own permission.
 - You cannot approve what you asked for yourself; someone else in Management must. During testing, one company may allow self-approval; that is switched off before going live.

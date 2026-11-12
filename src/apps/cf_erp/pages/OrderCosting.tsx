@@ -10,7 +10,7 @@ import { appPath } from '../navMeta';
 import { rupeeText } from '../lib/money';
 import { marginFamily } from '../lib/accounts';
 import { DataTable, type DataColumn } from '../components/DataTable';
-import { Badge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader } from '../components/ui';
+import { Badge, EmptyState, ErrorNotice, InfoTip, ListSkeleton, Mono, PageHeader } from '../components/ui';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { DialogCloseButton } from '../components/FormDialog';
 import { FlashOnChange } from '../motion';
@@ -70,6 +70,7 @@ export function CostSheetBody({ sheet }: { sheet: CostSheet }) {
         {row('Material issued (at cost)', sheet.material, '−', 'cs-material')}
         {row('Consumables issued', sheet.consumables, '−', 'cs-consumables')}
         {row('Contractor work (later)', sheet.contractor, '−', 'cs-contractor')}
+        {row('Machine use (depreciation)', sheet.machineUse ?? 0, '−', 'cs-machine-use')}
         {row('Credits: scrap and offcuts', sheet.credits, '+', 'cs-credits')}
         <Box data-testid="cs-margin" sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, pt: 1, alignItems: 'baseline' }}>
           <Typography sx={{ fontSize: 15, fontWeight: 700 }}>Margin</Typography>
@@ -85,6 +86,17 @@ export function CostSheetBody({ sheet }: { sheet: CostSheet }) {
           {sheet.uncostedRows > 0 ? ` ${sheet.uncostedRows} stock row${sheet.uncostedRows === 1 ? ' has' : 's have'} no cost and ${sheet.uncostedRows === 1 ? 'is' : 'are'} left out.` : ''}
         </Typography>
       </Box>
+      {(sheet.machineUseDetail ?? []).length > 0 && (
+        <Box data-testid="cs-machine-use-detail">
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>Machine use<InfoTip text="Each machine's depreciation for the days it worked on this order. A day shared with other orders is split by run hours; a day it was checked out to this order with no run hours counts whole." /></Typography>
+          {(sheet.machineUseDetail ?? []).map((m) => (
+            <Box key={m.id} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.4, fontSize: 13 }}>
+              <Box sx={{ minWidth: 0 }}><Mono>{m.code}</Mono> {m.name} <Box component="span" sx={{ color: 'var(--c-text-3)' }}>· {m.days} day{m.days === 1 ? '' : 's'} × {rupeeText(m.ratePerDay, 2)}</Box></Box>
+              <Mono>{rupeeText(m.amount, 2)}</Mono>
+            </Box>
+          ))}
+        </Box>
+      )}
       {sheet.earned.rows.length > 0 && (
         <Box>
           <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>What is charged so far</Typography>
@@ -155,6 +167,7 @@ export default function OrderCosting() {
     { key: 'material', header: 'Material', numeric: true, sortValue: (r) => r.material, render: money('material') },
     { key: 'consumables', header: 'Consumables', numeric: true, sortValue: (r) => r.consumables, render: money('consumables') },
     { key: 'contractor', header: 'Contractor', numeric: true, defaultHidden: true, sortValue: (r) => r.contractor, render: money('contractor') },
+    { key: 'machineUse', header: 'Machine use', numeric: true, defaultHidden: true, sortValue: (r) => r.machineUse ?? 0, render: money('machineUse') },
     { key: 'credits', header: 'Credits', numeric: true, sortValue: (r) => r.credits, render: money('credits') },
     // Scrap & offcuts (2026-10-18): the actual kg, and what the customer is charged for them so far.
     { key: 'scrap', header: 'Scrap / offcuts', numeric: true, defaultHidden: true, sortValue: (r) => (r.scrapKg ?? 0) + (r.offcutKg ?? 0),

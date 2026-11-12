@@ -30,7 +30,7 @@ A machine you want to buy is asked for on **Request a new machine**. Production 
 ## Good to know
 - Asking needs production manage or Maintenance. Maintenance's step needs the Maintenance permission. The MD's step needs *Approve a new machine purchase*.
 - Four eyes: the person whose step sent the request on does not decide the next step.
-- What happens when the machine arrives (its entry in the register) comes in a later change.
+- When it arrives, Stores registers it from the GRN. It goes to setup with a ticket for Maintenance — see [A machine's life](help:maintenance-machine-life).
 
 ## Related
 - [Machines (the register)](help:maintenance-machines)

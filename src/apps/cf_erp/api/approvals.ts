@@ -8,7 +8,7 @@ import type { Estimate, Terms } from './acceptance';
  */
 
 export type ApprovalType = 'order_acceptance' | 'rate_change' | 'purchase_order' | 'contractor_po' | 'po_close_short' | 'rebaseline'
-  | 'machine_pr_maintenance' | 'machine_pr_md';
+  | 'machine_pr_maintenance' | 'machine_pr_md' | 'machine_condemn';
 
 /** Each approval type and its permission tag — the same table as the backend's APPROVAL_TYPES. */
 export const APPROVAL_TAGS: Record<ApprovalType, string> = {
@@ -21,6 +21,8 @@ export const APPROVAL_TAGS: Record<ApprovalType, string> = {
   // §103 (2026-11-12): a new machine's PR — Maintenance first (a comment is required), then the MD.
   machine_pr_maintenance: 'cf_erp_maintenance',
   machine_pr_md: 'cf_erp_approve_machine_purchase',
+  // §104: Maintenance asks to condemn a machine or tool; the MD decides.
+  machine_condemn: 'cf_erp_approve_machine_condemn',
 };
 /** Approval types whose approve needs a note (the backend refuses COMMENT_REQUIRED). */
 export const NOTE_TO_APPROVE: Partial<Record<ApprovalType, string>> = { machine_pr_maintenance: 'What did Maintenance check? (required — the MD reads it)' };

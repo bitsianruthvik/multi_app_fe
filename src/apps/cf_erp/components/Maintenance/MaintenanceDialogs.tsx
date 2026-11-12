@@ -98,8 +98,8 @@ export function CloseOrderDialog({ order, onClose, onDone }: { order: Maintenanc
   useEffect(() => { if (order) { setWorkDone(''); setOtherCost(''); setCostNote(''); } }, [order]);
   const cost = Number(otherCost) || 0;
   return (
-    <FormDialog open={!!order} onClose={onClose} title={`Close ${order?.code ?? ''}`} submitLabel="Done — machine is back up" submitColor="success"
-      subtitle={order?.machineDown ? `Down for ${durationText(order.downtimeMinutes)} so far. Closing brings ${order.machine.code} back up.` : undefined}
+    <FormDialog open={!!order} onClose={onClose} title={`Close ${order?.code ?? ''}`} submitLabel={order?.source === 'setup' ? 'Done — machine goes live' : 'Done — machine is back up'} submitColor="success"
+      subtitle={order?.source === 'setup' ? `Setup done: ${order.machine.code} goes live — planned on, checked out, and its depreciation starts today.` : order?.machineDown ? `Down for ${durationText(order.downtimeMinutes)} so far. Closing brings ${order.machine.code} back up.` : undefined}
       submitDisabled={cost > 0 && !costNote.trim()}
       onSubmit={async () => { const r = await closeOrder(order!.id, { workDone: workDone.trim() || null, otherCost: cost || null, costNote: costNote.trim() || null }); onDone(r); }}>
       <TextField size="small" label="What was done" value={workDone} onChange={(e) => setWorkDone(e.target.value)} multiline minRows={2} autoFocus inputProps={{ 'data-testid': 'close-work' }} />

@@ -48,6 +48,10 @@ Open [Receive against PO](help:purchase-receive). Only Management-approved POs a
 - [Work in progress](help:stores-wip) and [Offcuts](help:stores-offcuts) — material on the floor and what is left of cut plates.
 - [To return to customers](help:stores-customer-returns) — customer material to send back.
 
+### Machines and tools
+- When you book the GRN of a machine or a durable tool, **register** each unit (serial, type). A machine then goes to Maintenance for setup. Anything you skip waits under **Stores › Check-in / out › To register**.
+- Check machines and tools out to people, employees, contractors, orders or areas, and back in, on [Check-in / out](help:stores-check-in-out). Overdue ones show on Home.
+
 ## Set up once
 [Stocking areas](help:stores-areas): at least one **Storage** area for raw material (for example RM-STORE), a **Work in process** area beside each cutting machine, a **Quarantine** area for doubtful stock, a **Dispatch** yard and a **Scrap** area. Without a storage area a GRN has nowhere to go.
 

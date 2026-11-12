@@ -10,7 +10,10 @@ One machine: what it carries, what it can do, when it works, the tools and spare
 
 ## What you see
 - Facts: **Machine type**, **Serial**, **Can do** (the operation codes), **Bought as**, **Updated**.
+- Under the name, the stage bar: **Received → Setup → Live → Condemned** (see [A machine's life](help:maintenance-machine-life)). The buttons beside it are the ones its stage allows: **Setup ticket**, **Check out** / **Check in**, **Move**, **Condemn…**, **Record disposal**.
 - Tabs:
+  - **Life** — where it is and who has it, **Cost and depreciation**, the **Setup** items (installation or consumable), **Use by order** and its disposal.
+  - **Log** — everything that happened to it: received, setup tickets, moves, check-outs, maintenance, and each order it worked on with its hours.
   - **Specifications** — what its type says it must carry, and its own values (timing formulas read them). **Rules on this machine only** is rarely needed.
   - **Charts** — lookup tables for this machine.
   - **Operations** — **What it can do**: each operation, **Can do it** (or **Kept out**), where it is **Set on**, **Setup per run** and **Work per piece**.

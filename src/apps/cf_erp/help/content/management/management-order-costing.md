@@ -10,7 +10,7 @@ order: 40
 
 ## What you see
 - A line of totals for **All orders**: charged, material, consumables, credits and margin. It also shows the general (overhead) issues this month.
-- One row per order whose customer acceptance is approved. The columns are **Order**, **Customer**, **Charged so far**, **Material**, **Consumables**, **Credits**, **Not costed** and **Margin** (with a coloured %). Use the column menu to show the hidden ones: **Contract**, **Contractor**, **Scrap / offcuts** (kg) and **Scrap charged**.
+- One row per order whose customer acceptance is approved. The columns are **Order**, **Customer**, **Charged so far**, **Material**, **Consumables**, **Credits**, **Not costed** and **Margin** (with a coloured %). Use the column menu to show the hidden ones: **Contract**, **Contractor**, **Machine use**, **Scrap / offcuts** (kg) and **Scrap charged**.
 - **Search orders** and a full-screen button.
 
 ## How to read one order's cost sheet
@@ -20,6 +20,7 @@ order: 40
    - **− Material issued (at cost)**
    - **− Consumables issued**
    - **− Contractor work (later)**
+   - **− Machine use (depreciation)** — each machine's daily depreciation for the days it worked on this order (a shared day is split by run hours; a day it was checked out to the order with no run hours counts whole). The **Machine use** list below names each machine, its days and its rate. See [A machine's life](help:maintenance-machine-life).
    - **+ Credits: scrap and offcuts**
    - **= Margin**, in ₹ and %.
 3. The small line under it shows the contract value, what was invoiced and what was received.

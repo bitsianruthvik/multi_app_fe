@@ -77,7 +77,7 @@ export default function MaintenanceOrderDetail() {
               </Button>
             ))}
             <Button variant="outlined" startIcon={<Inventory2Rounded />} onClick={() => setMr(o)} data-testid="mo-mr">Material request (M)</Button>
-            <Button variant="contained" color="success" startIcon={<CheckCircleRounded />} onClick={() => setClosing(o)} data-testid="mo-close">Close — machine up (C)</Button>
+            <Button variant="contained" color="success" startIcon={<CheckCircleRounded />} onClick={() => setClosing(o)} data-testid="mo-close">{o.source === 'setup' ? 'Close — machine goes live (C)' : 'Close — machine up (C)'}</Button>
             <Box sx={{ flex: 1 }} />
             {o.canFalseAlarm && <Button color="warning" onClick={() => setPrompt('false')} data-testid="mo-false-alarm">False alarm</Button>}
             <Button color="error" onClick={() => setPrompt('cancel')}>Cancel</Button>

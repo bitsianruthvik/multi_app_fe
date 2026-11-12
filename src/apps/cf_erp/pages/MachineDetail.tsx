@@ -17,7 +17,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { subjectText, timeText } from '../lib/production';
-import { DangerBadge, DetailSkeleton, ErrorNotice, Fact, Mono, RuleBadge, SectionCard, SkeletonRows, StatusBadge } from '../components/ui';
+import { Badge, DangerBadge, DetailSkeleton, ErrorNotice, Fact, Mono, RuleBadge, SectionCard, SkeletonRows, StatusBadge } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { EntityList, EntityRow } from '../components/EntityList';
@@ -31,6 +31,9 @@ import { MachineResourcesCard } from '../components/MachineResourcesCard';
 import { ValueHistory } from '../components/ValueHistory';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { getMachineLife, getMachineLog } from '../api/machineLife';
+import { MachineLifeTab, MachineLogTab, StageBadge, StageBar } from '../components/MachineLife';
+import { useLifeActions } from '../hooks/useLifeActions';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -54,7 +57,10 @@ export default function MachineDetail() {
   const specs = useLoad(() => cfApi.get<Resolution>(`/machines/${id}/specs`), [id]);
   const rules = useLoad(() => cfApi.get<Rule[]>(`/rules${qs({ subjectType: 'machine', subjectId: id })}`), [id]);
   const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
-  const [tab, setTab] = useUrlParam('tab', 'specs');
+  // §104: its lifecycle — stage, place, custody, cost — and its log. Life is the first tab.
+  const life = useLoad(() => getMachineLife(id), [id]);
+  const log = useLoad(() => getMachineLog(id), [id]);
+  const [tab, setTab] = useUrlParam('tab', 'life');
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
@@ -62,6 +68,8 @@ export default function MachineDetail() {
   const [version, setVersion] = useState(0);
   const m = mc.data;
   useDetailTitle(m?.code ?? null);
+  const lifeChanged = (next?: unknown) => { if (next && typeof next === 'object' && 'stage' in (next as object)) life.setData(next as NonNullable<typeof life.data>); else life.reload(); log.reload(); mc.reload(); };
+  const actions = useLifeActions(life.data, lifeChanged);
 
   if (mc.error) return <ErrorNotice error={mc.error} onRetry={mc.reload} />;
   if (!m) return <DetailSkeleton />;
@@ -79,22 +87,27 @@ export default function MachineDetail() {
   ];
 
   const header = (
-    <DetailHeader code={m.code} title={m.name} subtitle={m.notes ?? undefined} badges={<StatusBadge status={m.status} />}
-      actions={canManage && (
+    <DetailHeader code={m.code} title={m.name} subtitle={m.notes ?? undefined}
+      badges={<>{life.data && <StageBadge stage={life.data.stage} label={life.data.stageLabel} />}{life.data?.kind === 'tool' && <Badge family="neutral" noIcon label="Tool" />}{life.data?.checkout && <Badge family={life.data.checkout.overdue ? 'danger' : 'info'} noIcon label={`Out · ${life.data.checkout.to.name ?? life.data.checkout.to.code ?? ''}`} />}</>}
+      actions={(
         <>
-          <Button variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>
-          <Tooltip title="Delete — its own values and rules go with it"><IconButton aria-label="Delete machine" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
+          {actions.buttons}
+          {canManage && <Button variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>}
+          {canManage && <Tooltip title="Delete — its own values and rules go with it"><IconButton aria-label="Delete machine" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>}
         </>
       )}
       facts={(
         <>
+          {life.data && <Fact label="Place">{life.data.area ? life.data.area.code : '—'}</Fact>}
           <Fact label="Machine type"><Box component={Link} to={to(`machine-types/${m.classificationId}`)} title="Open this machine type" sx={linkSx}>{typeName}</Box></Fact>
           <Fact label="Serial"><Mono muted={!m.serialNumber}>{m.serialNumber ?? '—'}</Mono></Fact>
           <Fact label="Can do"><Mono>{can.length ? can.map((o) => o.operation.code).join(', ') : 'nothing yet'}</Mono></Fact>
           {m.catalogItem && <Fact label="Bought as"><Mono><Link to={to(`items/${m.catalogItem.id}`)}>{m.catalogItem.code ?? m.catalogItem.name}</Link></Mono></Fact>}
           <Fact label="Updated"><Mono muted>{new Date(m.updatedAt).toLocaleDateString()}</Mono></Fact>
         </>
-      )} />
+      )}>
+      {life.data && <StageBar life={life.data} />}
+    </DetailHeader>
   );
   const crossLinks = (
     <>
@@ -109,6 +122,8 @@ export default function MachineDetail() {
     </>
   );
   const tabs = [
+    { value: 'life', label: 'Life' },
+    { value: 'log', label: 'Log', count: log.data?.rows.length },
     { value: 'specs', label: 'Specifications' },
     { value: 'charts', label: 'Charts' },
     { value: 'operations', label: 'Operations', count: can.length },
@@ -150,6 +165,8 @@ export default function MachineDetail() {
         </Box>
       )}
 
+      {tab === 'life' && (life.data ? <MachineLifeTab life={life.data} onChanged={lifeChanged} openCost={actions.openCost} /> : <><ErrorNotice error={life.error} onRetry={life.reload} />{!life.error && <SkeletonRows rows={4} />}</>)}
+      {tab === 'log' && <><ErrorNotice error={log.error} onRetry={log.reload} /><MachineLogTab rows={log.data?.rows ?? null} /></>}
       {tab === 'charts' && <ChartsPanel subject={{ type: 'machine', id }} canManage={canManage} onChanged={() => { specs.reload(); mc.reload(); setVersion((v) => v + 1); }} />}
 
       {tab === 'operations' && (
@@ -163,6 +180,7 @@ export default function MachineDetail() {
       {tab === 'resources' && <MachineResourcesCard machineId={id} canManage={canResources} />}
       {tab === 'history' && <ValueHistory path={`/machines/${id}/history`} version={version} subtitle="Every change to a value on this machine — who, when, from what to what." />}
 
+      {actions.dialogs}
       <MachineDialog open={editing} existing={m} tree={tree.data} onClose={() => setEditing(false)} onSaved={(saved) => { toast.success(`${saved.code} saved.`); refreshAll(); }} />
       <ConfirmDialog open={deleting} danger confirmLabel="Delete" title="Delete this machine?" entityName={`${m.code} · ${m.name}`}
         body="Its values, its own rules and the operation times set for it alone go with it. Rules on its machine type stay."

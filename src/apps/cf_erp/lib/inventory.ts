@@ -9,13 +9,14 @@ export const RECEIVING_PURPOSES: readonly AreaPurpose[] = ['storage', 'quarantin
 export const canReceiveInto = (a: { status: string; purpose: AreaPurpose }) => a.status === 'active' && RECEIVING_PURPOSES.includes(a.purpose);
 export const NO_RECEIVING_AREA = 'No storage area to receive into. Make a storage area in Stores › Stocking areas.';
 
-export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch', scrap: 'Scrap' };
+export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch', scrap: 'Scrap', maintenance: 'Maintenance bay' };
 export const PURPOSE_HELP: Record<AreaPurpose, string> = {
   storage: 'Stock here is available to use.',
   wip: 'Stock here is being worked on — beside a machine or in a bay.',
   quarantine: 'Stock here is held: not issued until it is moved back to storage.',
   dispatch: 'Finished and waiting to leave.',
   scrap: 'Scrap kept here until it is sold or sent back.',
+  maintenance: 'Where Maintenance sets up and repairs machines and tools — they are moved here and back to the store.',
 };
 export const CATEGORY_LABEL: Record<StockCategory, string> = { available: 'Available', in_process: 'In process', held: 'Held', rejected: 'Rejected', dispatch: 'Dispatch', scrap: 'Scrap' };
 export const MOVEMENT_LABEL: Record<LedgerMovementType, string> = { receipt: 'Receipt', issue: 'Issue', transfer: 'Transfer', adjustment: 'Count', scrap: 'Scrap', return: 'Returned to customer' };

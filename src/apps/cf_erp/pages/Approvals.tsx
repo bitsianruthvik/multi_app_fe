@@ -106,6 +106,25 @@ function AcceptanceBody({ ctx }: { ctx: AcceptanceContext }) {
   );
 }
 
+/** §104: condemning a machine — its age, book value, maintenance and the reason. */
+interface CondemnContext { kind: 'machine_condemn'; machine: { id: number; code: string; name: string; kind: string }; reason: string; liveOn: string | null; ageYears: number | null;
+  cost: { base: number; accumulated: number; bookValue: number; salvage: number } | null; lastMaintenance: string | null; maintenanceCost: number }
+function CondemnBody({ ctx }: { ctx: CondemnContext }) {
+  const company = useCompanySlug();
+  return (
+    <Box data-testid="approval-condemn" sx={{ display: 'grid', gap: 0.75 }}>
+      <Typography sx={{ fontSize: 13 }}><Box component={Link} to={appPath(company, `machines/${ctx.machine.id}`)} sx={{ color: 'inherit' }}>{ctx.machine.code}</Box> {ctx.machine.name}{ctx.machine.kind === 'tool' ? ' (tool)' : ''}</Typography>
+      <Typography sx={{ fontSize: 13 }}>Why: {ctx.reason}</Typography>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+        {[ctx.ageYears != null ? `Live ${ctx.ageYears} years (since ${ctx.liveOn})` : 'No live date',
+          ctx.cost ? `book value ${rupeeText(ctx.cost.bookValue)} of ${rupeeText(ctx.cost.base)}` : 'no cost recorded',
+          `maintenance so far ${rupeeText(ctx.maintenanceCost)}`, ctx.lastMaintenance ? `last ${String(ctx.lastMaintenance).slice(0, 10)}` : null].filter(Boolean).join(' · ')}
+      </Typography>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Approve and it leaves planning and check-out for good; its disposal is recorded next.</Typography>
+    </Box>
+  );
+}
+
 /** Step 5 (§84): a re-baseline — what moves if the saved plan becomes the baseline. */
 interface RebaselineContext { kind: 'rebaseline'; summary: string; later: number; earlier: number; slipDays: number; moves: { code: string; label: string; from: string | null; to: string | null; days: number | null }[] }
 function RebaselineBody({ ctx }: { ctx: RebaselineContext }) {
@@ -168,6 +187,7 @@ function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number
         {a.context?.kind === 'purchase_order' && <PoBody ctx={a.context as PoContext} closeShort={a.type === 'po_close_short'} />}
         {a.context?.kind === 'order_acceptance' && <AcceptanceBody ctx={a.context as AcceptanceContext} />}
         {(a.context as { kind?: string } | null)?.kind === 'rebaseline' &&<RebaselineBody ctx={a.context as unknown as RebaselineContext} />}
+        {(a.context as { kind?: string } | null)?.kind === 'machine_condemn' && <CondemnBody ctx={a.context as unknown as CondemnContext} />}
         {!a.context && a.summary && <Typography sx={{ fontSize: 13 }}>{a.summary}</Typography>}
         {!pending && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{a.status} {when(a.decidedAt)}{a.decidedBy?.name ? ` by ${a.decidedBy.name}` : ''}{a.decisionNote ? ` — ${a.decisionNote}` : ''}</Typography>}
       </Box>

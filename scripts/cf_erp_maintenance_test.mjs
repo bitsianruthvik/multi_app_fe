@@ -171,7 +171,8 @@ await check('the menu: a Maintenance tab — Machines, Maintenance orders, Preve
   const sec = m.SECTIONS.find((s) => s.key === 'maintenance');
   assert.equal(sec.label, 'Maintenance');
   // 2026-10-24: the machine register and Tools are in the Maintenance menu too, with their own (Production / Stores) permissions.
-  assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime', 'machines', 'tools']);
+  // 2026-11-12 §103: New machine approvals (the Approvals inbox, Maintenance's kind) sits before Tools.
+  assert.deepEqual(sec.screens.map((s) => s.path), ['maintenance', 'maintenance-orders', 'maintenance-plans', 'planned-downtime', 'machines', 'approvals', 'tools']);
   // 2026-10-31: the menu follows working access — the Maintenance tab is the maintenance tag's (production view still READS
   // the pages, reached by a link; the backend is unchanged).
   assert.deepEqual(sec.screens.slice(0, 4).map((s) => s.permission), ['cf_erp_maintenance|cf_erp_production_manage', 'cf_erp_maintenance|cf_erp_production_manage', 'cf_erp_maintenance', 'cf_erp_maintenance|cf_erp_production_manage']);

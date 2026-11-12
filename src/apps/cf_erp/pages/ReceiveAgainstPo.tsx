@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import MoveToInboxRounded from '@mui/icons-material/MoveToInboxRounded';
@@ -17,6 +17,8 @@ import { FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { ReceiveLineDialog } from '../components/PurchaseDialogs';
 import { GrnDialog } from '../components/GrnDialog';
+import { RegisterDialog } from '../components/MachineLife';
+import { listToRegister, type ToRegister } from '../api/machineLife';
 import { useToast } from '../components/toastContext';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
@@ -40,6 +42,9 @@ export default function ReceiveAgainstPo() {
   const load = useLoad(() => getPendingLines({ search: term }), [term]);
   const full = useFullScreen('receive');
   const [receiving, setReceiving] = useState<{ po: PurchaseOrder; line: PurchaseLine } | null>(null);
+  // §104 (user: "Stores confirms first"): a machine or durable tool just received is registered at once — serial and type.
+  const [toRegister, setToRegister] = useState<ToRegister[]>([]);
+  const registered = useRef(false);
   const rows = load.data?.rows ?? [];
   // Motion: a tick in the header once a GRN is booked; a GRN that completes its PO celebrates (once, rare milestone).
   const [bookedTick, markBooked] = useSavedCheck();
@@ -109,7 +114,11 @@ export default function ReceiveAgainstPo() {
           const closed = res.order.stage === 'closed' ? ` ${res.order.code} is closed — everything is in.` : '';
           toast.success(base + flag + closed);
           booked(res.order.stage === 'closed');
+          listToRegister(res.bill.id).then(setToRegister).catch(() => setToRegister([]));
         }} />
+      <RegisterDialog line={toRegister[0] ?? null} open={toRegister.length > 0}
+        onClose={() => { setToRegister((q) => q.slice(1)); if (!registered.current) toast.info('Not registered yet — it waits under Stores › Check-in / out › To register.'); registered.current = false; }}
+        onDone={(r) => { registered.current = true; invalidateNavCounts(); toast.success(`${r.machines.map((m) => m.code).join(', ')} registered — ${r.stage === 'setup' ? 'a setup ticket went to Maintenance' : 'live'}.`); }} />
       <ReceiveLineDialog line={receiving && receiving.po.suppliedByCustomer ? receiving.line : null} orderCode={receiving?.po.code ?? null} customer={!!receiving?.po.suppliedByCustomer}
         onClose={() => setReceiving(null)}
         onReceived={(next, held, x) => {
