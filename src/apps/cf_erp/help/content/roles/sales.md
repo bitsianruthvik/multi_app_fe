@@ -31,10 +31,10 @@ The design engineer fills the missing values, saves the execution plan, freezes 
 When the quotation has gone out, click **Mark quoted** in the order header. If the customer goes elsewhere, **Mark lost** (it can be reopened later).
 
 ### 6. The material request
-Once nesting is saved, open **Material request** and click **Raise MR**. Click **Share as PDF** or **Share as Excel** and send it with your offer. The MR waits: Purchase starts only after the acceptance is approved. See [Material request](help:order-buying).
+Once nesting is saved, **Material required** shows what the order needs and what the store has; **Download required materials** gives it as Excel to send with your offer. The material request itself is created there once the MD has accepted the order. See [Material required](help:order-buying).
 
 ### 7. The customer acceptance
-Click **Customer acceptance** in the header. The charges, payment milestones and post-production stages come from the default templates. Change the rates to what the customer agreed, add **Scrap & offcuts** if you charge for them, and check the estimate and margin. Write a note for Management and click **Send for approval**. See [Customer acceptance](help:order-acceptance).
+When the customer says yes, click **Customer accepted** in the header. Give the date and their PO / reference, and a note for the MD. The charges, payment milestones and post-production stages can be filled now (**Accounting** › **Fill the accounting now**) or later in the order's **Acceptance & terms** tab. Click **Mark accepted — send to MD**. When the MD accepts, the order is confirmed and you can click **Create material request** in Material required. See [Customer accepted](help:order-acceptance).
 
 ### 8. Management approves
 The MD approves it in **Management › Approvals**. If it comes back, the reason shows on the step: change the terms and click **Save and send again**. Once approved the order is **Confirmed**, the terms are locked and the order value says *accepted*. Purchase starts on the MR, and Billing raises the advance when it falls due.

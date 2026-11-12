@@ -70,7 +70,7 @@ export function MachineShifts({ machine }: { machine: Machine }) {
   const [removing, setRemoving] = useState<MachineShift | null>(null);
   const [copying, setCopying] = useState(false);
   const [adding, setAdding] = useState(false);
-  const canManage = useIsPermitted()('cf_erp_production_manage');
+  const canManage = useIsPermitted()('cf_erp_production_manage|cf_erp_maintenance');
   const refresh = () => { shifts.reload(); cal.reload(); exc.reload(); invalidateNavCounts(); };
   // A refused delete used to fail silently — the row simply stayed where it was.
   const removeException = async (id: number) => {

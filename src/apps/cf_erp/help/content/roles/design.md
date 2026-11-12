@@ -40,7 +40,7 @@ For each line:
 See [Nesting](help:order-nesting) and [Compare with AI](help:order-nesting-compare).
 
 ## 5. Hand over
-- Tell sales the line is nested: they raise and share the MR and send the customer acceptance. See [Material request](help:order-buying).
+- Tell sales the line is nested: Material required then shows what the order needs, and the material request is created once the customer and the MD have accepted the order. See [Material required](help:order-buying).
 - Once Management approves, the order is confirmed. On **Production**, check the times, click **Create the production order** and **Release**. See [Production](help:order-production).
 - If release refuses a row with no flow, give it one on Structure & values and **Save**: this is allowed on a frozen line until release.
 

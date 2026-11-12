@@ -26,6 +26,7 @@ import { FlashOnChange } from '../motion';
 import { TrackerTree } from '../components/Tracker/TrackerTree';
 import { FinishStepsDialog } from '../components/Tracker/FinishStepsDialog';
 import { TimingSheetButtons } from '../components/TimingSheetButtons';
+import { Tracker3D } from '../components/Tracker/Tracker3D';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
@@ -155,8 +156,10 @@ export default function Tracker() {
           { value: 'tree', label: 'Progress' },
           { value: 'steps', label: 'Steps', ...(steps.data ? { count: count('open') } : {}) },
           { value: 'material', label: 'Material', ...(mats.data ? { count: shortCount } : {}) },
+          // 2026-11-12: the 3D progress view moved here from the order's Production step.
+          { value: '3d', label: '3D' },
         ]} />
-      {view === 'tree' ? <TrackerTree /> : view === 'steps' ? (
+      {view === '3d' ? <Tracker3D /> : view === 'tree' ? <TrackerTree /> : view === 'steps' ? (
         <>
           <FilterBar search={search} onSearch={setSearch} placeholder="Search step, piece, order or machine">
             {STEP_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={count(f.value)} onClick={() => setStatus(f.value)} />)}

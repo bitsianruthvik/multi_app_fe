@@ -40,5 +40,5 @@ Nothing is dragged. A card moves by itself when something real happens: the acce
 
 ## Related
 - [Orders](help:sales-orders)
-- [Customer acceptance](help:order-acceptance)
+- [Customer accepted](help:order-acceptance)
 - [Templates](help:sales-term-templates)

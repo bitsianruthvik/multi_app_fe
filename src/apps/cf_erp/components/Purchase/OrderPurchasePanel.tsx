@@ -123,7 +123,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           {req && req.items.length > 0 && (
             <Button size="small" variant="outlined" startIcon={<DownloadRounded />} onClick={() => downloadRequired(order, req)} data-testid="mr-download-required">Download required materials</Button>
           )}
-          {canView && (
+          {canManage && (
             <Tooltip title={gateWhy}>
               <span>
                 <Button size="small" variant="contained" startIcon={<PlaylistAddCheckRounded />} disabled={busy || !!gateWhy}
@@ -145,9 +145,10 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             <Button size="small" startIcon={<PictureAsPdfRounded />} onClick={() => void share('pdf')} data-testid="mr-share-pdf">MR as PDF</Button>
             <Button size="small" startIcon={<TableViewRounded />} onClick={() => void share('xlsx')} data-testid="mr-share-xlsx">MR as Excel</Button>
           </>}
-          {canSeeStores && requisitions.length > 0 && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Stores</Button>}
+          {canSeeStores && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Stores</Button>}
         </Box>
         {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing this needs the orders view or the inventory view permission.</Typography>}
+        {canView && !canManage && <Typography data-testid="buying-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{NO_MANAGE}</Typography>}
         {refusal && (
           <Alert severity="warning" className="cfm-fade-in" data-testid="buying-refusal" action={<Button color="inherit" size="small" onClick={() => { setRefusal(null); reload(); }}>Reload</Button>}>
             <Box>{refusal.message}</Box>
@@ -194,6 +195,9 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             </Box>
           ))}
 
+        {data && !requisitions.length && !without.length && (
+          <Typography data-testid="buying-empty" sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>{data.reason ?? 'No line of this order buys any material.'}</Typography>
+        )}
         {/* The material requests raised, and the lines without one. */}
         {data && requisitions.length > 0 && (
           <Box data-testid="mr-status" sx={{ display: 'grid', gap: 0.75 }}>

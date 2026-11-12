@@ -31,7 +31,7 @@ When the badge says **Customer supplies**, the columns read **In the customer's 
 - When the MR cannot be changed, a blue note says why. Changing it needs the Stores permission.
 
 ## Related
-- [The order's Material request step](help:order-material)
+- [The order's Material required step](help:order-buying)
 - [MR inbox](help:purchase-material-requests)
 - [A purchase request — the quote grid](help:purchase-request)
 - [Receive against PO (GRN)](help:purchase-receive)

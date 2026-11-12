@@ -6,7 +6,7 @@ roles: [production, management]
 routes: ["/:company/cf_erp/planner"]
 order: 20
 ---
-Every production order, step by step, placed on the machines' shifts, day by day. The production manager saves the plan; the first saved plan is the baseline every later plan is measured against.
+Planning › Plan by week opens this planner on this week (**This week**, **←** and **→** step a week); Planning › Planner shows its whole horizon. Every production order, step by step, placed on the machines' shifts, day by day. The production manager saves the plan; the first saved plan is the baseline every later plan is measured against.
 
 ## How the plan is worked out
 - Each step waits for the steps before it and for its material; material goes first come, first served.

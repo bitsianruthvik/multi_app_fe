@@ -10,15 +10,17 @@ order: 50
 Nesting lays a line's cut pieces out on the plates they are cut from, and its sections on stock bars. What you save here is what the shop cuts and what the order buys. It is done one line at a time, as soon as the line's structure and drawings are there — it does not wait for Freeze design. If the structure then changes (quantities, sizes, parts added or removed), the line's Structure step warns first (**This line is nested (N plates)…**) and the save makes the nesting void: every saved plate of the line is taken off and the save says so. Nest the line again.
 
 ## What you see
-- Two doors: **Upload your nesting** (**Upload nesting files**) and **Nesting by AI** (**Nest by AI**).
+- Before anything is nested, two choices: **Upload your nesting** (**Upload nesting files**) and **Nesting by AI** (**Nest by AI**). The **i** next to each says more.
+- Once nested, the buttons at the top: **Cut pieces (N)**, **Upload nesting**, **Download** (**DXFs for ProNest (zip)**, **AI DXFs for ProNest (zip)**, **Nesting sheet**) and **More** (**Start again**). Upload and download are there all the time.
+- The **i** buttons hold the explanations: what the saved plan is, and what using a proposal does.
 - **What to nest** (**Choose pieces and plates**): step 1 **Pieces**, untick a piece to leave it out; step 2 **Plates**, the catalog plates the packer may use. A customer's plate is marked **Customer's — used first**.
 - **Cut pieces (N)**: the list of cut pieces, made automatically from the parts and values.
 - **Sections**: section parts cut to length on stock bars (**Propose**, **Accept**, **Take back**, **Download sheet**, **Upload sheet**).
 - Once saved: the figures (**Steel bought**, **Waste**, **Cut pieces nested**), one card per steel with **Draw the N plates**, and **Offcuts (N)**: the leftovers that are kept.
 
 ## How to upload the customer's or your own nesting
-1. Click **Upload nesting files**, or drop the files on the page.
-2. Give the ProNest job files (.nif, one per thickness) or one DXF per plate. AI matches the parts to this line's cut pieces.
+1. Click **Upload nesting files** (or **Upload nesting** once something is nested), or drop the files on the page.
+2. Give the ProNest job files (.nif, one per thickness) or one DXF per plate. The parts are matched to this line's cut pieces.
 3. **Check the nesting files** lists each file: plate found, pieces, **N to fix**, **N to check**. Name the plate with **Which plate?** when none was found.
 4. Tick **Replace everything with these files** only to start over; otherwise each file replaces its own saved plate.
 5. Click **Save N plates**. With warnings it asks **Save with these warnings?** — **Save anyway** or **Go back**.
@@ -34,7 +36,7 @@ A yellow box *N cut pieces are not nested yet* offers **Upload more files**, **N
 
 ## Good to know
 - **Use this nesting** makes each plate a lot this line will draw from stock, writes every piece where it sits in cut order, and replaces the earlier automatic plates. Imported plates stay.
-- The **More** menu: **Upload nesting files**, **Download DXFs for ProNest (zip)**, **Download AI DXFs for ProNest (zip)**, **Download nesting sheet**, **Start again**.
+- An upload never starts AI on its own. AI nests the same pieces only when you open [Compare with AI](help:order-nesting-compare).
 - A piece is nested only on a plate of its grade and impact class. By default this is exact: BO and BR do not stand in for each other. See [Compare with AI](help:order-nesting-compare).
 - **This layout is out of date** means the structure changed after the layout was saved. Use **More › Start again** so the plates bought match what is cut.
 - A part no catalog plate can hold is listed under *could not be placed*. Leave it out, or add a long enough plate to the catalog.
@@ -43,4 +45,4 @@ A yellow box *N cut pieces are not nested yet* offers **Upload more files**, **N
 ## Related
 - [Compare with AI](help:order-nesting-compare)
 - [Freeze design](help:order-lock)
-- [Material request](help:order-buying)
+- [Material required](help:order-buying)

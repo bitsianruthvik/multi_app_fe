@@ -160,14 +160,17 @@ await check('the API helpers call the §84 routes', async () => {
 });
 
 // ── 2: the menu ─────────────────────────────────────────────────────────────────────────────────
-await check('the menu: Production › Planner (production manage, 2026-10-31), the monthly plan kept as "Plan by month"', () => {
-  const sec = m.SECTIONS.find((s) => s.key === 'production');
+await check('the menu: Planning › Plan by month, Plan by week, Production orders, Plan health, Reports, Planner (2026-11-12)', () => {
+  const sec = m.SECTIONS.find((s) => s.key === 'planning');
+  assert.ok(sec, 'the Planning section');
+  assert.deepEqual(sec.screens.map((s) => s.label), ['Plan by month', 'Plan by week', 'Production orders', 'Plan health', 'Reports', 'Planner']);
   const p = sec.screens.find((s) => s.key === 'planner');
-  assert.ok(p, 'planner screen');
-  assert.equal(p.path, 'planner'); assert.equal(p.label, 'Planner'); assert.equal(p.permission, 'cf_erp_production_manage');
-  assert.ok(sec.screens.findIndex((s) => s.key === 'planner') < sec.screens.findIndex((s) => s.key === 'plan'));
-  assert.equal(sec.screens.find((s) => s.key === 'plan').label, 'Plan by month');
+  assert.equal(p.path, 'planner'); assert.equal(p.permission, 'cf_erp_production_manage');
+  assert.equal(sec.screens.find((s) => s.key === 'plan-week').path, 'plan-week');
+  const prod = m.SECTIONS.find((s) => s.key === 'production');
+  assert.ok(!prod.screens.some((s) => ['planner', 'plan', 'machines'].includes(s.key)), 'Production keeps what runs on the floor');
   assert.match(src('routes.tsx'), /cf_erp\/planner'/);
+  assert.match(src('routes.tsx'), /cf_erp\/plan-week'/);
 });
 
 // ── 3: the planner ──────────────────────────────────────────────────────────────────────────────

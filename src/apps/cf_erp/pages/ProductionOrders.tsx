@@ -34,6 +34,9 @@ export default function ProductionOrders() {
   const toast = useToast();
   const canProduce = useIsPermitted()('cf_erp_production_manage');
   const [state, setState] = useUrlParam('state', 'open');
+  // ?orderId= — one sales order's production orders (the order's Production setup links here).
+  const [orderParam] = useUrlParam('orderId', '');
+  const orderId = Number(orderParam) || undefined;
   const [search, setSearch] = useState('');
   const term = useDebounced(search.trim());
   const [page, setPage] = useState(0);
@@ -41,7 +44,7 @@ export default function ProductionOrders() {
   const [error, setError] = useState<CfApiError | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setPage(0); }, [state, term]);
-  const data = useLoad(() => listProductionOrders({ state: state as PoFilter, search: term, limit: PO_ORDERS_PER_PAGE, offset: page * PO_ORDERS_PER_PAGE }), [state, term, page]);
+  const data = useLoad(() => listProductionOrders({ state: state as PoFilter, search: term, orderId, limit: PO_ORDERS_PER_PAGE, offset: page * PO_ORDERS_PER_PAGE }), [state, term, page, orderId]);
   const d: ProductionOrdersPage | null = data.data;
   const toggle = (id: number) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); saveCollapsed(n); return n; });
   const toRelease = releasableIds((d?.rows ?? []).flatMap((g) => g.productionOrders));
@@ -54,9 +57,9 @@ export default function ProductionOrders() {
 
   return (
     <Box>
-      <PageHeader title="Production orders" subtitle="Made from each sales order's execution plan. Click one to see its pieces and steps."
+      <PageHeader title="Production orders" subtitle="Made from each sales order's execution plan. Those in Planning are released from here once the order is confirmed and the line frozen and nested."
         actions={canProduce && toRelease.length > 0 && (
-          <Button variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy} onClick={releaseAll} data-testid="po-page-release-all">Release all yet to plan ({toRelease.length})</Button>
+          <Button variant="contained" startIcon={<RocketLaunchRounded />} disabled={busy} onClick={releaseAll} data-testid="po-page-release-all">Release all in planning ({toRelease.length})</Button>
         )} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search order, production order or customer">
         {PO_FILTERS.map((f) => <FacetChip key={f.key} label={f.label} active={state === f.key} count={d?.counts[f.key]} onClick={() => setState(f.key)} />)}

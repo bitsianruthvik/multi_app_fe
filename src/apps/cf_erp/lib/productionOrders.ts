@@ -4,14 +4,15 @@ import { releasedMessage } from './materialRequest';
 
 /** Production orders (§76): the words and the pure parts (lib, so the test can drive them). */
 export const PO_STATE: Record<PoState, { label: string; family: 'neutral' | 'info' | 'warning' | 'success' }> = {
-  yet_to_plan: { label: 'Yet to plan', family: 'neutral' },
-  planned: { label: 'Planned', family: 'info' },
+  yet_to_plan: { label: 'Setting times', family: 'neutral' },
+  planning: { label: 'Planning', family: 'info' },
+  planned: { label: 'Released', family: 'info' },
   in_production: { label: 'In production', family: 'warning' },
   dispatch: { label: 'Dispatch', family: 'success' },
   closed: { label: 'Closed', family: 'neutral' },
 };
 export const PO_FILTERS: { key: PoFilter; label: string }[] = [
-  { key: 'open', label: 'Open' }, { key: 'yet_to_plan', label: 'Yet to plan' }, { key: 'planned', label: 'Planned' },
+  { key: 'open', label: 'Open' }, { key: 'yet_to_plan', label: 'Setting times' }, { key: 'planning', label: 'Planning' }, { key: 'planned', label: 'Released' },
   { key: 'in_production', label: 'In production' }, { key: 'dispatch', label: 'Dispatch' }, { key: 'closed', label: 'Closed' }, { key: 'all', label: 'All' },
 ];
 export const PO_ORDERS_PER_PAGE = 20;

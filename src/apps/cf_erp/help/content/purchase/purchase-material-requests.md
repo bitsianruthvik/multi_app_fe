@@ -24,7 +24,7 @@ Stores' own purchases are not requests to Stores: **New PR** here and **Raise PR
 4. Click a row to open the MR.
 
 ## How to ask Stores for material (New MR)
-Use this when your department needs material from Stores — consumables, the office, or anything not raised by an order's Material request step.
+Use this when your department needs material from Stores — consumables, the office, or anything not raised by an order's Material required step.
 1. Click **New MR** (top right). A full-screen form opens: **New material request**.
 2. Under **For — the cost follows it**, pick **Stock**, **General** or **Sales order**.
 3. For **Sales order**, pick the order (required). For **General** you may pick a sales order to charge it to; leave it empty for overhead. **Stock** takes no order.
@@ -41,12 +41,12 @@ Use this when Stores itself needs something bought — refilling stock, Stores' 
 5. Click **Raise PR** (or press Ctrl+Enter). The purchase request opens. The app keeps a material request under it; it is not listed here, and you reach it from the PR.
 
 ## Good to know
-- A sales order's MR is raised from the order's Material request step; a maintenance order's MR from the maintenance order (**Material request** button). Both arrive here.
+- A sales order's MR is created from the order's Material required step (once the MD has accepted the order); a maintenance order's MR from the maintenance order (**Material request** button). Both arrive here.
 - **New MR** is open to Stores, maintenance and whoever manages orders. **New PR**, and saving MRs, need the Stores permission (or the older inventory manage permission). Others can look but not change.
 - The forms refuse: no item, a quantity of zero or less, a Sales order MR with no order, or a Stock MR that names an order.
 
 ## Related
-- [The order's Material request step](help:order-material)
+- [The order's Material required step](help:order-buying)
 - [One material request](help:purchase-material-request)
 - [To reorder](help:purchase-to-reorder)
 - [Purchase requests](help:purchase-requests)

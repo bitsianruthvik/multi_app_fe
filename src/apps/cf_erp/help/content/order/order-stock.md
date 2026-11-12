@@ -27,4 +27,4 @@ The **Stock** tab lists what has gone to this order from stock: every issue made
 
 ## Related
 - [The order page](help:order-page)
-- [Material request](help:order-buying)
+- [Material required](help:order-buying)

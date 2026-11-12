@@ -33,7 +33,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
   const blank = { code: '', name: '', classificationId: null as number | null, serialNumber: '', notes: '', status: 'active' as Machine['status'], catalogItem: null as MasterRecord | null };
   const [form, setForm] = useState(blank);
   // The machines screen's own permission — the one that gates New machine.
-  const canManageTypes = useIsPermitted()('cf_erp_production_manage');
+  const canManageTypes = useIsPermitted()('cf_erp_production_manage|cf_erp_maintenance');
   const [typesOpen, setTypesOpen] = useState(false);
   // A type made from inside this form has to reach the picker without the
   // screen behind us re-rendering, so the form keeps its own fresher tree.

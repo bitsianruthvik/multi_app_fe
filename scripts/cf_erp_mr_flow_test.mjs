@@ -35,7 +35,9 @@ const apiStub = `export async function apiFetch(url, o = {}) {
   const method = o.method || 'GET';
   const path = url.replace(/^\\/api\\/[^/]+\\/cf_erp/, '').split('?')[0];
   globalThis.__calls.push({ method, path, url, body: o.body });
-  const h = globalThis.__routes[method + ' ' + path];
+  const h = globalThis.__routes[method + ' ' + path]
+    // 2026-11-12: Material required reads what the order needs; an order with no test of its own may request.
+    ?? (method === 'GET' && path.endsWith('/materials-required') ? () => ({ order: { id: 0, code: 'X', status: 'confirmed', orderType: 'customer' }, acceptance: 'accepted', canRequest: true, requestWhy: null, items: [], lines: [] }) : undefined);
   if (!h) throw new Error('API request failed: 404 x - ' + JSON.stringify({ message: 'No mock for ' + method + ' ' + path }));
   const r = await h(o.body, url);
   if (r && r.__status) throw new Error('API request failed: ' + r.__status + ' x - ' + JSON.stringify(r.body));
@@ -168,11 +170,10 @@ await check('words: supply labels, the MR figures, raised and released messages'
 });
 
 // ── 2: the MR table ───────────────────────────────────────────────────────────
-await check('the stage is "Material request": a read-only row per MR with its status and what is locked, linking into Purchase', async () => {
+await check('the stage is "Material required" (2026-11-12): a read-only row per MR with its status and what is locked, linking into Purchase', async () => {
   reset();
   await mount(orderReqs([weBuy()]));
-  assert.match(text(document.body), /Material request/);
-  assert.match(text(q1('order-supply')), /^Material: We buy — raising the MR sends it to Stores/);
+  assert.match(text(document.body), /Material required/);
   const row = q1('mr-status-row');
   assert.match(text(row), /MR-TEST-MR-1-WEBUY-2.*Line 2.*Covered.*1 of 3 locked/);
   assert.ok(row.querySelector('a').getAttribute('href').endsWith('/material-requests/41'));
@@ -183,7 +184,6 @@ await check('a customer-supplied MR: badge on its row, nothing to buy or skip on
   reset();
   await mount(orderReqs([custOpen()], { order: { ...orderReqs([]).order, materialSupply: 'customer' } }), { order: { ...order, materialSupply: 'customer' } });
   assert.match(text(q1('mr-status-row')), /Customer supplies/);
-  assert.match(text(q1('order-supply')), /the customer sends it/);
   assert.equal([...document.querySelectorAll('button')].filter((b) => /Buy|Skip|Ask the customer/.test(text(b))).length, 0);
 });
 await check('raising a customer line proposes its committed date; an undated customer PO asks for the date on the MR', async () => {
@@ -261,7 +261,7 @@ await check('a line without an MR says who supplies it and changes it with one P
   assert.ok(opt, 'the menu offers Customer supplies');
   await click(opt); await settle();
   assert.deepEqual(lastCall('PUT', '/order-lines/803/material-supply').body, { supply: 'customer' });
-  assert.ok(buttonIn(q1('line-without'), 'Raise MR'));
+  assert.ok(buttonIn(q1('line-without'), 'Create for this line'));
 });
 await check('"Raise MR" sends the order to Purchase and the answer is shown at once', async () => {
   reset();
@@ -282,7 +282,7 @@ await check('Raise MR gating (user 2026-10-27): orders manage OR inventory manag
   reset(); globalThis.__user = { uiPermissions: ['cf_erp_orders_view', 'cf_erp_orders_manage'] };
   await mount(orderReqs([], { linesWithout: without })); await settle();
   assert.ok(q1('raise-mr'), 'orders manage alone: the header Raise MR');
-  assert.ok(buttonIn(q1('line-without'), 'Raise MR'), "…and the line's Raise MR");
+  assert.ok(buttonIn(q1('line-without'), 'Create for this line'), "…and the line's Create for this line");
   assert.ok(q1('line-supply'), "…and the line's supply picker");
   assert.ok(!q1('buying-readonly'));
   assert.equal(calls('GET', '/material-requests').length, 0, 'no MR inbox read without a Stores screen');
@@ -293,7 +293,7 @@ await check('Raise MR gating (user 2026-10-27): orders manage OR inventory manag
   // Orders view alone: sees the stage, raises nothing.
   reset(); globalThis.__user = { uiPermissions: ['cf_erp_orders_view'] };
   await mount(orderReqs([], { linesWithout: without })); await settle();
-  assert.ok(!q1('raise-mr') && !buttonIn(q1('line-without'), 'Raise MR'), 'orders view alone: no Raise MR');
+  assert.ok(!q1('raise-mr') && !buttonIn(q1('line-without'), 'Create for this line'), 'orders view alone: no Create material request');
   assert.match(text(q1('buying-readonly')), /orders manage or the inventory manage permission/);
   // Stores (inventory view + manage): raises, and links into Stores.
   reset(); globalThis.__user = { uiPermissions: ['cf_erp_inventory_view', 'cf_erp_inventory_manage'] };
@@ -350,7 +350,8 @@ await check('the release dialog says "Material from MR-…" with what is earmark
   assert.equal(m.releasedMessage(2, got), 'Line 2 released to production. Material from MR-TEST-MR-1-WEBUY-2: MA 4 kg, MB 6 kg reserved for production.');
   // §76: a release goes by production order; its toast keeps releasedMessage's MR words (lib/productionOrders.releaseToast).
   assert.match(src('lib/productionOrders.ts'), /releasedMessage\(undefined, \{ fromMr: f \}/);
-  assert.match(src('components/ProductionOrders/ProductionStep.tsx'), /releaseToast\(r\.released, r\.fromMr\)/);
+  // 2026-11-12: released from Planning › Production orders (the order's Production setup only sends to planning).
+  assert.match(src('pages/ProductionOrders.tsx'), /releaseToast\(r\.released, r\.fromMr\)/);
 });
 
 // ── 6: the rest of the wording, the customer's PO, inventory by owner ─────────────

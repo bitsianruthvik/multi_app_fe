@@ -23,11 +23,11 @@ order: 50
 2. Click **New template**. It starts from a short starter.
 3. Type a **Name**.
 4. Tick **Default — fills every new acceptance** if it should be the default.
-5. Fill the rows the same way as on the order's Customer acceptance step (see [Customer acceptance](help:order-acceptance)). Use **Charge**, **Lump sum**, **Scrap & offcuts**, **Milestone** or **Stage** to add rows.
+5. Fill the rows the same way as on the order's Acceptance & terms tab (see [Customer accepted](help:order-acceptance)). Use **Charge**, **Lump sum**, **Scrap & offcuts**, **Milestone** or **Stage** to add rows.
 6. Click **Save**.
 
 ## Another way
-On an order's Customer acceptance step, **Save as template** keeps that order's charges, milestones or stages as a new template. **Fill from template** puts a template's rows on an order.
+On an order's Acceptance & terms tab, **Save as template** keeps that order's charges, milestones or stages as a new template. **Fill from template** puts a template's rows on an order.
 
 ## Good to know
 - Deleting a template does not touch acceptances already made from it: they keep their own rows.
@@ -35,5 +35,5 @@ On an order's Customer acceptance step, **Save as template** keeps that order's 
 - Changing templates, and **Save as template** on an order, need the accounts manage permission. Anyone who sees orders can read them and fill an order from them.
 
 ## Related
-- [Customer acceptance](help:order-acceptance)
+- [Customer accepted](help:order-acceptance)
 - [Orders board](help:sales-orders-board)

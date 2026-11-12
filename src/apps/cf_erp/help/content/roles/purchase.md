@@ -11,7 +11,7 @@ You buy what Stores cannot give from stock. Your work never starts from an order
 ## The chain you sit in
 **Need → MR → Stores (take from stock, raise the PR) → Purchase (quotes → PO) → Management approval → Stores GRN → stock**
 
-- A sales order raises its MR from its Material request step, a maintenance order from its **Material request** button, and Stores raises MRs for stock and general use.
+- A sales order raises its MR from its Material required step (once the MD has accepted the order), a maintenance order from its **Material request** button, and Stores raises MRs for stock and general use.
 - When Stores saves an MR with something left to buy, a PR is made by itself — one per MR.
 - So your in-tray is **Purchase › Purchase requests**.
 

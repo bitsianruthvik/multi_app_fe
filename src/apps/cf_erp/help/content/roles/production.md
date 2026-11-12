@@ -9,12 +9,12 @@ order: 60
 Production turns a confirmed sales order into steel that leaves the gate. The production manager releases work, plans it on the machines, follows it on the floor, gives work to contractors when needed, and hands it to dispatch. Operators record their work on the machine tablet.
 
 ## How work reaches you
-1. On the sales order, the **Production** step makes the production orders from the saved execution plan ("Create the production order"). It can also override every time on the order for a trial. See [the order's Production step](help:order-production).
-2. Each production order is one piece of work, such as "SO260014 · Span 2 of 3". It starts **Yet to plan**.
+1. Saving the sales order's execution plan makes its production orders. On the order's **Production setup**, check their times and click **Send to planning**. It can also override every time on the order for a trial. See [the order's Production setup](help:order-production).
+2. Each production order is one piece of work, such as "SO260014 · Span 2 of 3". It starts **Setting times**, then **Planning**.
 
 ## Your day
 ### 1. Release
-Open [Production orders](help:production-orders). Use the **Yet to plan** chip, then click **Release all yet to plan (N)**, or open one and click **Release**. Released, it is **Planned** and its steps exist.
+Open Planning › [Production orders](help:production-orders). Use the **Planning** chip, then click **Release all in planning (N)**, or open one and click **Release**. Released, its steps exist. Planning › **Plan by month** and **Plan by week** place it; **Reports** and **Plan health** say how it goes.
 
 If release is refused because a row has no flow, give that row a flow on the order, save, and release again. **Take back** undoes a release while nothing has started and nothing was issued.
 

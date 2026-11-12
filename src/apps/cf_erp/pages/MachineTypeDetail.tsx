@@ -28,7 +28,7 @@ export default function MachineTypeDetail() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const isPermitted = useIsPermitted();
-  const canManage = isPermitted('cf_erp_production_manage');
+  const canManage = isPermitted('cf_erp_production_manage|cf_erp_maintenance');
   const canSetup = isPermitted('cf_erp_setup_manage');
   const d = useLoad(() => getMachineTypeDetails(id), [id]);
   const [tab, setTab] = useUrlParam('tab', 'specs');

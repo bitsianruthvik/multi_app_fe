@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  Box, ButtonGroup, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
@@ -174,7 +174,8 @@ function StepsDialog({ order, onClose }: { order: PlanOrder | null; onClose: () 
   );
 }
 
-export default function Planner() {
+/** weekly: Planning › Plan by week (route plan-week) — this page opened on this week. */
+export default function Planner({ weekly = false }: { weekly?: boolean } = {}) {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
@@ -194,6 +195,21 @@ export default function Planner() {
   const days = p?.days ?? [];
   const mode: PlanMode = p?.mode ?? 'auto';
   const scroller = useRef<HTMLDivElement>(null);
+  // Plan by week (2026-11-12, Planning › Plan by week = this page with ?range=week): opened scrolled to this week's Monday;
+  // "This week" / ← / → step a week at a time.
+  const [rangeParam] = useUrlParam('range', 'all');
+  const range = weekly ? 'week' : rangeParam;
+  const [weekAt, setWeekAt] = useState(0);
+  const mondayIndex = (offset: number) => {
+    if (!days.length) return 0;
+    const t = new Date(); const dow = (t.getDay() + 6) % 7; t.setDate(t.getDate() - dow + offset * 7);
+    const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    const i = days.findIndex((d) => d >= iso);
+    return i < 0 ? Math.max(0, days.length - 7) : i;
+  };
+  const goWeek = (offset: number) => { setWeekAt(offset); const el = scroller.current; if (el) el.scrollTo({ left: mondayIndex(offset) * COL, behavior: 'smooth' }); };
+  const daysKey = days.join(',');
+  useEffect(() => { if (range === 'week' && daysKey) { const el = scroller.current; if (el) el.scrollLeft = mondayIndex(weekAt) * COL; } }, [range, daysKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Motion (shop-floor light): a tick beside "Save plan" once saved; the grid dims while it is worked out again.
   const [savedTick, markSaved] = useSavedCheck();
 
@@ -284,10 +300,15 @@ export default function Planner() {
             <ToggleButton value="types" data-testid="plan-view-types">By machine type (2)</ToggleButton>
           </ToggleButtonGroup>
           <Box sx={{ flex: 1 }} />
+          <ButtonGroup size="small" variant="outlined" aria-label="Week">
+            <Button onClick={() => goWeek(weekAt - 1)} aria-label="Previous week">←</Button>
+            <Button onClick={() => goWeek(0)} data-testid="plan-this-week">This week</Button>
+            <Button onClick={() => goWeek(weekAt + 1)} aria-label="Next week">→</Button>
+          </ButtonGroup>
           <Button size="small" onClick={() => navigate(appPath(company, 'production-orders'))}>Production orders</Button>
         </Box>
         {plan.loading && !p ? <SkeletonRows rows={8} height={52} /> : p && !orders.length ? (
-          <EmptyState icon={<ViewTimelineRounded />} title="Nothing to plan." hint="Create production orders on a sales order's Production step and release them." />
+          <EmptyState icon={<ViewTimelineRounded />} title="Nothing to plan." hint="A sales order's production orders appear here once they are sent to planning and released." />
         ) : p && (
           <Box ref={scroller} data-testid="plan-grid" sx={{ overflow: 'auto', maxHeight: fs.on ? 'calc(100vh - 260px)' : 'calc(100vh - 340px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', opacity: plan.loading ? 0.6 : 1, transition: transition(['opacity'], duration.base) }}>
             <Box sx={{ width: LABEL_W + days.length * COL }}>

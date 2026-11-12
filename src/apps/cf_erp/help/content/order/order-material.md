@@ -34,5 +34,5 @@ When the customer sends the steel, it stays theirs. The **Customer material** ta
 - The tab shows only on customer orders, to people with the inventory view permission.
 
 ## Related
-- [Material request](help:order-buying)
+- [Material required](help:order-buying)
 - [New order](help:sales-new-order)

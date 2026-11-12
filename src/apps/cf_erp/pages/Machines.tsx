@@ -32,7 +32,7 @@ export default function Machines() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_production_manage');
+  const canManage = useIsPermitted()('cf_erp_production_manage|cf_erp_maintenance');
   const [params, setParams] = useSearchParams();
   const [status, setStatus] = useUrlParam('status', '');
   // Default: the machines that do production work. The asset register (vehicles, panels, tools) is one click away.

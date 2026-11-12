@@ -133,6 +133,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/management', element: wrap(<Dashboard />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/planner', element: wrap(<Planner />) },
+    // Planning › Plan by week (2026-11-12): the planner opened on this week.
+    { path: '/:company/cf_erp/plan-week', element: wrap(<Planner weekly />) },
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
     { path: '/:company/cf_erp/floor', element: wrap(<Floor />) },
     { path: '/:company/cf_erp/operators', element: wrap(<Operators />) },

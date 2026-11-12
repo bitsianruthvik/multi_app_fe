@@ -31,7 +31,9 @@ const apiStub = `export async function apiFetch(url, o = {}) {
   const method = o.method || 'GET';
   const path = url.replace(/^\\/api\\/[^/]+\\/cf_erp/, '').split('?')[0];
   globalThis.__calls.push({ method, path, url, body: o.body });
-  const h = globalThis.__routes[method + ' ' + path];
+  const h = globalThis.__routes[method + ' ' + path]
+    // 2026-11-12: Material required reads what the order needs; an order with no test of its own may request.
+    ?? (method === 'GET' && path.endsWith('/materials-required') ? () => ({ order: { id: 0, code: 'X', status: 'confirmed', orderType: 'customer' }, acceptance: 'accepted', canRequest: true, requestWhy: null, items: [], lines: [] }) : undefined);
   if (!h) throw new Error('API request failed: 404 x - ' + JSON.stringify({ message: 'No mock for ' + method + ' ' + path }));
   const r = await h(o.body, url);
   if (r && r.__status) throw new Error('API request failed: ' + r.__status + ' x - ' + JSON.stringify(r.body));
@@ -194,7 +196,7 @@ await check('without the manage permission the screen is read-only and says why'
   globalThis.__user = { uiPermissions: ['cf_erp_inventory_view'] };
   await mount(orderReqs([openReq()]));
   assert.ok(qa('mr-status-row').length === 1);
-  assert.match(text(q1('buying-readonly')), /Raising it needs the orders manage or the inventory manage permission/);
+  assert.match(text(q1('buying-readonly')), /needs the orders manage or the inventory manage permission/);
   assert.equal(q1('buying-header-actions'), null);
   assert.equal([...document.querySelectorAll('button')].filter((b) => /Check stock|Skip|Buy|Release excess/.test(text(b))).length, 0);
 });

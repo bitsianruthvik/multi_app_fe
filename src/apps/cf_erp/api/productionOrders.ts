@@ -5,7 +5,8 @@ import { cfApi, LONG_WRITE_MS, qs } from './client';
  * (per order / line / unit / sub-assembly), released, tracked and dispatched. States: Yet to plan → Planned →
  * In production → Dispatch → Closed. A "work order" stays the contractor's.
  */
-export type PoState = 'yet_to_plan' | 'planned' | 'in_production' | 'dispatch' | 'closed';
+/** 2026-11-12: Setting times (yet_to_plan) → Planning → Released (planned) → In production → Dispatch → Closed. */
+export type PoState = 'yet_to_plan' | 'planning' | 'planned' | 'in_production' | 'dispatch' | 'closed';
 export type PoFilter = PoState | 'open' | 'all';
 
 export interface ProductionOrder {
@@ -21,7 +22,7 @@ export interface ProductionOrder {
   unitNo: number | null;
   scopeKey: string;
   dispatch: { level: 'same' | 'line' | 'unit' | 'assembly'; levelId: number | null };
-  status: 'yet_to_plan' | 'planned' | 'closed';
+  status: 'yet_to_plan' | 'planning' | 'planned' | 'closed';
   state: PoState;
   stateLabel: string;
   progress: { pct: number; basis: 'minutes' | 'steps'; steps: number; done: number; onHold: number; started: number; minutes: number; minutesDone: number };
@@ -29,7 +30,7 @@ export interface ProductionOrder {
   releasedAt: string | null;
   releasedBy: string | null;
   dispatchedAt: string | null;
-  actions: { release: boolean; takeBack: boolean; dispatch: boolean };
+  actions: { release: boolean; takeBack: boolean; dispatch: boolean; toPlanning?: boolean; backToTimes?: boolean };
 }
 
 export interface OrderProductionOrders {
@@ -78,6 +79,9 @@ export const createProductionOrders = (orderId: number) =>
   cfApi.post<OrderProductionOrders & { created: number }>(`/orders/${orderId}/production-orders`, {}, LONG);
 export const releaseProductionOrders = (ids: number[], finishedAreaId?: number | null) =>
   cfApi.post<{ released: string[]; productionOrders: ProductionOrder[]; fromMr: ReleaseFromMr[] }>('/production-orders/release', { ids, finishedAreaId: finishedAreaId ?? undefined }, LONG);
+/** Setting times → Planning (the order's Production setup), and back. */
+export const sendToPlanning = (ids: number[]) => cfApi.post<{ sent: string[]; productionOrders: ProductionOrder[] }>('/production-orders/to-planning', { ids });
+export const backToTimes = (id: number) => cfApi.post<{ productionOrder: ProductionOrder }>(`/production-orders/${id}/back-to-times`, {});
 export const takeBackProductionOrder = (id: number) =>
   cfApi.post<{ productionOrder: ProductionOrder; releasesTakenBack: number }>(`/production-orders/${id}/take-back`, {}, LONG);
 export const dispatchProductionOrder = (id: number) =>

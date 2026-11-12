@@ -8,10 +8,11 @@ order: 30
 ---
 Every released piece and step, what it waits for, and the material it needs. Supervisors use it as the shop's work queue; Stores uses its Material view to reserve and issue.
 
-## The three views
+## The views
 - **Progress** (the default) — every released piece as a tree of its codes, its operations on the right, and how much is done higher up.
 - **Steps** — every released step and what it waits for.
 - **Material** — what the steps need, and what is still to reserve.
+- **3D** — pick a sales order (and, to narrow it, one of its production orders): its lines in 3D, each piece coloured by the step it is at. Pieces not released yet are grey.
 
 ## What you see in Steps
 - Figures: **Ready** (everything it waits for is done and its material is reserved), **In progress**, **Waiting** (for earlier steps, other pieces or material) and **Material short**. Click one to filter.

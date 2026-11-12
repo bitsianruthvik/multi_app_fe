@@ -37,7 +37,7 @@ To raise a job yourself (the machine stays up until the work starts), click **Ne
 - [Planned downtime](help:maintenance-downtime) — "every 1st Sunday, 8 h", or a one-off shutdown. It is written into the machine's calendar and the plan gives the machine no work in those hours.
 
 ## Set up once
-- [Machines](help:maintenance-machines) and [machine types](help:maintenance-machine-types) — the register (**Maintenance › Machine register**, also Production › Machines). Production machines need shifts on [their page](help:maintenance-machine).
+- [Machines](help:maintenance-machines) and [machine types](help:maintenance-machine-types) — the register (**Maintenance › Machine register** — yours to change; Stores sees it read-only). Production machines need shifts on [their page](help:maintenance-machine).
 - Each machine's **Tools & spares** tab — the tools, spares and consumables it needs, with a typical quantity. Every maintenance MR starts from this list.
 - [Stop reasons](help:production-stop-reasons) — what operators tap when a machine stands still.
 

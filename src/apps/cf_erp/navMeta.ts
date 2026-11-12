@@ -143,23 +143,31 @@ export const SECTIONS: NavSection[] = [
     ],
   },
   {
+    // 2026-11-12 (user): "This should be split between planning and production instead of one tab for all … Planning should
+    // have all the things related to planning monthly, weekly and reporting regarding the same." PLANNING first, then
+    // PRODUCTION (what runs on the floor). Machines moved to Maintenance (Stores sees them read-only).
+    key: 'planning',
+    label: 'Planning',
+    screens: [
+      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
+      // Step 5 (§84): the planner per production order, step by step, opened on this week.
+      { key: 'plan-week', label: 'Plan by week', path: 'plan-week', permission: PRODUCTION_MANAGE, keywords: ['planner', 'week', 'weekly', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
+      // Every production order by sales order: Setting times → Planning → Released …; released from here.
+      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION_MANAGE, keywords: ['planning', 'release', 'setting times', 'released', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
+      // Plan health (also Management › Plan health): what is slipping against the baseline.
+      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION_MANAGE, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview', 'report'] },
+      // The reports: by machine, by order, work orders (also Management › Dashboard). Not 'dashboard' — that path is the login landing.
+      { key: 'management', label: 'Reports', path: 'management', permission: PRODUCTION_MANAGE, keywords: ['dashboard', 'report', 'management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi'] },
+      // The planner's full horizon (every day, not only this week).
+      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'gantt', 'horizon', 'capacity'] },
+    ],
+  },
+  {
     key: 'production',
     label: 'Production',
     screens: [
-      // Management's glance: by machine and by order — also Management › Dashboard (2026-10-24); production people read it
-      // here. Not 'dashboard' — that path is the login landing (redirects to Home).
-      { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION_MANAGE, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
-      // Step 5 (§84): the planner per production order, step by step — auto (AI) / manual (Management), baseline, plan health.
-      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
-      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
-      // Plan health (the page at management-overview, also Management › Plan health): read-only for production view too
-      // (user 2026-10-27) — PPC sees what is slipping; approving a re-baseline stays Management's.
-      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION_MANAGE, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview'] },
-      // Every released line, by sales order (2026-10-17). A production order = a release; work orders stay the contractors'.
-      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION_MANAGE, keywords: ['released', 'release', 'yet to plan', 'planned', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
-      { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION_MANAGE, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
+      { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION_MANAGE, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material', '3d', 'progress'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
-      { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types', 'classification'] },
       { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
       // Work orders moved to Accounts (Step 6, §85); they are raised from a production order (Contractor work).
       { key: 'contractors', label: 'Contractors', path: 'contractors', permission: PRODUCTION_MANAGE, keywords: ['subcontractor', 'job work', 'outsource', 'vendor', 'party'] },
@@ -187,6 +195,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: STORES_WORK, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
       { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: STORES_WORK, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
       { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: STORES_WORK, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
+      // 2026-11-12: every machine, to look at (Maintenance keeps the register).
+      { key: 'store-machines', label: 'Machines', path: 'machines', hasDetail: true, permission: STORES_WORK, keywords: ['machines', 'equipment', 'assets', 'register'] },
     ],
   },
   {
@@ -202,7 +212,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'maintenance-plans', label: 'Preventive plans', path: 'maintenance-plans', permission: MAINTENANCE, keywords: ['preventive', 'pm', 'service', 'lubrication', 'run hours', 'tonnes', 'every n days'] },
       { key: 'planned-downtime', label: 'Planned downtime', path: 'planned-downtime', permission: MAINTENANCE_READ, keywords: ['downtime', 'shutdown', 'calendar', 'every sunday', 'holiday', 'machine off'] },
       // 2026-10-24: the machines register and Tools, as in Production / Stores (same routes, same permissions as there).
-      { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: MAINTENANCE, keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types'] },
+      // 2026-11-12: machines live here — the register is Maintenance's to change (production manage too); Stores sees it.
+      { key: 'maint-machines', label: 'Machine register', path: 'machines', hasDetail: true, permission: MAINTENANCE_READ, countKey: 'machines', keywords: ['machines', 'register', 'shifts', 'tools and spares', 'spares list', 'machine types', 'calendar', 'equipment', 'classification'] },
       { key: 'maint-tools', label: 'Tools', path: 'tools', permission: STORES_WORK, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'retire'] },
     ],
   },

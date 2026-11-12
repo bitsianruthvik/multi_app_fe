@@ -7,11 +7,11 @@ routes: ["/:company/cf_erp/orders/:id"]
 tab: nesting
 order: 55
 ---
-When a line's nesting came from uploaded files, AI nests the same pieces too and keeps its result beside them. The **Compare with AI** tab puts the two side by side, so you can see whether AI's plates would save steel, and make AI's the main nesting if they do.
+When a line's nesting came from uploaded files, **Compare with AI** lets AI nest the same pieces and puts the two side by side, so you can see whether AI's plates would save steel, and make AI's the main nesting if they do. AI runs only when you open this tab (or press **Run AI again**): an upload never starts it by itself.
 
 ## What you see
 - Two tabs on Nesting: **Nesting** and **Compare with AI** (only once a nesting was uploaded).
-- **The manual nesting beside AI's**: a table of figures (plates, steel bought, net steel with offcuts kept, waste and more) with columns **Manual**, **By AI** and **AI vs manual**.
+- **Your nesting beside AI's**: a table of figures (plates, steel bought, net steel with offcuts kept, waste and more) with columns **Manual**, **By AI** and **AI vs manual**.
 - A badge: *The manual nesting is the main one* or *AI's nesting is the main one*.
 - **Grade and impact class**: whether each side's plates match the pieces.
 - **By thickness**, and **The plates**: open a plate to see its drawing.
@@ -40,4 +40,4 @@ When Setup › Cutting allows it, AI may propose one custom plate size per steel
 
 ## Related
 - [Nesting](help:order-nesting)
-- [Material request](help:order-buying)
+- [Material required](help:order-buying)

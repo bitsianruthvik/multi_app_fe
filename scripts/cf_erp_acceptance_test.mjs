@@ -406,7 +406,7 @@ await check('the old plain Confirm is gone: no ConfirmOrderDialog, no ConfirmPan
   assert.match(body, /stageKey === 'acceptance'/);
   assert.doesNotMatch(src('lib/process.ts'), /CONFIRM_WHAT_HAPPENS|CONFIRM_STILL_ON_THE_PAGE/);
   const detail = src('pages/OrderDetail.tsx');
-  assert.match(detail, /value: 'acceptance', label: 'Customer acceptance'/);
+  assert.match(detail, /value: 'acceptance', label: 'Acceptance & terms'/);
   assert.doesNotMatch(detail, /ConfirmOrderDialog/);
   assert.match(src('components/Acceptance/AcceptanceStep.tsx'), /useFullScreen\('so-acceptance'\)/, 'full screen');
 });

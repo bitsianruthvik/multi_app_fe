@@ -134,13 +134,13 @@ await check('(1) Invoices: the subtitle and the empty state name Billing (advanc
 });
 
 // ── (2) Management menu ──────────────────────────────────────────────────────────────
-await check('(2) Management holds Dashboard (/management), Plan health, Approvals and Order costing; Production keeps Dashboard, Accounts Order costing', () => {
+await check('(2) Management holds Dashboard (/management), Plan health, Approvals and Order costing; Planning has it as Reports, Accounts Order costing', () => {
   const mg = sec('mgmt');
   assert.deepEqual(mg.screens.map((s) => [s.label, s.path]), [['Dashboard', 'management'], ['Plan health', 'management-overview'], ['Approvals', 'approvals'], ['Order costing', 'order-costing']]);
   assert.equal(new Set(mg.screens.map((s) => s.key)).size, 4, 'keys unique in the section');
-  const prodDash = sec('production').screens.find((s) => s.path === 'management');
-  // 2026-10-31: the menus follow what a role WORKS with — Production's own Dashboard is production manage.
-  assert.equal(prodDash.label, 'Dashboard'); assert.equal(prodDash.permission, 'cf_erp_production_manage');
+  // 2026-11-12: Planning's Reports (the same page), production manage.
+  const prodDash = sec('planning').screens.find((s) => s.path === 'management');
+  assert.equal(prodDash.label, 'Reports'); assert.equal(prodDash.permission, 'cf_erp_production_manage');
   assert.ok(sec('accounts').screens.some((s) => s.path === 'order-costing' && s.permission === 'cf_erp_accounts_view'));
   // Shared screens in Management need what the page needs AND an approval tag.
   const dash = mg.screens[0].permission.split('|');
@@ -174,12 +174,13 @@ await check('(2) useIsPermitted: "|" any one, "&" all of them — production alo
 await check('(2)+(3) resolveNav: a path in two sections stays in the one it was opened from, else the first the user may see', () => {
   const allow = (tags) => (t) => !t || t.split('|').some((alt) => alt.split('&').every((x) => tags.includes(x)));
   assert.equal(m.resolveNav('/c/cf_erp/management').section.key, 'mgmt', 'no preference: first section listing it');
-  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'production' }).section.key, 'production');
-  assert.equal(m.resolveNav('/c/cf_erp/management', { isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'production', 'production people land in Production');
-  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'mgmt', isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'production', 'a preference the user may not see is ignored');
+  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'planning' }).section.key, 'planning');
+  assert.equal(m.resolveNav('/c/cf_erp/management', { isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'planning', 'production people land in Planning');
+  assert.equal(m.resolveNav('/c/cf_erp/management', { prefer: 'mgmt', isPermitted: allow(['cf_erp_production_manage']) }).section.key, 'planning', 'a preference the user may not see is ignored');
   assert.equal(m.resolveNav('/c/cf_erp/machines/5', { prefer: 'maintenance' }).section.key, 'maintenance');
   assert.equal(m.resolveNav('/c/cf_erp/machines/5', { prefer: 'maintenance' }).detailId, '5');
-  assert.equal(m.resolveNav('/c/cf_erp/machines/5').section.key, 'production');
+  assert.equal(m.resolveNav('/c/cf_erp/machines/5').section.key, 'inventory', '2026-11-12: machines are Stores (read) and Maintenance (the register); no longer Production');
+  assert.equal(m.resolveNav('/c/cf_erp/machines/5', { prefer: 'production' }).section.key, 'inventory');
   assert.equal(m.resolveNav('/c/cf_erp/machine-types/3', { prefer: 'maintenance' }).section.key, 'maintenance');
   assert.equal(m.resolveNav('/c/cf_erp/tools', { prefer: 'maintenance' }).section.key, 'maintenance');
   assert.equal(m.resolveNav('/c/cf_erp/tools').section.key, 'inventory');
@@ -208,18 +209,19 @@ await check('(3) Maintenance lists the Machine register (on the maintenance tag,
   const reg = mt.screens.find((s) => s.path === 'machines');
   const tools = mt.screens.find((s) => s.path === 'tools');
   assert.equal(reg.label, 'Machine register'); assert.ok(reg.hasDetail);
-  assert.equal(reg.permission, 'cf_erp_maintenance');
+  assert.equal(reg.permission, 'cf_erp_maintenance|cf_erp_production_manage');
+  assert.ok(sec('inventory').screens.some((s) => s.path === 'machines' && s.label === 'Machines'), 'Stores sees the machines');
   assert.equal(tools.permission, sec('inventory').screens.find((s) => s.path === 'tools').permission);
   assert.equal(new Set(mt.screens.map((s) => s.label)).size, mt.screens.length, 'no two "Machines" labels');
 });
 
 // ── (4) Tools & spares ───────────────────────────────────────────────────────────────
-await check('(4) MachineDetail: Tools & spares with production manage OR maintenance; shifts / editing stay on production manage', () => {
+await check('(4) MachineDetail: editing, shifts and Tools & spares with production manage OR maintenance (2026-11-12)', () => {
   const s = src('pages/MachineDetail.tsx');
   assert.match(s, /const canResources = isPermitted\('cf_erp_production_manage\|cf_erp_maintenance'\);/);
   assert.match(s, /<MachineResourcesCard machineId=\{id\} canManage=\{canResources\} \/>/);
-  assert.match(s, /const canManage = isPermitted\('cf_erp_production_manage'\);/);
-  assert.match(s, /actions=\{canManage && \(/, 'edit / delete still production manage');
+  assert.match(s, /const canManage = isPermitted\('cf_erp_production_manage\|cf_erp_maintenance'\);/);
+  assert.match(s, /actions=\{canManage && \(/, 'edit / delete: production manage or maintenance');
 });
 
 // ── (5) tax and scrap-rate permissions ───────────────────────────────────────────────

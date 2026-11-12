@@ -42,7 +42,7 @@ export default function MachineDetail() {
   const navigate = useNavigate();
   const toast = useToast();
   const isPermitted = useIsPermitted();
-  const canManage = isPermitted('cf_erp_production_manage');
+  const canManage = isPermitted('cf_erp_production_manage|cf_erp_maintenance');
   // The tools and spares list is what maintenance MRs start from, so Maintenance keeps it too (2026-10-24; backend
   // toolsResources.js takes either). Shifts and the machine itself stay on production manage.
   const canResources = isPermitted('cf_erp_production_manage|cf_erp_maintenance');

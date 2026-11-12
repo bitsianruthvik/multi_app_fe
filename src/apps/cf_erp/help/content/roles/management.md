@@ -19,7 +19,7 @@ This guide is for the MD and the managers who approve, watch the plant and the m
 ## Every morning
 1. Open [Home](help:home-cockpit). Look at **Waiting on you**. **Purchase orders to approve** takes you straight to Approvals. Check **Orders past their date** too.
 2. Open [Approvals](help:management-approvals). Work through the **Waiting** cards:
-   - **Customer acceptance**: read the charges, milestones and the **Estimated value** with its **margin over material**. **Approve** confirms the order. Billing then starts by itself, and the advance becomes due to bill at once.
+   - **Customer acceptance** (also on your Home page as **Orders to accept**): read when the customer accepted and their PO, and — when Sales filled them — the charges, milestones and the **Estimated value** with its **margin over material** (*Charges and payment terms to follow* when not yet). **Approve** confirms the order and opens its material request. Billing then starts by itself, and the advance becomes due to bill at once.
    - **Rate change after acceptance**: the yellow **What changes** box says what moved and what it was before.
    - **Purchase order**: each line is compared with the other quotes on its purchase request. Look for *the lowest quote*. Approval places the order with the vendor.
    - **Contractor PO**: work given to a contractor by the tonne. Approval issues the work order.

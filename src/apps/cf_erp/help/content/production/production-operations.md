@@ -23,7 +23,7 @@ The kinds of work the shop does — cut, drill, fit up, weld, blast, paint. Each
 ## Good to know
 - Setup and operation time are both per quantity.
 - An operation with no machine type, or no time, makes its steps impossible to plan — fix the rows the warning chips show.
-- An order can override all its times (for example 0.1 s for a trial); that is set on the order's Production step, not here.
+- An order can override all its times (for example 0.1 s for a trial); that is set on the order's Production setup, not here.
 - Changing operations needs the production manage permission.
 
 ## Related

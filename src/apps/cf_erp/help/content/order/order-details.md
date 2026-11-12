@@ -27,4 +27,4 @@ The **Details** tab holds the order's own facts: number, title, customer, dates,
 
 ## Related
 - [The order page](help:order-page)
-- [Material request](help:order-buying)
+- [Material required](help:order-buying)

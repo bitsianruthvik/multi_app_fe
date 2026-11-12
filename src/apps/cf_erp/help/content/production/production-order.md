@@ -9,13 +9,13 @@ order: 11
 One production order: its state, what it covers, every piece with its steps, and the contractor work given out from it.
 
 ## What you see
-- The code and state badge (**Yet to plan**, **Planned**, **In production**, **Dispatch**, **Closed**), and what it makes.
+- The code and state badge (**Setting times**, **Planning**, **Released**, **In production**, **Dispatch**, **Closed**), and what it makes.
 - **What it is**: **Sales order**, **Made per** (the whole order, line, unit or sub-assembly), **Progress**, **Released** (when and by whom), **Dispatch** (as a whole or per unit, and how many shipped).
 - **Pieces and steps**: each piece by its code, indented under its parent, with a badge per step — operation code and good / total ("CUT 4/4"). Hover a step to see what it waits for. A step given to a contractor reads "with … (WO-…)".
 - **Contractor work**: the work orders made from it.
 
 ## How to release, take back and dispatch
-1. **Release** (Yet to plan) puts its pieces on the floor.
+1. **Release** (in Planning) puts its pieces on the floor.
 2. **Take back** undoes a release while nothing has started and nothing was issued.
 3. **Dispatch** (state Dispatch) ships the finished units; when all are shipped the production order is **Closed**. This button needs the production manage or the inventory manage permission.
 4. **Open in Tracker** shows the same steps in the Tracker, scoped to this production order.
@@ -32,7 +32,7 @@ One production order: its state, what it covers, every piece with its steps, and
 - Giving work needs the production manage or the accounts manage permission.
 
 ## Related
-- [The order's Production step](help:order-production)
+- [The order's Production setup](help:order-production)
 - [Production orders](help:production-orders)
 - [Tracker](help:production-tracker)
 - [Contractor work orders](help:production-contractor-work-orders)

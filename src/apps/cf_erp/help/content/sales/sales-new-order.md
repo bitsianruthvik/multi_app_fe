@@ -31,7 +31,7 @@ The **New order** dialog creates a sales order. A customer order starts as an in
 ## Good to know
 - **Create order** stays grey until a customer is picked.
 - With **Customer supplies**, raising the material request makes a purchase order to the customer at ₹0, and what arrives is kept as *their* stock, not ours.
-- **Material** can still change until the material request is raised, and each line can differ later on the Material request step.
+- **Material** can still change until a material request is with Purchase, and each line can differ later — in the Customer accepted pop-up (**Inventory**), Acceptance & terms or Material required.
 - Every line takes the order's values. A line, or a single row, can still have its own value. A row's own value wins, then the line's, then the order's.
 - The order number can be changed on the **Details** tab until the first line is added. After that it is fixed, because item codes are built from it.
 
