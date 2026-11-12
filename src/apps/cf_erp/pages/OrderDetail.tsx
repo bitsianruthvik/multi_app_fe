@@ -25,7 +25,7 @@ import {
   checksOn, firstOpenStage, isCutPiecesKey, isOrderValuesKey, isOrderWide, withOrderValuesOpen, landingStage, stageSatisfied, stagesShown, tabAlias, tabFor, tabStages, withCutPiecesOpen,
 } from '../lib/process';
 import {
-  DangerBadge, DetailSkeleton, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
+  Badge, DangerBadge, DetailSkeleton, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
@@ -45,6 +45,8 @@ import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTab
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
 import { AcceptanceStep } from '../components/Acceptance/AcceptanceStep';
+import { CustomerAcceptedDialog } from '../components/Acceptance/CustomerAcceptedDialog';
+
 import { useWorkingLine } from '../components/OrderProcess/workingLine';
 import { PartyPicker } from '../components/ServerPicker';
 import { useDetailTitle } from '../components/shell/detailTitle';
@@ -187,6 +189,7 @@ export default function OrderDetail() {
   const [moving, setMoving] = useState<OrderStatus | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [revising, setRevising] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [busy, setBusy] = useState<OrderStatus | null>(null);
@@ -215,7 +218,8 @@ export default function OrderDetail() {
   // Structure & values (Line items merged into it, 2026-10-18) — the plain tab when there is no such stage.
   const structureTab: DetailTab = { value: 'structure', label: 'Structure & values', count: lines.length };
   // Customer acceptance (§73) — a customer's order is confirmed only by it; the plain tab when the process has no such stage.
-  const acceptanceTab: DetailTab[] = order.data?.orderType === 'customer' ? [{ value: 'acceptance', label: 'Customer acceptance' }] : [];
+  // 2026-11-12: no longer a stage — the header's Customer accepted button; this tab keeps the terms, set now or later.
+  const acceptanceTab: DetailTab[] = order.data?.orderType === 'customer' ? [{ value: 'acceptance', label: 'Acceptance & terms' }] : [];
   const tabs: DetailTab[] = base
     ? [
       // Not stages. The two before Stock appear only when the process leaves
@@ -345,7 +349,7 @@ export default function OrderDetail() {
   const noProcessChip = settled && !model && view ? <ProcessAbsentChip view={view} /> : null;
   const header = (
     <DetailHeader code={o.code} title={o.title ?? 'Untitled'} subtitle={o.customer ? `${o.customer.name}${o.customerReference ? ` · their reference ${o.customerReference}` : ''}` : 'Made for stock'}
-      badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.overdue && <DangerBadge label="Past committed date" />}{noProcessChip}</>}
+      badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.acceptance?.state === 'pending' && <Badge family="warning" label="Customer accepted · waiting for the MD" />}{o.acceptance?.state === 'sent_back' && <Badge family="danger" label="Sent back by the MD" title={o.acceptance.sentBackNote ?? undefined} />}{o.overdue && <DangerBadge label="Past committed date" />}{noProcessChip}</>}
       actions={canManage && (
         <>
           {o.allowedTransitions.map((next) => (
@@ -355,10 +359,10 @@ export default function OrderDetail() {
               {transitionLabel(o.status, next)}
             </Button>
           ))}
-          {/* A customer's order is confirmed by its Customer acceptance (§73), not by a status button. */}
-          {o.orderType === 'customer' && ['inquiry', 'quoted'].includes(o.status) && (
-            <Button variant="contained" disabled={!!busy} onClick={() => setTab('acceptance')} data-testid="go-acceptance">Customer acceptance</Button>
-          )}
+          {/* A customer's order: Customer accepted (2026-11-12) — then the MD accepts it, which confirms it. */}
+          {o.orderType === 'customer' && ['inquiry', 'quoted'].includes(o.status) && (o.acceptance?.state === 'pending'
+            ? <Button variant="outlined" disabled={!!busy} onClick={() => setTab('acceptance')} data-testid="go-acceptance">Waiting for the MD</Button>
+            : <Button variant="contained" disabled={!!busy} onClick={() => setAccepting(true)} data-testid="customer-accepted">Customer accepted</Button>)}
           {canRevise && <Button variant="outlined" disabled={!!busy} onClick={() => setRevising(true)}>Revise</Button>}
           {!locked && <Button startIcon={<EditRounded />} onClick={() => setTab('details')} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>}
           {/* A later revision is taken back by discarding it, never deleted: the revision before it becomes current again. */}
@@ -497,6 +501,7 @@ export default function OrderDetail() {
       onTab={setTab}>
       {body}
 
+      {o.orderType === 'customer' && <CustomerAcceptedDialog order={o} open={accepting} onClose={() => setAccepting(false)} onDone={() => { order.reload(); processView.reload(); }} />}
       <ConfirmDialog open={!!moving} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
         entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`} body={moving ? CONFIRM_MOVE[moving] ?? '' : ''}
         onClose={() => setMoving(null)}

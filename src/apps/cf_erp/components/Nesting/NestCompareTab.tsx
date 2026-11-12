@@ -7,7 +7,7 @@ import {
 } from '../../api/nesting';
 import type { Nest, NestingPlan } from '../../api/types';
 import { autoRanLine, compareTabRows, customPlatesLine, gradeCheckView, mm, mmPair, pct, rupees, swapPlan, thicknessLine, NOT_COSTED } from '../../lib/nesting';
-import { Badge, CapsLabel, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
+import { Badge, CapsLabel, InfoTip, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { NestRunCard } from './NestRunCard';
 import { PlateDiagram } from './PlateDiagram';
 import { DialogHeader } from '../FormDialog';
@@ -194,7 +194,7 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
     return (
       <SectionCard title="Compare">
         <Typography data-testid="compare-tab-empty" sx={{ fontSize: 13.5 }}>
-          No customer nesting is saved on this line. Upload the nesting files first. Our own nesting of the same pieces then runs by itself.
+          No nesting is uploaded on this line yet. Upload one first; then AI can nest the same pieces here.
         </Typography>
       </SectionCard>
     );
@@ -204,8 +204,8 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
   return (
     <Box data-testid="compare-tab" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
       <SectionCard
-        title="The manual nesting beside AI's"
-        subtitle={`AI nests the same ${data.likeForLike?.uploadedPieces ?? data.demand?.pieces ?? ''} pieces the upload holds, at Standard effort, and keeps the result.`}
+        title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>Your nesting beside AI's
+          <InfoTip text={`AI nests the same ${data.likeForLike?.uploadedPieces ?? data.demand?.pieces ?? ''} pieces the upload holds, at Standard effort, and keeps the result. It runs when you open this tab, and again only when you press Run AI again.`} /></Box>}
         actions={hasRun && !running ? (
           <Button size="small" onClick={() => { void start(true); }} disabled={busy != null}
             startIcon={busy === 'start' ? <CircularProgress size={14} color="inherit" /> : undefined}>Run AI again</Button>
@@ -217,7 +217,6 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
           {running && (
             <Box data-testid="compare-tab-running" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: 14, fontWeight: 600 }}>AI is nesting…</Typography>
-              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You can keep working. The figures show here when it is done.</Typography>
               {data.run && <NestRunCard run={data.run} receivedAt={receivedAt} onStop={stop} onCancel={cancel} busy={busy != null} />}
             </Box>
           )}

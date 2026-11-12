@@ -42,7 +42,8 @@ import { showRevision } from '../lib/orders';
 import { FadeIn, Stagger } from '../motion';
 
 type QueueTone = 'primary' | 'warning' | 'danger' | 'info' | 'success';
-interface Queue { key: string; title: string; count: number; unit: string; tone: QueueTone; description: string; actionLabel: string; path: string }
+/** perm: shown only to someone holding one of these (the MD's Orders to accept, 2026-11-12). */
+interface Queue { key: string; title: string; count: number; unit: string; tone: QueueTone; description: string; actionLabel: string; path: string; perm?: string[] }
 interface Cockpit { stats: { key: string; label: string; value: number }[]; queues: Queue[] }
 interface Setup { tree: Tree; specs: Specification[]; formulas: Formula[]; schemes: CodeScheme[]; items: RecordList; activeItems: RecordList; definitions: RecordList }
 
@@ -107,7 +108,7 @@ export default function Home() {
     return { label: s.label, value: s.value, icon: meta?.icon, tone: meta?.tone, onClick: meta ? () => go(meta.path) : undefined };
   });
   const money = data ? moneyStats(data.money, go) : [];
-  const queues = (data?.cockpit.queues ?? []).filter((q) => q.count > 0);
+  const queues = (data?.cockpit.queues ?? []).filter((q) => q.count > 0 && (!q.perm || q.perm.some((p) => isPermitted(p))));
 
   const setup = data?.setup ?? null;
   const flat = flattenTree(setup?.tree ?? null);

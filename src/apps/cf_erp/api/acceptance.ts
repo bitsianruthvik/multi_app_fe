@@ -146,6 +146,8 @@ export interface AcceptanceView {
   saveMeans: string | null;
   supplyEditable: boolean;
   terms: Terms;
+  /** The acceptance itself (2026-11-12): when the customer accepted and their PO / reference; null before. */
+  accepted?: { on: string; poRef: string | null } | null;
   fromTemplates: boolean;
   /** The operation a pro-rata charge with none starts at: the last operation of the order's top-level flow (null when no line has one). */
   suggestedOperation?: SuggestedOperation | null;
@@ -181,7 +183,9 @@ export interface OrderEvent { id: number; type: string; label: string | null; da
 
 export const getAcceptance = (orderId: number) => cfApi.get<AcceptanceView>(`/orders/${orderId}/acceptance`);
 export const checkAcceptance = (orderId: number, terms: Terms) => cfApi.put<AcceptanceDryRun>(`/orders/${orderId}/acceptance`, { ...terms, dryRun: true });
-export const saveAcceptance = (orderId: number, terms: Terms, note?: string) => cfApi.put<AcceptanceView>(`/orders/${orderId}/acceptance`, { ...terms, ...(note ? { note } : {}) });
+/** accepted (2026-11-12): when the customer accepted and their PO / reference; kept from the last version when left out. */
+export const saveAcceptance = (orderId: number, terms: Terms, note?: string, accepted?: { on: string | null; poRef: string | null }) =>
+  cfApi.put<AcceptanceView>(`/orders/${orderId}/acceptance`, { ...terms, ...(note ? { note } : {}), ...(accepted ? { accepted } : {}) });
 export const withdrawAcceptance = (orderId: number) => cfApi.post<AcceptanceView>(`/orders/${orderId}/acceptance/withdraw`, {});
 export const orderEvents = (orderId: number) => cfApi.get<OrderEvent[]>(`/orders/${orderId}/events`);
 export const mrDocument = (orderId: number, format: 'pdf' | 'xlsx') => cfApi.getBlob(`/orders/${orderId}/mr-document${qs({ format })}`);

@@ -603,6 +603,8 @@ export interface OrderTotal extends Partial<OrderTax> { amount: number; complete
 export type { OrderValue } from '../lib/orderValue';
 
 export interface SalesOrder {
+  /** Where the customer's acceptance stands (2026-11-12): the header's Customer accepted button, then Waiting for the MD. null on a stock order. */
+  acceptance?: { state: 'none' | 'pending' | 'accepted' | 'sent_back'; sentBackNote: string | null } | null;
   id: number;
   code: string;
   orderType: OrderType;

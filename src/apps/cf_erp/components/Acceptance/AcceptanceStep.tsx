@@ -20,7 +20,7 @@ import { rupeeText } from '../../lib/money';
 import { Link } from 'react-router-dom';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
-import { Badge, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
+import { Badge, ErrorNotice, InfoTip, Mono, SectionCard, SkeletonRows } from '../ui';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { DialogHeader } from '../FormDialog';
 import { useToast } from '../toastContext';
@@ -168,7 +168,8 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
   return (
     <FullScreenFrame on={full.on} onExit={() => full.set(false)}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }} data-testid="acceptance-step">
-        <SectionCard title="Customer acceptance" subtitle="The customer's terms. Management approves them; then the order is confirmed and Purchase starts."
+        <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>Acceptance &amp; terms<InfoTip text="The customer's acceptance and the terms behind it. Set what is missing any time; the MD approves each change. The MD's first approval confirms the order and opens its material request." /></Box>}
+          subtitle={view.accepted ? `Accepted on ${new Date(view.accepted.on).toLocaleDateString('en-IN')}${view.accepted.poRef ? ` · customer PO ${view.accepted.poRef}` : ''}` : undefined}
           actions={(
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <Badge family={sw.family} noIcon label={sw.label} />

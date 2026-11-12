@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Box, Button, CircularProgress, Tooltip } from '@mui/material';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
-import { Surface } from '../ui';
+import { InfoTip, Surface } from '../ui';
 
 /**
  * THE TWO DOORS — what the Nesting step shows while nothing is nested.
@@ -31,8 +31,8 @@ export interface DoorState {
   onOpen: () => void;
 }
 
-function Door({ testId, icon, title, sentence, button, state, primary = false, dropping = false }: {
-  testId: string; icon: ReactNode; title: string; sentence: string; button: string; state: DoorState;
+function Door({ testId, icon, title, sentence, tip, button, state, primary = false, dropping = false }: {
+  testId: string; icon: ReactNode; title: string; sentence: string; /** The longer word, behind an i-button (2026-11-12). */ tip?: string; button: string; state: DoorState;
   /** The door most people take: its button is the filled one. */
   primary?: boolean;
   /** Files are being dragged over the screen: the upload door lights up. */
@@ -48,7 +48,7 @@ function Door({ testId, icon, title, sentence, button, state, primary = false, d
         width: 44, height: 44, borderRadius: 'var(--r-md)', display: 'grid', placeItems: 'center',
         background: 'var(--c-primary-50)', color: 'var(--c-primary-600)', '& svg': { fontSize: 24 },
       }}>{icon}</Box>
-      <Box component="h3" sx={{ m: 0, fontSize: 16, fontWeight: 600, color: 'var(--c-text)' }}>{title}</Box>
+      <Box component="h3" sx={{ m: 0, fontSize: 16, fontWeight: 600, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: 0.75 }}>{title}{tip && <InfoTip text={tip} label={`About ${title}`} />}</Box>
       <Box sx={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--c-text-2)' }}>{sentence}</Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
         {state.notes}
@@ -83,11 +83,13 @@ export function NestDoors({ ours, upload, dropping, withJobs = true }: {
       gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' },
     }}>
       <Door testId="door-upload" primary icon={<UploadFileRounded />} title="Upload your nesting" button="Upload nesting files" state={upload} dropping={dropping}
-        sentence={withJobs
-          ? "Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. AI matches the parts to this order line's cut pieces."
-          : "Drop one DXF per plate. AI matches the parts to this order line's cut pieces."} />
+        sentence={withJobs ? 'ProNest job files (.nif) or one DXF per plate.' : 'One DXF per plate.'}
+        tip={withJobs
+          ? "Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. The parts are matched to this line's cut pieces, and you see a check before anything is saved. AI does not nest by itself: open Compare with AI when you want its layout beside yours."
+          : "Drop one DXF per plate. The parts are matched to this line's cut pieces, and you see a check before anything is saved."} />
       <Door testId="door-ours" icon={<AutoAwesomeRounded />} title="Nesting by AI" button="Nest by AI" state={ours}
-        sentence="No nesting of your own? AI lays the cut pieces out on plates from your catalog. Takes from a few seconds to an hour, depending on how hard you want it to try." />
+        sentence="AI lays the cut pieces out on your catalog plates."
+        tip="For a line with no nesting of its own. It takes from a few seconds to an hour, depending on how hard you ask it to try. Nothing is saved until you use the layout." />
     </Box>
   );
 }

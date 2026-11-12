@@ -247,3 +247,21 @@ export function plannedUnitsSentence(p: PlannedUnits | null | undefined): string
 
 /** Cancel a purchase order; the answer carries `plannedUnits` (the planned cards it made late or waiting). */
 export const cancelPurchaseOrder = (id: number, reason: string) => cfApi.post<WithPlanned<PurchaseOrder>>(`/purchase-orders/${id}/cancel`, { reason });
+
+/**
+ * MATERIAL REQUIRED (2026-11-12; backend materialRequiredService.js): what the order needs of each item and what the store
+ * has of it — a view. `canRequest` is false until the customer has accepted and the MD has accepted the order.
+ */
+export interface MaterialRequiredItem {
+  item: { id: number; code: string | null; name: string | null; uom: string | null };
+  need: number; issued: number; reserved: number; inStore: number; theirsInStore: number; short: number; lines: number[];
+}
+export interface MaterialsRequired {
+  order: { id: number; code: string; status: string; orderType: 'customer' | 'stock' };
+  acceptance: 'none' | 'pending' | 'accepted';
+  canRequest: boolean;
+  requestWhy: string | null;
+  items: MaterialRequiredItem[];
+  lines: { lineId: number; lineNo: number; name: string; supply: MaterialSupply; known: boolean; why: string | null; items: { itemId: number; need: number }[] }[];
+}
+export const getMaterialsRequired = (orderId: number) => cfApi.get<MaterialsRequired>(`/orders/${orderId}/materials-required`);

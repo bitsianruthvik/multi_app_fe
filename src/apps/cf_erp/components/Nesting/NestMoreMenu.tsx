@@ -22,19 +22,24 @@ export interface MoreAction {
   onClick: () => void;
 }
 
-export function NestMoreMenu({ actions, busy = false }: { actions: MoreAction[]; /** A download it started is on its way. */ busy?: boolean }) {
+export function NestMoreMenu({ actions, busy = false, label = 'More', icon, testId = 'nest-more' }: {
+  actions: MoreAction[]; /** A download it started is on its way. */ busy?: boolean;
+  /** 2026-11-12: the same menu also serves as the Download button. */
+  label?: string; icon?: ReactNode; testId?: string;
+}) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const open = !!anchor;
+  const id = `${testId}-menu`;
   return (
     <>
-      <Button variant="outlined" id="nest-more-button" data-testid="nest-more" aria-haspopup="menu" aria-expanded={open || undefined}
-        aria-controls={open ? 'nest-more-menu' : undefined} onClick={(e) => setAnchor(e.currentTarget)} endIcon={<ExpandMoreRounded />}
-        startIcon={busy ? <CircularProgress size={14} color="inherit" aria-label="Working" /> : undefined}>
-        More
+      <Button variant="outlined" id={`${testId}-button`} data-testid={testId} aria-haspopup="menu" aria-expanded={open || undefined}
+        aria-controls={open ? id : undefined} onClick={(e) => setAnchor(e.currentTarget)} endIcon={<ExpandMoreRounded />}
+        startIcon={busy ? <CircularProgress size={14} color="inherit" aria-label="Working" /> : icon}>
+        {label}
       </Button>
-      <Menu id="nest-more-menu" anchorEl={anchor} open={open} onClose={() => setAnchor(null)}
+      <Menu id={id} anchorEl={anchor} open={open} onClose={() => setAnchor(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        slotProps={{ list: { 'aria-labelledby': 'nest-more-button' }, paper: { sx: { maxWidth: 'min(380px, calc(100vw - 32px))' } } }}>
+        slotProps={{ list: { 'aria-labelledby': `${testId}-button` }, paper: { sx: { maxWidth: 'min(380px, calc(100vw - 32px))' } } }}>
         {actions.map((a) => (
           <MenuItem key={a.key} data-testid={`more-${a.key}`} disabled={!!a.why || a.busy}
             onClick={() => { setAnchor(null); a.onClick(); }}
@@ -44,8 +49,8 @@ export function NestMoreMenu({ actions, busy = false }: { actions: MoreAction[];
               {a.busy ? <CircularProgress size={16} color="inherit" /> : a.icon}
             </ListItemIcon>
             <Box sx={{ minWidth: 0 }}>
-              <Box sx={{ fontSize: 13.5, fontWeight: 500, color: a.why ? 'var(--c-text-3)' : 'var(--c-text)' }}>{a.label}</Box>
-              <Box data-testid={a.why ? `more-${a.key}-why` : undefined} sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{a.why ?? a.help}</Box>
+              <Box title={a.help} sx={{ fontSize: 13.5, fontWeight: 500, color: a.why ? 'var(--c-text-3)' : 'var(--c-text)' }}>{a.label}</Box>
+              {a.why && <Box data-testid={`more-${a.key}-why`} sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{a.why}</Box>}
             </Box>
           </MenuItem>
         ))}

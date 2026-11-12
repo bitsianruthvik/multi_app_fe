@@ -23,6 +23,7 @@ import { OrderStructureStep } from '../OrderStructure/OrderStructureStep';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { CustomerAcceptedDialog } from '../Acceptance/CustomerAcceptedDialog';
 import { AcceptanceStep } from '../Acceptance/AcceptanceStep';
 import { HelpButton } from '../../help/HelpButton';
 
@@ -105,7 +106,13 @@ export function WaitingOn({ stage, label, order, onGo, onOrderSaved, onReloadAll
               }} />
           </>
         ) : toAcceptance ? (
-          <Button size="small" variant="outlined" color="inherit" onClick={() => onGo('acceptance')}>Go to Customer acceptance</Button>
+          // 2026-11-12: the customer's acceptance is the header's Customer accepted pop-up; once it is with the MD there is nothing to do here.
+          order.acceptance?.state === 'pending' ? null : (
+            <>
+              <Button size="small" variant="outlined" color="inherit" disabled={!isPermitted('cf_erp_orders_manage')} onClick={() => setAsking(true)} data-testid="waiting-customer-accepted">Customer accepted</Button>
+              <CustomerAcceptedDialog order={order} open={asking} onClose={() => setAsking(false)} onDone={onReloadAll} />
+            </>
+          )
         ) : w.stageKey ? (
           <Button size="small" variant="outlined" color="inherit" onClick={() => onGo(w.stageKey as string)}>Go to {label ?? w.stageKey}</Button>
         ) : null}

@@ -40,7 +40,7 @@ import {
   type Effort, type NestingBudget, type ShapeSource, type StartMode,
 } from '../../lib/nesting';
 import {
-  Badge, CapsLabel, EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows, Surface,
+  InfoTip, Badge, CapsLabel, EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows, Surface,
 } from '../ui';
 import { useToast } from '../toastContext';
 import { PlateDiagram, PlateRuleBadge, PlateThumb } from './PlateDiagram';
@@ -849,13 +849,11 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const againMode: StartMode = replaceAll ? 'again' : imported ? 'rest' : 'all';
 
   const waitWhy = running ? 'Wait for the nesting run to finish.' : waiting ? 'Wait for the current work to finish.' : null;
-  const more: MoreAction[] = [
-    ...(hasPlates ? [{
-      key: 'upload', label: 'Upload nesting files', icon: <UploadFileRounded fontSize="small" />,
-      // The way to bring in a replacement: a file uploaded again lands on its own plates.
-      help: `${withJobs ? 'ProNest job files (.nif) or one DXF per plate' : 'One DXF per plate'}${filesInfo?.limits.maxPlates ? `, up to ${filesInfo.limits.maxPlates} plates in one go` : ''}. A file uploaded again replaces its own plates. You see a check before anything is saved.`,
-      why: uploadWhy ?? waitWhy, onClick: pickFiles,
-    }] : []),
+  // 2026-11-12 (user: "At the whole time they should be able to download and upload a nesting"): Upload is a button of its
+  // own, the downloads one menu, and More keeps only Start again.
+  const uploadHelp = `${withJobs ? 'ProNest job files (.nif) or one DXF per plate' : 'One DXF per plate'}${filesInfo?.limits.maxPlates ? `, up to ${filesInfo.limits.maxPlates} plates in one go` : ''}. A file uploaded again replaces its own plates. You see a check before anything is saved.`;
+  const uploadBlock = uploadWhy ?? waitWhy;
+  const downloads: MoreAction[] = [
     {
       key: 'cnc', label: 'Download DXFs for ProNest (zip)', icon: <PrecisionManufacturingRounded fontSize="small" />,
       help: 'One DXF per plate, in a zip. Open them in ProNest, which makes the CNC program.',
@@ -873,6 +871,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       help: 'The nests as an Excel sheet. For reference only.',
       why: waitWhy, busy: fileBusy === 'download', onClick: downloadSheet,
     },
+  ];
+  const more: MoreAction[] = [
     {
       key: 'again', label: 'Start again', icon: <RestartAltRounded fontSize="small" />,
       help: startSentence('again', imported),
@@ -910,16 +910,23 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       )}
       <PlateChangesPanel />
       <SectionCard
-        title="Nesting"
-        subtitle={showDoors
-          ? `Line ${plan.line.lineNo} of ${plan.line.orderCode} · two ways to lay this line's cut pieces out on plates. Pick one.`
-          : `Line ${plan.line.lineNo} of ${plan.line.orderCode} · each part on the plate it is cut from, in the order it is cut.`}
+        title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>Nesting
+          <InfoTip testId="nest-info" text={showDoors
+            ? "Two ways to lay this line's cut pieces out on plates: upload your own nesting, or let AI do it. Pick one."
+            : "Each part on the plate it is cut from, in the order it is cut. Upload a nesting file any time (a file uploaded again replaces its own plates); Download gives the DXFs for ProNest or the nesting sheet."} /></Box>}
+        subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode}`}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             {/* The cut pieces are not a stage (2026-10-02): their list opens here, over the layout. */}
             <CutPiecesButton lineId={lineId} lineNo={plan.line.lineNo} count={cutPieceCount} canManage={canManage} variant="text"
               onChanged={() => { saved.reload(); onChanged?.(); }} />
-            <NestMoreMenu actions={more} busy={fileBusy === 'cnc' || fileBusy === 'download'} />
+            {hasPlates && canManage && (
+              <Tooltip title={uploadBlock ?? uploadHelp}>
+                <span><Button variant="outlined" startIcon={fileBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />} disabled={!!uploadBlock || fileBusy === 'preview'} onClick={pickFiles} data-testid="nest-upload">Upload nesting</Button></span>
+              </Tooltip>
+            )}
+            {hasPlates && <NestMoreMenu actions={downloads} label="Download" icon={<DownloadRounded />} testId="nest-download" busy={fileBusy === 'cnc' || fileBusy === 'cncAi' || fileBusy === 'download'} />}
+            {hasPlates && <NestMoreMenu actions={more} />}
           </Box>
         )}
       >
@@ -967,11 +974,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
 
           {!showDoors && !proposal && hasPlates && (
             <>
-              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Badge family={basis.family} label={basis.label} title={basis.help} />
-                <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 260px', minWidth: 0 }}>{LOOK_IS_A_LOOK}</Typography>
+                <InfoTip testId="nest-saved-info" text={<>{LOOK_IS_A_LOOK}{plan.settingsNote ? <><br />{plan.settingsNote}</> : null}</>} />
               </Box>
-              {plan.settingsNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{plan.settingsNote}</Typography>}
             </>
           )}
 
@@ -985,11 +991,9 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
               {/* A proposal arriving rises in: its header, what using it does, and the buttons. */}
               <Box className="cfm-rise-in" sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Badge family={basis.family} label={basis.label} title={basis.help} />
-                <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 260px', minWidth: 0 }}>
-                  Nothing here is written down yet. Read it, then use it or discard it.
-                </Typography>
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Not saved yet</Typography>
+                <InfoTip text={<>Read it, then use it or discard it. Nothing is written down until you use it.{plan.settingsNote ? <><br />{plan.settingsNote}</> : null}</>} />
               </Box>
-              {plan.settingsNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{plan.settingsNote}</Typography>}
               {capped && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CAPPED_LINE}</Typography>}
               {(proposal as NestingPlan & { budget?: { stopped?: boolean } }).budget?.stopped && (
                 <Typography data-testid="nest-stopped" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>You stopped the run early. This is the best layout it had found.</Typography>
@@ -1010,13 +1014,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
                   <Collapse in={logOpen} unmountOnExit><NestRunLog log={run.log} /></Collapse>
                 </Box>
               )}
-              <Note>
-                <Box><strong>Using it writes it down.</strong></Box>
-                <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.4 }}>
-                  {ACCEPT_WHAT_HAPPENS.map((x) => <li key={x}>{x}</li>)}
-                </Box>
-                <Box>{ACCEPT_AGAIN}</Box>
-              </Note>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, fontSize: 13, color: 'var(--c-text-2)' }}>
+                What using it does
+                <InfoTip testId="nest-accept-info" text={<><Box component="ul" sx={{ m: 0, pl: 2.5 }}>{ACCEPT_WHAT_HAPPENS.map((x) => <li key={x}>{x}</li>)}</Box>{ACCEPT_AGAIN}</>} />
+              </Box>
               <RestSummary plan={proposal} />
               <Box className="cfm-rise-in" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
                 <Tooltip title={canManage ? 'Writes this layout down. It becomes what the shop cuts to and what the order buys.' : NO_MANAGE}>
@@ -1356,6 +1357,9 @@ export function NestingPanel(props: {
           variant="scrollable" allowScrollButtonsMobile data-testid="nesting-tabs" sx={{ minHeight: 40, borderBottom: '1px solid var(--c-divider)' }}>
           <Tab value="nesting" label="Nesting" sx={{ minHeight: 40, textTransform: 'none' }} />
           <Tab value="compare" label="Compare with AI" data-testid="compare-tab-button" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Box sx={{ alignSelf: 'center', ml: 0.5 }}>
+            <InfoTip testId="compare-info" text="AI nests the same pieces as your upload, so you can see which wastes less. It runs only when you open Compare with AI — an upload alone never starts it. You can make AI's layout the main one there until the line is locked." />
+          </Box>
         </Tabs>
       )}
       <Box sx={{ display: showCompare ? 'none' : 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>

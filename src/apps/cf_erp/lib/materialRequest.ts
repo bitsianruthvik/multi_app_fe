@@ -9,7 +9,7 @@ import { qtyText } from './inventory';
  * keeps its PR- number). Every figure is the server's; this file only words it.
  */
 
-export const MR_STAGE_LABEL = 'Material request';
+export const MR_STAGE_LABEL = 'Material required';
 
 export const supplyLabel = (s: MaterialSupply | null | undefined) => SUPPLY_LABEL[s === 'customer' ? 'customer' : 'we_buy'];
 
