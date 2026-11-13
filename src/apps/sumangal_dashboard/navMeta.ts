@@ -66,4 +66,20 @@ export const SECTIONS: NavSection[] = [
     ],
   },
   { key: 'customers', label: 'Customers', screens: [{ label: 'Customers', path: 'customers', keywords: ['sales', 'price', 'billing', 'credit'] }] },
+  { key: 'layout', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
+];
+
+/** The second layout: the same data arranged by what the reader wants to do. Detail screens are shared with the first. */
+export const INTENT_SECTIONS: NavSection[] = [
+  { key: 'x-alerts', label: 'Alerts', screens: [{ label: 'Alerts', path: 'x-alerts', keywords: ['wrong', 'awry', 'warning', 'attention', 'outside'] }] },
+  { key: 'x-today', label: 'Today', screens: [{ label: 'Today', path: 'x-today', keywords: ['daily', 'day to day', 'work list', 'pour', 'inspect', 'ship', 'chase', 'stock'] }] },
+  { key: 'x-month', label: 'This month', screens: [{ label: 'This month', path: 'x-month', keywords: ['monthly plan', 'due', 'load', 'capacity', 'shipments expected', 'materials'] }] },
+  { key: 'x-long-term', label: 'Long term', screens: [{ label: 'Long term', path: 'x-long-term', keywords: ['trend', 'year', 'growth', 'customers', 'mix'] }] },
+  { key: 'x-decisions', label: 'Decisions', screens: [{ label: 'Decisions', path: 'x-decisions', keywords: ['which vendor', 'which supplier', 'extra', 'customer', 'compare', 'tactical'] }] },
+  {
+    key: 'x-details',
+    label: 'All detail screens',
+    screens: SECTIONS.filter((s) => s.key !== 'layout').flatMap((s) => s.screens).filter((s) => !s.path.startsWith('step-')),
+  },
+  { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
 ];

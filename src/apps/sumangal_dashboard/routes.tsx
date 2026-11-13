@@ -2,9 +2,14 @@ import React, { lazy, Suspense } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import { ListSkeleton } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
-import { SumangalShell, ToHome } from './components/SumangalShell';
+import { SumangalShell, SwitchLayout, ToHome } from './components/SumangalShell';
 
 const KeyMetrics = lazy(() => import('./pages/KeyMetrics'));
+const XAlerts = lazy(() => import('./pages/XAlerts'));
+const XToday = lazy(() => import('./pages/XToday'));
+const XMonth = lazy(() => import('./pages/XMonth'));
+const XLongTerm = lazy(() => import('./pages/XLongTerm'));
+const XDecisions = lazy(() => import('./pages/XDecisions'));
 const WhatChanged = lazy(() => import('./pages/WhatChanged'));
 const ActionList = lazy(() => import('./pages/ActionList'));
 const ProblemParts = lazy(() => import('./pages/ProblemParts'));
@@ -56,6 +61,11 @@ export function getSumangalDashboardRoutes(
   );
   const screens: [string, React.ReactNode][] = [
     ['key-metrics', <KeyMetrics />],
+    ['x-alerts', <XAlerts />],
+    ['x-today', <XToday />],
+    ['x-month', <XMonth />],
+    ['x-long-term', <XLongTerm />],
+    ['x-decisions', <XDecisions />],
     ['what-changed', <WhatChanged />],
     ['actions', <ActionList />],
     ['problem-parts', <ProblemParts />],
@@ -79,6 +89,8 @@ export function getSumangalDashboardRoutes(
   const landing = ['', 'home', 'dashboard', 'admin/dashboard', 'admin/dashboard/*', ':role/dashboard', 'overview', 'order-types', 'shipments'];
   return [
     ...screens.map(([p, el]) => ({ path: `/:company/sumangal_dashboard/${p}`, element: wrap(el) })),
+    { path: '/:company/sumangal_dashboard/layout-intent', element: <ProtectedRoute><SwitchLayout to="intent" /></ProtectedRoute> },
+    { path: '/:company/sumangal_dashboard/layout-topic', element: <ProtectedRoute><SwitchLayout to="topic" /></ProtectedRoute> },
     ...landing.map((p) => ({
       path: `/:company/sumangal_dashboard${p ? `/${p}` : ''}`,
       element: <ProtectedRoute><ToHome /></ProtectedRoute>,
