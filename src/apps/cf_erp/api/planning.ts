@@ -65,7 +65,9 @@ export interface WeekScreen {
   actual: WeekActual | null;
 }
 
-export interface RosterTask { id: string; unitKey: string | null; unit: string; order: string | null; orderId: number | null; fn: string | null; fnName: string | null; minutes: number; machineId: number | null; tonnes: number | null; finish: string | null; source: 'auto' | 'manual'; note: string | null; done: boolean }
+export interface RosterTask { id: string; unitKey: string | null; unit: string; order: string | null; orderId: number | null; fn: string | null; fnName: string | null; minutes: number; machineId: number | null; tonnes: number | null; finish: string | null; source: 'auto' | 'manual'; note: string | null; done: boolean;
+  /** Done now: ticked on the roster, or recorded on the floor (Machine log / Tracker). */
+  doneNow?: boolean; doneBy?: 'roster' | 'floor' | null }
 export interface RosterMachine { id: number; code: string; name: string; typeId: string; typeName: string; area: string; minutes: number; contractor: { id: number; name: string } | null }
 export interface DayScreen { today: string; day: string; status: 'draft' | 'published' | null; publishedAt: string | null; note: string | null; tasks: RosterTask[]; machines: RosterMachine[]; saved: boolean; suggestion: boolean }
 export interface PublishedRoster { today: string; day: string; published: boolean; publishedAt: string | null; note: string | null; tasks: RosterTask[]; machines: RosterMachine[] }
@@ -99,6 +101,7 @@ export const setWeekNotes = (id: number, notes: string) => cfApi.put<WeekScreen>
 export const getDayRoster = (date?: string, fresh = false) => cfApi.get<DayScreen>(`/planning/day${qs({ date, fresh: fresh ? '1' : undefined })}`);
 export const saveDayRoster = (body: { date: string; tasks: RosterTask[]; machines?: RosterMachine[]; note?: string | null; publish?: boolean }) => cfApi.put<DayScreen>('/planning/day', body);
 export const getPublishedRoster = (date?: string) => cfApi.get<PublishedRoster>(`/planning/roster${qs({ date })}`);
+export const markRosterTask = (date: string, id: string, done: boolean) => cfApi.post<PublishedRoster>('/planning/roster/task', { date, id, done });
 export const getPlanAlerts = (all = false) => cfApi.get<{ alerts: PlanAlert[]; source: string | null }>(`/planning/alerts${qs({ all: all ? '1' : undefined })}`);
 export const dismissPlanAlert = (id: number) => cfApi.post<{ ok: boolean }>(`/planning/alerts/${id}/dismiss`, {});
 export const getPlanReview = (month?: string) => cfApi.get<Review>(`/planning/review${qs({ month })}`);

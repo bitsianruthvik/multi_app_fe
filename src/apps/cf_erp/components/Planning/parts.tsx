@@ -1,4 +1,7 @@
-import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { useState, type ReactNode } from 'react';
+import { Box, Button, Collapse, IconButton, Tooltip, Typography } from '@mui/material';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import CheckRounded from '@mui/icons-material/CheckRounded';
 import { Link } from 'react-router-dom';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
@@ -195,6 +198,63 @@ export function ContractorTable({ contractors, workOrders }: { contractors: Cont
           ))}
         </Box>
       )}
+    </Box>
+  );
+}
+
+/**
+ * WHERE YOU ARE AND WHAT COMES NEXT (Norman: make the state and the next action visible). Numbered steps; the ones done
+ * are ticked, the current one is filled and says what to do.
+ */
+export function StepGuide({ steps, current, hint }: { steps: string[]; current: number; hint?: ReactNode }) {
+  return (
+    <Box data-testid="step-guide" sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface, #fff)', p: '10px 14px' }}>
+      <Box role="list" aria-label="Steps" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
+        {steps.map((label, i) => {
+          const done = i < current; const now = i === current;
+          return (
+            <Box key={label} role="listitem" aria-current={now ? 'step' : undefined} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700,
+                background: now ? 'var(--c-primary-600)' : done ? 'var(--c-success-600)' : 'var(--c-divider)', color: now || done ? '#fff' : 'var(--c-text-2)' }}>
+                {done ? <CheckRounded sx={{ fontSize: 15 }} /> : i + 1}
+              </Box>
+              <Typography sx={{ fontSize: 13.5, fontWeight: now ? 700 : 500, color: now ? 'var(--c-text)' : done ? 'var(--c-text-2)' : 'var(--c-text-3)' }}>{label}</Typography>
+              {i < steps.length - 1 && <Box sx={{ width: 22, height: 2, background: done ? 'var(--c-success-600)' : 'var(--c-divider)', mx: 0.5 }} />}
+            </Box>
+          );
+        })}
+      </Box>
+      {hint && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.75 }}>{hint}</Typography>}
+    </Box>
+  );
+}
+
+/** The answer in one sentence, large; what qualifies it underneath, small. */
+export function Headline({ main, sub, tone = 'primary', testId }: { main: ReactNode; sub?: ReactNode; tone?: 'primary' | 'success' | 'danger'; testId?: string }) {
+  const color = tone === 'danger' ? 'var(--c-danger-700)' : tone === 'success' ? 'var(--c-success-700)' : 'var(--c-primary-700)';
+  return (
+    <Box data-testid={testId ?? 'headline'} sx={{ borderLeft: `4px solid ${color}`, background: 'var(--c-surface, #fff)', border: '1px solid var(--c-border)', borderLeftWidth: 4, borderLeftColor: color, borderRadius: 'var(--r-md)', p: '12px 16px' }}>
+      <Typography sx={{ fontSize: 21, fontWeight: 700, lineHeight: 1.25 }}>{main}</Typography>
+      {sub && <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', mt: 0.5 }}>{sub}</Typography>}
+    </Box>
+  );
+}
+
+/** A choice that is rarely changed: its value in a line, opened to change it (Norman: show what matters, tuck the rest). */
+export function Fold({ title, summary, children, defaultOpen = false, testId }: { title: ReactNode; summary: ReactNode; children: ReactNode; defaultOpen?: boolean; testId?: string }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Box data-testid={testId} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface, #fff)' }}>
+      <Box role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen((o) => !o)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
+        sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 1, alignItems: 'center', p: '10px 14px', cursor: 'pointer' }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{title}</Typography>
+          <Typography noWrap sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{summary}</Typography>
+        </Box>
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-primary-700)', fontWeight: 600 }}>{open ? 'Close' : 'Change'}</Typography>
+        <ExpandMoreRounded sx={{ fontSize: 20, color: 'var(--c-text-3)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
+      </Box>
+      <Collapse in={open} unmountOnExit><Box sx={{ borderTop: '1px solid var(--c-divider)', p: '12px 14px' }}>{children}</Box></Collapse>
     </Box>
   );
 }

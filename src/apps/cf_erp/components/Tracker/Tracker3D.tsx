@@ -19,7 +19,8 @@ export function Tracker3D() {
   const [poParam, setPoParam] = useUrlParam('po3d', '');
   const list = useLoad(() => listProductionOrders({ state: 'all', limit: 200 }), []);
   const groups = useMemo(() => list.data?.rows ?? [], [list.data]);
-  const orderId = Number(orderParam) || groups[0]?.order.id || null;
+  // The newest order first: the older ones may come from a standard with no 3D model.
+  const orderId = Number(orderParam) || [...groups].sort((a, b) => b.order.id - a.order.id)[0]?.order.id || null;
   const pos = groups.find((g) => g.order.id === orderId)?.productionOrders ?? [];
   const [order, setOrder] = useState<SalesOrder | null>(null);
   useEffect(() => {

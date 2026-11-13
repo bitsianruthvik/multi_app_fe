@@ -22,7 +22,7 @@ import { Badge, ErrorNotice, InfoTip, ListSkeleton, Mono, PageHeader, SectionCar
 import { DataTable, type DataColumn } from '../../components/DataTable';
 import { FacetChip } from '../../components/FilterBar';
 import { FormDialog } from '../../components/FormDialog';
-import { ContractorTable, PivotTable, PlanStatus, WeekBars } from '../../components/Planning/parts';
+import { ContractorTable, Fold, Headline, PivotTable, PlanStatus, StepGuide, WeekBars } from '../../components/Planning/parts';
 import { useToast } from '../../components/toastContext';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -118,6 +118,16 @@ export default function MonthPlan() {
         )} />
       <ErrorNotice error={error} />
       {s.plan?.note && status === 'draft' && <Typography sx={{ fontSize: 13, color: 'var(--c-warning-800)', background: 'var(--c-warning-50)', border: '1px solid var(--c-warning-200)', borderRadius: 'var(--r-sm)', p: 1.25 }}>{s.plan.note}</Typography>}
+      <StepGuide steps={['Rank the orders, pick the machines', 'Optimise and save', 'Send to the MD', 'Frozen']}
+        current={status === 'frozen' && !dirty ? 3 : status === 'pending' ? 2 : dirty ? 1 : status === 'draft' ? 2 : 0}
+        hint={status === 'frozen' && !dirty ? 'This plan is frozen. The week plans and the alerts compare against it. Change a choice below to draft a new version.'
+          : status === 'pending' ? 'Waiting for the MD. Nothing can change until it is approved or you withdraw it.'
+            : dirty ? <>Press <b>Optimise</b> to see the plan your choices give, then <b>Save draft</b>.</>
+              : status === 'draft' ? <>The draft is saved. Press <b>Send to the MD</b> to have it frozen.</> : 'Start by checking the order of priority.'} />
+      <Headline testId="month-headline" main={<>{tonnesText(result.tonnes)} finishes in {monthText(month)}</>}
+        sub={<>{result.tonnes - result.priorityTonnes > 0.05 ? <><b>{tonnesText(result.tonnes - result.priorityTonnes)} more</b> than working strictly in priority order. </> : 'The same as working strictly in priority order. '}
+          {result.notInMonth > 0 ? `${result.notInMonth} shipping unit${result.notInMonth === 1 ? '' : 's'} finish after the month${result.boundBy ? ` — ${result.boundBy} is what holds it back` : ''}. ` : 'Everything finishes inside the month. '}
+          {result.assumedMaterial > 0 ? `${result.assumedMaterial} unit${result.assumedMaterial === 1 ? ' has' : 's have'} no material date yet (assumed two weeks out).` : ''}</>} />
       <StatStrip stats={[
         { label: 'Finishes this month', value: Math.round(result.tonnes), display: tonnesText(result.tonnes), tone: 'primary' as const, hint: 'Tonnes of shipping units whose last work ends by the month\'s last day' },
         { label: 'By priority alone', value: Math.round(result.priorityTonnes), display: tonnesText(result.priorityTonnes), hint: 'What working the orders strictly in priority order would finish — the optimiser\'s gain is the difference' },
@@ -129,7 +139,7 @@ export default function MonthPlan() {
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(300px, 380px) minmax(0, 1fr)' }, gap: 2, alignItems: 'start' }}>
         {/* ── The planner's choices ── */}
         <Box sx={{ display: 'grid', gap: 2, minWidth: 0 }}>
-          <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>1 · Orders, in priority<InfoTip text="Drag an order up or down (or use the arrows). The optimiser works for tonnes but may not finish an order later than it would finish in this order, plus the slip you allow below." /></Box>}>
+          <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>Orders, most important first<InfoTip text="Drag an order up or down (or use the arrows). The optimiser works for tonnes but may not finish an order later than it would finish in this order, plus the slip you allow below." /></Box>}>
             <Box data-testid="month-ranks" sx={{ display: 'grid', gap: 0.5 }}>
               {ranks.map((id, i) => {
                 const o = orderOf.get(id);
@@ -158,15 +168,16 @@ export default function MonthPlan() {
             </Box>
           </SectionCard>
 
-          <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>2 · Slip allowed for tonnes<InfoTip text="How many days later than its priority-order finish an order may end, when that lets the month finish more tonnes. 0 = strict priority." /></Box>}>
+          <Fold testId="month-fold-machines-slip" title="Slip allowed for tonnes" summary={tolerance === 0 ? 'None — strict priority' : `An order may finish up to ${tolerance} day${tolerance === 1 ? '' : 's'} later when that adds tonnes`}>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>How many days later than its priority-order finish an order may end, when that lets the month finish more tonnes. 0 = strict priority.</Typography>
             <Box sx={{ px: 1 }}>
               <Slider value={tolerance} min={0} max={30} step={1} disabled={locked} valueLabelDisplay="auto" marks={[{ value: 0, label: '0' }, { value: 7, label: '7' }, { value: 15, label: '15' }, { value: 30, label: '30 days' }]}
                 onChange={(_, v) => { setTolerance(v as number); setDirty(true); }} aria-label="Days an order may slip" data-testid="month-tolerance" />
             </Box>
-          </SectionCard>
+          </Fold>
 
-          <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>3 · Machines in the plan<InfoTip text="Only fabrication machines are listed: machines some operation can run on. Electrical panels, utilities and vehicles are not. Machines switched on are in the plan by default; tick others to add them — the plan then counts their shift hours." /></Box>}
-            subtitle={`${machineIds.length} of ${areas.reduce((t, a) => t + a.total, 0)} fabrication machines`}>
+          <Fold testId="month-fold-machines" title="Machines in the plan" summary={`${machineIds.length} of ${areas.reduce((t, a) => t + a.total, 0)} fabrication machines${areas.some((a) => a.on < a.total) ? ' — some are switched off and can be added' : ''}`}>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>Only fabrication machines are listed (machines an operation can run on — not electrical panels, utilities or vehicles). Machines switched on are in the plan; tick others to add their shift hours.</Typography>
             <Box data-testid="month-machines" sx={{ display: 'grid', gap: 0.5 }}>
               {areas.map((a) => {
                 const ids = a.machines.map((m) => m.id);
@@ -196,12 +207,12 @@ export default function MonthPlan() {
                 );
               })}
             </Box>
-          </SectionCard>
+          </Fold>
 
-          <SectionCard title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>Contractors<InfoTip text="Work given to contractors is planned without the plant's machine hours. Give parts of a production order to a contractor from the production order's page (Contractor work); a machine checked out to a contractor shows here." /></Box>}
-            actions={<Button size="small" component={Link} to={appPath(company, 'production-orders')}>Production orders</Button>}>
-            {contractors.data ? <ContractorTable contractors={contractors.data.contractors} /> : <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Loading…</Typography>}
-          </SectionCard>
+          <Fold testId="month-fold-contractors" title="Contractors" summary={contractors.data ? (contractors.data.contractors.length ? `${contractors.data.contractors.length} with work orders` : 'No work given out yet') : 'Loading…'}>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>Work given to contractors is planned without the plant's machine hours. Give parts of a production order to a contractor from <Box component={Link} to={appPath(company, 'production-orders')} sx={{ color: 'inherit', fontWeight: 600 }}>its production order</Box>.</Typography>
+            {contractors.data ? <ContractorTable contractors={contractors.data.contractors} /> : null}
+          </Fold>
         </Box>
 
         {/* ── The plan ── */}

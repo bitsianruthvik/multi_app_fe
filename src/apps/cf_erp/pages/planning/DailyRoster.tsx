@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, IconButton, TextField, Tooltip, Typography } from '@mui/material';
 import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
 import CampaignRounded from '@mui/icons-material/CampaignRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
-import { getDayRoster, getPublishedRoster, saveDayRoster, dayText, type DayScreen, type RosterMachine, type RosterTask } from '../../api/planning';
+import DownloadRounded from '@mui/icons-material/DownloadRounded';
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
+import { getDayRoster, getPublishedRoster, markRosterTask, saveDayRoster, dayText, type DayScreen, type RosterMachine, type RosterTask } from '../../api/planning';
+import { saveXlsx } from '../../lib/dashboardExport';
 import { CfApiError } from '../../api/client';
 import { useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
@@ -14,11 +17,20 @@ import { useToast } from '../../components/toastContext';
 
 const hrs = (m: number) => Math.round((m / 60) * 10) / 10;
 
+/** The roster as a workbook: one row per task, machine by machine — to print or pass on. */
+function downloadRoster(day: string, tasks: RosterTask[], machines: RosterMachine[]) {
+  const byId = new Map(machines.map((m) => [m.id, m]));
+  const of = (t: RosterTask) => (t.machineId != null ? byId.get(t.machineId) : undefined);
+  const rows = [...tasks].sort((a, b) => String(of(a)?.area ?? 'zz').localeCompare(String(of(b)?.area ?? 'zz')) || String(of(a)?.code ?? 'zz').localeCompare(String(of(b)?.code ?? 'zz')))
+    .map((t) => { const m = of(t); return [m?.area ?? '', m?.code ?? 'To place', m?.name ?? '', t.fnName ?? '', t.order ?? '', t.unit, hrs(t.minutes), t.finish ?? '', t.doneNow ? (t.doneBy === 'floor' ? 'Done (floor)' : 'Done') : '', t.note ?? '']; });
+  saveXlsx(`roster-${day}`, [{ name: `Roster ${day}`, columns: ['Area', 'Machine', 'Machine name', 'Operation', 'Order', 'Shipping unit', 'Hours', 'Unit due', 'Done', 'Note'], rows }]);
+}
+
 function Card({ t, editable, onDrag, onMinutes, onRemove }: { t: RosterTask; editable: boolean; onDrag: () => void; onMinutes: (m: number) => void; onRemove: () => void }) {
   return (
     <Box draggable={editable} onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDrag(); }} data-testid="roster-task"
       sx={{ border: '1px solid var(--c-border)', borderLeft: `3px solid ${t.source === 'manual' ? 'var(--c-warning-500)' : 'var(--c-primary-500)'}`, borderRadius: 'var(--r-sm)', p: '6px 8px', background: 'var(--c-surface, #fff)', cursor: editable ? 'grab' : 'default', display: 'grid', gap: 0.25 }}>
-      <Typography noWrap sx={{ fontSize: 13, fontWeight: 600 }}><Mono>{t.unit}</Mono></Typography>
+      <Typography noWrap sx={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>{t.doneNow && <CheckCircleRounded titleAccess={t.doneBy === 'floor' ? 'Done — recorded on the floor' : 'Done — ticked on the roster'} sx={{ fontSize: 15, color: 'var(--c-success-600)' }} />}<Mono>{t.unit}</Mono></Typography>
       <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{t.order ?? ''}{t.fnName ? ` · ${t.fnName}` : ''}</Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         {editable ? (
@@ -105,6 +117,7 @@ export default function DailyRoster() {
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <TextField size="small" type="date" value={s.day} onChange={(e) => setDateParam(e.target.value)} inputProps={{ 'aria-label': 'Day' }} />
+            <Button variant="outlined" startIcon={<DownloadRounded />} disabled={!tasks.length} onClick={() => downloadRoster(s.day, tasks, machines)} data-testid="roster-download">Download</Button>
             {editable && <Button variant="outlined" startIcon={<AutoFixHighRounded />} disabled={!!busy} onClick={() => void suggest()} data-testid="roster-suggest">{busy === 'suggest' ? 'Suggesting…' : 'Suggest again'}</Button>}
             {editable && <Button variant="outlined" disabled={!!busy || !dirty} onClick={() => void save(false)} data-testid="roster-save">Save</Button>}
             {editable && <Button variant="contained" startIcon={<CampaignRounded />} disabled={!!busy || (!dirty && s.status === 'published')} onClick={() => void save(true)} data-testid="roster-publish">Publish to production</Button>}
@@ -115,6 +128,7 @@ export default function DailyRoster() {
         { label: 'Tasks', value: tasks.length },
         { label: 'Hours', value: Math.round(total / 60) },
         { label: 'Machines working', value: [...byMachine.keys()].filter((k) => k !== 'none').length },
+        { label: 'Done', value: tasks.filter((t) => t.doneNow).length, tone: 'success' as const, hint: 'Ticked on the roster, or recorded on the floor (Machine log / Tracker)' },
         { label: 'No machine yet', value: byMachine.get('none')?.length ?? 0, tone: (byMachine.get('none')?.length ?? 0) ? 'warning' as const : undefined },
       ]} />
       {!tasks.length && !shown.length ? <EmptyState title="Nothing to roster for this day" hint="No work of the plan falls on it — or the week has no plan yet." /> : (
@@ -146,8 +160,11 @@ export default function DailyRoster() {
  * how long. Read-only: "Let the daily plan be the output which the production team gets."
  */
 export function ProductionRoster() {
+  const toast = useToast();
+  const canTick = useIsPermitted()('cf_erp_production_manage|cf_erp_floor|cf_erp_production_view');
   const [dateParam, setDateParam] = useUrlParam('date', '');
   const r = useLoad(() => getPublishedRoster(dateParam || undefined), [dateParam]);
+  const tick = async (t: RosterTask, done: boolean) => { try { r.setData(await markRosterTask(r.data!.day, t.id, done)); } catch (e) { toast.error((e as Error).message); } };
   const d = r.data;
   if (r.error) return <ErrorNotice error={r.error} onRetry={r.reload} />;
   if (!d) return <ListSkeleton rows={6} />;
@@ -158,7 +175,9 @@ export function ProductionRoster() {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       <PageHeader title={`Roster · ${dayText(d.day)}`} subtitle={d.published ? `Published by Planning${d.publishedAt ? ` · ${String(d.publishedAt).slice(11, 16)}` : ''}. Work each machine's list from the top.` : 'Planning has not published a roster for this day yet.'}
-        actions={<TextField size="small" type="date" value={d.day} onChange={(e) => setDateParam(e.target.value)} inputProps={{ 'aria-label': 'Day' }} />} />
+        actions={<Box sx={{ display: 'flex', gap: 1 }}><TextField size="small" type="date" value={d.day} onChange={(e) => setDateParam(e.target.value)} inputProps={{ 'aria-label': 'Day' }} />
+          <Button variant="outlined" startIcon={<DownloadRounded />} disabled={!d.tasks.length} onClick={() => downloadRoster(d.day, d.tasks, d.machines)} data-testid="roster-download">Download</Button></Box>} />
+      {d.published && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{d.tasks.filter((t) => t.doneNow).length} of {d.tasks.length} tasks done. Tick a task when it is finished; work recorded on the Machine log or the Tracker is ticked by itself.</Typography>}
       {!d.published ? <EmptyState title="No roster published for this day" hint="Planning publishes each day's roster from Planning › Daily roster." /> : (
         <Box sx={{ display: 'grid', gap: 2 }} data-testid="production-roster">
           {areas.map((area) => (
@@ -170,9 +189,10 @@ export function ProductionRoster() {
                     <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}><Mono>{m.code}</Mono> {m.name}</Typography>
                     <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 0.75 }}>{m.typeName} · {hrs((by.get(m.id) ?? []).reduce((t, x) => t + x.minutes, 0))} h</Typography>
                     {(by.get(m.id) ?? []).map((t, i) => (
-                      <Box key={t.id} sx={{ display: 'grid', gridTemplateColumns: '18px minmax(0, 1fr) auto', gap: 0.75, py: 0.5, borderTop: '1px solid var(--c-divider)', fontSize: 13 }}>
-                        <Box sx={{ color: 'var(--c-text-3)' }}>{i + 1}</Box>
-                        <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 13, fontWeight: 500 }}>{t.unit}</Typography><Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{t.order}{t.note ? ` · ${t.note}` : ''}</Typography></Box>
+                      <Box key={t.id} sx={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr) auto', gap: 0.75, py: 0.25, borderTop: '1px solid var(--c-divider)', fontSize: 13, alignItems: 'center', opacity: t.doneNow ? 0.6 : 1 }}>
+                        <Checkbox size="small" checked={!!t.doneNow} disabled={!canTick || t.doneBy === 'floor'} onChange={(e) => void tick(t, e.target.checked)}
+                          title={t.doneBy === 'floor' ? 'Done — recorded on the floor' : `Task ${i + 1}`} slotProps={{ input: { 'aria-label': `Done: ${t.unit}` } }} sx={{ p: 0.25 }} />
+                        <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 13, fontWeight: 500, textDecoration: t.doneNow ? 'line-through' : 'none' }}>{t.unit}</Typography><Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{t.order}{t.note ? ` · ${t.note}` : ''}</Typography></Box>
                         <Box sx={{ fontVariantNumeric: 'tabular-nums' }}>{hrs(t.minutes)} h</Box>
                       </Box>
                     ))}

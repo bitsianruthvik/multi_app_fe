@@ -16,7 +16,7 @@ import { appPath } from '../../navMeta';
 import { Badge, EmptyState, ErrorNotice, InfoTip, ListSkeleton, Mono, PageHeader, SectionCard, StatStrip } from '../../components/ui';
 import { FacetChip } from '../../components/FilterBar';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { ContractorTable, PivotTable, PlanStatus, ReasonList, WeekBars } from '../../components/Planning/parts';
+import { ContractorTable, Headline, PivotTable, PlanStatus, ReasonList, StepGuide, WeekBars } from '../../components/Planning/parts';
 import { useToast } from '../../components/toastContext';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -44,7 +44,8 @@ export default function WeekPlan() {
   if (!s) return <ListSkeleton rows={8} />;
   const p = s.plan; const a = s.actual; const r = p?.result ?? null;
   const started = s.week.start <= s.today;
-  const view = tab || (p?.status === 'closed' ? 'review' : started && a ? 'actual' : 'plan');
+  const raw = tab || (started && a ? 'actual' : 'plan');
+  const view = raw === 'review' ? 'actual' : raw === 'changes' || raw === 'resources' ? 'more' : raw;
   const act = async (name: string, fn: () => Promise<WeekScreen>, done: string) => {
     setBusy(name); setError(null);
     try { screen.setData(await fn()); toast.success(done); invalidateNavCounts(); } catch (e) { setError(e as CfApiError); } finally { setBusy(null); }
@@ -73,6 +74,17 @@ export default function WeekPlan() {
         <EmptyState title={`Week ${s.week.no} is not planned yet`} hint={s.frozen ? 'Plan it from today\'s reality: what is done, the machines as they are, the material dates as they stand.' : undefined} />
       ) : (
         <>
+          <StepGuide steps={['Plan the week', 'Publish (the MD is told)', 'Work the week', 'Close the week']}
+            current={p.status === 'draft' ? 1 : p.status === 'published' ? (s.week.end < s.today ? 3 : 2) : 4}
+            hint={p.status === 'draft' ? <>This is a draft from today's reality. Press <b>Publish</b> to make it the plan in force.</>
+              : p.status === 'published' ? (s.week.end < s.today ? <>The week is over. Press <b>Close the week</b> to keep what happened beside the plan, then plan the next one.</> : <>The week is running. <b>Plan again</b> if a machine, a material date or an order moves.</>)
+                : 'Closed. What happened is kept beside the plan.'} />
+          {(() => {
+            const gap = s.frozen && p.tonnesMonth != null ? p.tonnesMonth - s.frozen.tonnes : null;
+            return <Headline testId="week-headline" tone={gap != null && gap < -0.05 ? 'danger' : 'success'}
+              main={<>{tonnesText(p.tonnesWeek)} to finish this week{a ? <> — {tonnesText(a.doneTonnes)} done{p.status === 'closed' ? '' : ' so far'}</> : null}</>}
+              sub={<>The month now forecasts <b>{tonnesText(p.tonnesMonth)}</b>{gap != null ? <>, {Math.abs(gap) < 0.05 ? 'on the frozen plan' : <><b>{tonnesText(Math.abs(gap))} {gap < 0 ? 'under' : 'over'}</b> the frozen plan of {tonnesText(s.frozen!.tonnes)}</>}</> : null}.{a && a.wrong.length ? ` ${a.wrong.length} thing${a.wrong.length === 1 ? '' : 's'} went wrong — see Progress and why.` : ''}</>} />;
+          })()}
           <StatStrip stats={[
             { label: 'Planned this week', value: Math.round(p.tonnesWeek ?? 0), display: tonnesText(p.tonnesWeek), tone: 'primary' as const },
             { label: 'Done', value: Math.round(a?.doneTonnes ?? 0), display: a ? tonnesText(a.doneTonnes) : '—', tone: 'success' as const, hint: a ? `${tonnesText(a.donePlannedTonnes)} of the planned units, ${tonnesText(a.extraTonnes)} ahead of plan` : undefined },
@@ -81,7 +93,7 @@ export default function WeekPlan() {
             { label: 'Against the frozen plan', value: Math.round(Math.abs((p.tonnesMonth ?? 0) - (s.frozen?.tonnes ?? 0))), display: s.frozen && p.tonnesMonth != null ? `${p.tonnesMonth - s.frozen.tonnes >= 0 ? '+' : '−'}${tonnesText(Math.abs(p.tonnesMonth - s.frozen.tonnes))}` : '—', tone: s.frozen && p.tonnesMonth != null && p.tonnesMonth - s.frozen.tonnes < -0.05 ? 'danger' as const : 'success' as const },
           ]} />
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            {[['plan', 'The plan'], ['actual', 'Plan vs progress'], ['review', 'What went right and wrong'], ['changes', 'Against the month plan'], ['resources', 'Contractors and consumables']].map(([k, l]) => <FacetChip key={k} label={l} active={view === k} onClick={() => setTab(k)} />)}
+            {[['plan', 'The plan'], ['actual', 'Progress and why'], ['more', 'Changes, contractors, consumables']].map(([k, l]) => <FacetChip key={k} label={l} active={view === k} onClick={() => setTab(k)} />)}
           </Box>
 
           {view === 'plan' && r && (
@@ -156,7 +168,7 @@ export default function WeekPlan() {
             </Box>
           ) : <EmptyState title="The week has not started" hint="Progress shows here from its first day." />)}
 
-          {view === 'review' && (
+          {view === 'actual' && (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
               <SectionCard title="What went right"><ReasonList rows={p.review?.right ?? a?.right ?? []} tone="good" empty="Nothing to show yet." /></SectionCard>
               <SectionCard title="What went wrong, and why"><ReasonList rows={p.review?.wrong ?? a?.wrong ?? []} tone="bad" empty="Nothing went wrong against the plan." /></SectionCard>
@@ -168,7 +180,7 @@ export default function WeekPlan() {
             </Box>
           )}
 
-          {view === 'changes' && r && (
+          {view === 'more' && r && (
             <SectionCard title="Against the frozen month plan" subtitle={r.against ? `${tonnesText(r.against.outTonnes)} left the month, ${tonnesText(r.against.inTonnes)} came in.` : 'No frozen plan to compare with.'}>
               {r.against && (
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
@@ -192,7 +204,7 @@ export default function WeekPlan() {
             </SectionCard>
           )}
 
-          {view === 'resources' && r && (
+          {view === 'more' && r && (
             <Box sx={{ display: 'grid', gap: 2 }}>
               <SectionCard title="Contractors" actions={<Button size="small" component={Link} to={appPath(company, 'production-orders')}>Change work orders</Button>}>
                 <ContractorTable contractors={(a?.contractors ?? r.contractors.contractors)} workOrders={a?.workOrders ?? r.contractors.orders} />
@@ -215,7 +227,7 @@ export default function WeekPlan() {
       )}
       <ConfirmDialog open={closing} title={`Close week ${s.week.no}?`} confirmLabel="Close the week"
         body="What happened is kept beside the plan — done, hours, stops, why. A closed week is not planned again. Then plan the next week from that day's reality."
-        onClose={() => setClosing(false)} onConfirm={async () => { screen.setData(await closeWeekPlan(p!.id, notes.trim() || undefined)); toast.success('Week closed.'); setTab('review'); }} />
+        onClose={() => setClosing(false)} onConfirm={async () => { screen.setData(await closeWeekPlan(p!.id, notes.trim() || undefined)); toast.success('Week closed.'); setTab('actual'); }} />
     </Box>
   );
 }
