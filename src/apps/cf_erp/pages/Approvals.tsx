@@ -18,6 +18,8 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DialogHeader } from '../components/FormDialog';
 import { useToast } from '../components/toastContext';
 import { PlanHealthCard } from '../components/Planner3/PlanHealthCard';
+import { PivotTable, WeekBars } from '../components/Planning/parts';
+import { tonnesText, type Pivot } from '../api/planning';
 import { SuccessCheck, celebrate, duration, easing, nudge } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -106,6 +108,33 @@ function AcceptanceBody({ ctx }: { ctx: AcceptanceContext }) {
   );
 }
 
+/** §105: the month plan — tonnes by week, the orders, and the orders × operations pivot. */
+interface MonthPlanContext { kind: 'month_plan'; month: string; version: number; tonnes: number; priorityTonnes: number; boundTonnes: number; boundBy: string | null; machines: number; notInMonth: number; assumedMaterial: number;
+  weeks: { no: number; start: string; end: string; tonnes: number }[];
+  orders: { code: string; customer: string | null; rank: number; tonnes: number; tonnesInMonth: number; finish: string | null; committedDate: string | null; late: boolean }[]; pivot: Pivot }
+function MonthPlanBody({ ctx }: { ctx: MonthPlanContext }) {
+  const company = useCompanySlug();
+  return (
+    <Box data-testid="approval-month-plan" sx={{ display: 'grid', gap: 1.25 }}>
+      <Typography sx={{ fontSize: 13.5 }}>
+        <b>{tonnesText(ctx.tonnes)}</b> of finished shipping units in {ctx.month}, with {ctx.machines} machines. Strict priority would finish {tonnesText(ctx.priorityTonnes)}; the most possible is {tonnesText(ctx.boundTonnes)}{ctx.boundBy ? ` (${ctx.boundBy} is the limit)` : ''}.
+        {ctx.notInMonth ? ` ${ctx.notInMonth} units finish after the month.` : ''}{ctx.assumedMaterial ? ` ${ctx.assumedMaterial} units have an assumed material date.` : ''}
+      </Typography>
+      <WeekBars weeks={ctx.weeks.map((w) => ({ no: w.no, start: w.start, end: w.end, planned: w.tonnes }))} height={70} />
+      <Box>
+        {ctx.orders.map((o) => (
+          <Typography key={o.code} sx={{ fontSize: 13, py: 0.25, color: o.late ? 'var(--c-danger-700)' : undefined }}>
+            {o.rank}. <Mono>{o.code}</Mono> {o.customer ?? ''} — {tonnesText(o.tonnesInMonth)} of {tonnesText(o.tonnes)} this month, finishes {o.finish ?? 'beyond the plan'}{o.committedDate ? ` (due ${o.committedDate})` : ''}
+          </Typography>
+        ))}
+      </Box>
+      <PivotTable pivot={ctx.pivot} tonnesLabel="This month" />
+      <Box component={Link} to={appPath(company, `planning-month?month=${ctx.month}`)} sx={{ fontSize: 13 }}>Open the month plan</Box>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Approve and the plan is frozen: the week plans and the alerts compare against it.</Typography>
+    </Box>
+  );
+}
+
 /** §104: condemning a machine — its age, book value, maintenance and the reason. */
 interface CondemnContext { kind: 'machine_condemn'; machine: { id: number; code: string; name: string; kind: string }; reason: string; liveOn: string | null; ageYears: number | null;
   cost: { base: number; accumulated: number; bookValue: number; salvage: number } | null; lastMaintenance: string | null; maintenanceCost: number }
@@ -188,6 +217,7 @@ function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number
         {a.context?.kind === 'order_acceptance' && <AcceptanceBody ctx={a.context as AcceptanceContext} />}
         {(a.context as { kind?: string } | null)?.kind === 'rebaseline' &&<RebaselineBody ctx={a.context as unknown as RebaselineContext} />}
         {(a.context as { kind?: string } | null)?.kind === 'machine_condemn' && <CondemnBody ctx={a.context as unknown as CondemnContext} />}
+        {(a.context as { kind?: string } | null)?.kind === 'month_plan' && <MonthPlanBody ctx={a.context as unknown as MonthPlanContext} />}
         {!a.context && a.summary && <Typography sx={{ fontSize: 13 }}>{a.summary}</Typography>}
         {!pending && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{a.status} {when(a.decidedAt)}{a.decidedBy?.name ? ` by ${a.decidedBy.name}` : ''}{a.decisionNote ? ` — ${a.decisionNote}` : ''}</Typography>}
       </Box>

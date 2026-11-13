@@ -22,6 +22,12 @@ const CompanyTax = lazy(() => import('./pages/CompanyTax'));
 const Customers = lazy(() => import('./pages/Customers'));
 const Plan = lazy(() => import('./pages/Plan'));
 const Planner = lazy(() => import('./pages/Planner'));
+const PlanningHome = lazy(() => import('./pages/planning/PlanningHome'));
+const MonthPlan = lazy(() => import('./pages/planning/MonthPlan'));
+const WeekPlan = lazy(() => import('./pages/planning/WeekPlan'));
+const DailyRoster = lazy(() => import('./pages/planning/DailyRoster'));
+const ProductionRoster = lazy(() => import('./pages/planning/DailyRoster').then((m) => ({ default: m.ProductionRoster })));
+const PlanReview = lazy(() => import('./pages/planning/PlanReview'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Floor = lazy(() => import('./pages/Floor'));
@@ -132,6 +138,13 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/definitions', element: wrap(<Records recordKind="definition" />) },
     { path: '/:company/cf_erp/definitions/:id', element: wrap(<RecordDetail recordKind="definition" />) },
     { path: '/:company/cf_erp/management', element: wrap(<Dashboard />) },
+    // §105: Planning, rebuilt. The old Plan by month (/plan) and Planner (/planner, /plan-week) stay reachable by address.
+    { path: '/:company/cf_erp/planning', element: wrap(<PlanningHome />) },
+    { path: '/:company/cf_erp/planning-month', element: wrap(<MonthPlan />) },
+    { path: '/:company/cf_erp/planning-week', element: wrap(<WeekPlan />) },
+    { path: '/:company/cf_erp/planning-day', element: wrap(<DailyRoster />) },
+    { path: '/:company/cf_erp/planning-review', element: wrap(<PlanReview />) },
+    { path: '/:company/cf_erp/roster', element: wrap(<ProductionRoster />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/planner', element: wrap(<Planner />) },
     // Planning › Plan by week (2026-11-12): the planner opened on this week.

@@ -45,7 +45,7 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
  */
-const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn';
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn|cf_erp_approve_month_plan';
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
 /**
  * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page
@@ -101,6 +101,8 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'mgmt-dashboard', label: 'Dashboard', path: 'management', permission: bothOf(PRODUCTION, APPROVE_ANY), keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report', 'work orders'] },
       { key: 'management-overview', label: 'Plan health', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'overview', 'plan health', 'baseline', 'slipping', 'slip', 'late'] },
+      // §105: the MD reads each week's plan (orders × operations, tonnes) — told when Planning publishes it.
+      { key: 'mgmt-week-plan', label: 'Week plan', path: 'planning-week', permission: 'cf_erp_approve_month_plan', keywords: ['week plan', 'pivot', 'orders and operations', 'output', 'tonnes'] },
       { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_ANY, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
       { key: 'mgmt-order-costing', label: 'Order costing', path: 'order-costing', permission: bothOf(ACCOUNTS, APPROVE_ANY), keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
     ],
@@ -149,17 +151,16 @@ export const SECTIONS: NavSection[] = [
     key: 'planning',
     label: 'Planning',
     screens: [
-      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
-      // Step 5 (§84): the planner per production order, step by step, opened on this week.
-      { key: 'plan-week', label: 'Plan by week', path: 'plan-week', permission: PRODUCTION_MANAGE, keywords: ['planner', 'week', 'weekly', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
-      // Every production order by sales order: Setting times → Planning → Released …; released from here.
-      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION_MANAGE, keywords: ['planning', 'release', 'setting times', 'released', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
-      // Plan health (also Management › Plan health): what is slipping against the baseline.
-      { key: 'plan-health', label: 'Plan health', path: 'management-overview', permission: PRODUCTION_MANAGE, keywords: ['plan health', 'baseline', 'slipping', 'slip', 'late', 'overview', 'report'] },
-      // The reports: by machine, by order, work orders (also Management › Dashboard). Not 'dashboard' — that path is the login landing.
-      { key: 'management', label: 'Reports', path: 'management', permission: PRODUCTION_MANAGE, keywords: ['dashboard', 'report', 'management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi'] },
-      // The planner's full horizon (every day, not only this week).
-      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION_MANAGE, keywords: ['planner', 'schedule', 'gantt', 'horizon', 'capacity'] },
+      // §105 (2026-11-13): PLANNING, rebuilt — the month plan (optimised, frozen by the MD), the week plan re-made from each
+      // week's reality, the daily roster production works to, and the review of past months. The old Plan by month, Plan by
+      // week, Planner, Plan health and Reports tabs left this menu (Plan health and the Dashboard stay under Management).
+      { key: 'planning-home', label: 'Overview', path: 'planning', permission: PRODUCTION_MANAGE, countKey: 'planAlerts', keywords: ['planning', 'plan', 'alerts', 'forecast', 'tonnes', 'what changed', 'home'] },
+      { key: 'planning-month', label: 'Month plan', path: 'planning-month', permission: PRODUCTION_MANAGE, keywords: ['month plan', 'optimise', 'optimize', 'machines in the plan', 'priority', 'freeze', 'md', 'tonnage', 'suggestions', 'capacity'] },
+      { key: 'planning-week', label: 'Week plan', path: 'planning-week', permission: PRODUCTION_MANAGE, keywords: ['week plan', 'weekly', 'plan vs actual', 'went wrong', 'pivot', 'operations', 'publish', 'close week'] },
+      { key: 'planning-day', label: 'Daily roster', path: 'planning-day', permission: PRODUCTION_MANAGE, keywords: ['daily', 'roster', 'tomorrow', 'task sheet', 'drag', 'assign machine', 'publish'] },
+      { key: 'planning-review', label: 'Past plans', path: 'planning-review', permission: PRODUCTION_MANAGE, keywords: ['history', 'review', 'past plans', 'what went wrong', 'contractor performance', 'lessons'] },
+      // Every production order by sales order: Setting times → Planning → Released …; released from here; contractor work is given from one.
+      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION_MANAGE, keywords: ['planning', 'release', 'setting times', 'production order', 'contractor work', 'work order'] },
     ],
   },
   {
@@ -167,6 +168,8 @@ export const SECTIONS: NavSection[] = [
     label: 'Production',
     screens: [
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION_MANAGE, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material', '3d', 'progress'] },
+      // §105: the roster Planning published for the day — what production works to.
+      { key: 'roster', label: 'Roster', path: 'roster', permission: `${PRODUCTION_MANAGE}|${FLOOR}`, keywords: ['roster', 'today', 'task sheet', 'daily plan', 'what to work on'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
       { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION_MANAGE, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
       // Work orders moved to Accounts (Step 6, §85); they are raised from a production order (Contractor work).
