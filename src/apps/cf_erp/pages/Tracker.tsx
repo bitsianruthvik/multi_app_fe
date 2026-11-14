@@ -27,6 +27,15 @@ import { TrackerTree } from '../components/Tracker/TrackerTree';
 import { FinishStepsDialog } from '../components/Tracker/FinishStepsDialog';
 import { TimingSheetButtons } from '../components/TimingSheetButtons';
 import { Tracker3D } from '../components/Tracker/Tracker3D';
+import { GroupedSteps, type StepGroupBy } from '../components/Tracker/GroupedSteps';
+
+const STEP_GROUPS: { value: StepGroupBy; label: string }[] = [
+  { value: 'none', label: 'No grouping' },
+  { value: 'machine', label: 'By machine' },
+  { value: 'order', label: 'By order' },
+  { value: 'order_machine', label: 'By order, then machine' },
+  { value: 'operation', label: 'By operation' },
+];
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
@@ -63,6 +72,9 @@ export default function Tracker() {
   const flat = view !== 'tree';
   const [status, setStatus] = useUrlParam('status', 'open');
   const [showAll, setShowAll] = useUrlParam('show', 'short');
+  // 2026-11-14: the Steps grouped by machine, order, order then machine, or operation.
+  const [groupParam, setGroupParam] = useUrlParam('group', 'none');
+  const grouping = (STEP_GROUPS.some((g) => g.value === groupParam) ? groupParam : 'none') as StepGroupBy;
   const [search, setSearch] = useState('');
   const [starting, setStarting] = useState<ProductionStep | null>(null);
   const [recording, setRecording] = useState<ProductionStep | null>(null);
@@ -163,6 +175,10 @@ export default function Tracker() {
         <>
           <FilterBar search={search} onSearch={setSearch} placeholder="Search step, piece, order or machine">
             {STEP_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={count(f.value)} onClick={() => setStatus(f.value)} />)}
+            <TextField select size="small" label="Group" value={grouping} onChange={(e) => setGroupParam(String(e.target.value))} sx={{ minWidth: 190 }}
+              slotProps={{ htmlInput: { 'data-testid': 'steps-group' } }}>
+              {STEP_GROUPS.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
+            </TextField>
             {sheetOrders.length > 0 && (
               <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
                 <TextField select size="small" label="Floor sheet for" value={sheetOrder?.id ?? ''} onChange={(e) => setSheetOrderId(Number(e.target.value))}
@@ -181,7 +197,16 @@ export default function Tracker() {
             )}
           </FilterBar>
           <ErrorNotice error={steps.error} onRetry={steps.reload} />
-          <DataTable rows={rows} columns={columns} getRowId={(s) => s.id} loading={steps.loading && !steps.data} storageKey="tracker-steps" exportName="tracker-steps"
+          {grouping !== 'none' && rows.length > 0 ? (
+            <GroupedSteps rows={rows} by={grouping} table={(groupRows) => (
+              <DataTable rows={groupRows} columns={columns} getRowId={(s) => s.id} storageKey="tracker-steps" exportName="tracker-steps" selectable={canProduce}
+                bulkActions={(sel, clear) => (
+                  <Button size="small" variant="contained" startIcon={<DoneAllRounded fontSize="small" />} onClick={() => { setFinishing(sel); clear(); }}>
+                    {`Finish selected (${sel.length})`}
+                  </Button>
+                )} />
+            )} />
+          ) : <DataTable rows={rows} columns={columns} getRowId={(s) => s.id} loading={steps.loading && !steps.data} storageKey="tracker-steps" exportName="tracker-steps"
             selectable={canProduce}
             bulkActions={(sel, clear) => (
               <Button size="small" variant="contained" startIcon={<DoneAllRounded fontSize="small" />} data-testid="finish-selected"
@@ -190,7 +215,7 @@ export default function Tracker() {
               </Button>
             )}
             empty={<EmptyState icon={<PrecisionManufacturingRounded />} title={(steps.data ?? []).length ? 'No step matches' : 'Nothing released yet'}
-              hint={(steps.data ?? []).length ? 'Pick another status or clear the search.' : 'Release a line of a confirmed order — its steps appear here.'} />} />
+              hint={(steps.data ?? []).length ? 'Pick another status or clear the search.' : 'Release a line of a confirmed order — its steps appear here.'} />} />}
         </>
       ) : (
         <>

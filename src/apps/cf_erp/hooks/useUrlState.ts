@@ -10,14 +10,20 @@ export function useUrlParam(key: string, fallback: string): [string, (value: str
   const [params, setParams] = useSearchParams();
   const value = params.get(key) ?? fallback;
   const set = useCallback((next: string) => {
-    setParams((prev) => {
-      const p = new URLSearchParams(prev);
-      if (next === fallback || next === '') p.delete(key); else p.set(key, next);
-      return p;
-    }, { replace: true });
+    // Several setters in one go (pick an order AND clear its production order; "clear all filters") each used
+    // to start from the same old URL, so the last one wrote the others back (2026-11-14: the 3D tab never
+    // changed order). They now build on one pending copy for the rest of the tick.
+    const p = pendingParams ?? new URLSearchParams(window.location.search);
+    if (next === fallback || next === '') p.delete(key); else p.set(key, next);
+    if (!pendingParams) queueMicrotask(() => { pendingParams = null; });
+    pendingParams = p;
+    setParams(new URLSearchParams(p), { replace: true });
   }, [key, fallback, setParams]);
   return [value, set];
 }
+
+/** The URL being built by setters called in the same tick (see useUrlParam). */
+let pendingParams: URLSearchParams | null = null;
 
 /**
  * Opens a "new" dialog when the URL asks for one (?new=1, ?new=receipt) — the

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent } from 'react';
 import { Alert, Box, Button, CircularProgress, FormControlLabel, MenuItem, Select, Switch, ToggleButton, ToggleButtonGroup, Typography, useMediaQuery } from '@mui/material';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
@@ -31,7 +31,32 @@ const AUTO_ROWS = 400;
 const ROW_WIDE = 40;
 const ROW_NARROW = 64;
 const OVERSCAN = 12;
-const GRID_WIDE = 'minmax(240px, 32%) minmax(0, 1fr) 132px 88px';
+/** Column widths in px (2026-11-14: the user drags them; kept per browser). The operations take what is left. */
+const DEFAULT_COLS = { piece: 380, done: 132 };
+const COLS_KEY = 'cf-tracker-cols';
+const clampCols = (c: { piece: number; done: number }) => ({ piece: Math.max(160, Math.min(1100, Math.round(c.piece))), done: Math.max(56, Math.min(260, Math.round(c.done))) });
+function readCols() {
+  try { const v = JSON.parse(localStorage.getItem(COLS_KEY) ?? 'null'); if (v && typeof v.piece === 'number' && typeof v.done === 'number') return clampCols(v); } catch { /* no storage */ }
+  return DEFAULT_COLS;
+}
+
+/** A drag handle on a column's right edge; double-click puts the width back. */
+function ColHandle({ onDrag, onReset }: { onDrag: (dx: number) => void; onReset: () => void }) {
+  const start = (e: ReactPointerEvent<HTMLSpanElement>) => {
+    e.preventDefault(); e.stopPropagation();
+    let x = e.clientX;
+    const move = (ev: PointerEvent) => { const dx = ev.clientX - x; x = ev.clientX; if (dx) onDrag(dx); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.cursor = ''; };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    document.body.style.cursor = 'col-resize';
+  };
+  return (
+    <Box component="span" role="separator" aria-orientation="vertical" aria-label="Drag to resize the column; double-click to reset" title="Drag to resize · double-click to reset"
+      onPointerDown={start} onDoubleClick={onReset}
+      sx={{ position: 'absolute', top: -6, bottom: -6, right: -10, width: 9, cursor: 'col-resize', zIndex: 1, display: 'flex', justifyContent: 'center',
+        '&::after': { content: '""', width: '2px', borderRadius: 1, background: 'var(--c-border)' }, '&:hover::after': { background: 'var(--c-primary-500)' } }} />
+  );
+}
 
 /** "o12" / "l34" / "w56" (a production order, §76) / "all" / "latest" in the URL → the read's scope. */
 function scopeOf(v: string): { orderId: number | 'latest' | null; lineId: number | null; productionOrderId: number | null } {
@@ -68,8 +93,8 @@ function CodeText({ node, parent }: { node: TreeNode; parent: TreeNode | undefin
   );
 }
 
-function Row({ row, parent, wide, height, busy, lane, mode, range, now, names, onToggle, onOpen }: {
-  row: VisibleRow; parent: TreeNode | undefined; wide: boolean; height: number; busy: boolean;
+function Row({ row, parent, wide, height, gridCols, busy, lane, mode, range, now, names, onToggle, onOpen }: {
+  row: VisibleRow; parent: TreeNode | undefined; wide: boolean; height: number; gridCols: string; busy: boolean;
   lane: LaneOp[]; mode: LaneMode; range: { from: number; to: number } | null; now: number;
   names: TrackerTreeResponse['operations']; onToggle: (n: TreeNode) => void; onOpen: (n: TreeNode) => void;
 }) {
@@ -95,7 +120,7 @@ function Row({ row, parent, wide, height, busy, lane, mode, range, now, names, o
       sx={{
         height, boxSizing: 'border-box', px: 1.5, cursor: 'pointer', borderBottom: '1px solid var(--c-divider)',
         display: 'grid', alignItems: 'center', columnGap: 1.5,
-        gridTemplateColumns: wide ? GRID_WIDE : 'minmax(0, 1fr) auto',
+        gridTemplateColumns: wide ? gridCols : 'minmax(0, 1fr) auto',
         gridTemplateRows: wide ? '1fr' : '1fr 1fr',
         background: node.match ? 'var(--c-primary-50)' : node.kind === 'order' ? 'var(--c-surface-2)' : 'transparent',
         '&:hover': { background: 'var(--c-surface-2)' },
@@ -196,6 +221,9 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(640);
   // "now" moves on a minute at a time, so a running bar grows while the page is open.
+  const [cols, setColsRaw] = useState(readCols);
+  const setCols = (f: (c: typeof DEFAULT_COLS) => typeof DEFAULT_COLS) => setColsRaw((c) => { const n = clampCols(f(c)); try { localStorage.setItem(COLS_KEY, JSON.stringify(n)); } catch { /* no storage */ } return n; });
+  const gridCols = `${cols.piece}px minmax(0, 1fr) ${cols.done}px 88px`;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(t); }, []);
 
@@ -306,7 +334,12 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
   const choices = resp?.orders ?? [];
   const levels = resp?.levels ?? [];
   const shownLevel = level ?? (levels.length ? autoLevel(levels) : null);
-  const setLevel = (v: number) => setLevelParam(String(v));
+  // Opens the tree at once, not only through the level: Collapse / Expand all used to do nothing when the level
+  // was already that one (after branches were opened by hand) — 2026-11-14 fix.
+  const setLevel = (v: number) => {
+    setLevelParam(String(v));
+    if (!term && !onlyBlocked && (oneOrder || v !== ALL_LEVELS)) setOpen(openToLevel(tree, v));
+  };
   const topLevel = levels[0]?.level ?? 2;
 
   return (
@@ -419,9 +452,12 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
       ) : (
         <Surface e={1} sx={{ overflow: 'hidden', position: 'relative', opacity: loading ? 0.6 : 1, transition: 'opacity var(--t-fast) var(--ease)' }}>
           {wide && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: GRID_WIDE, columnGap: 1.5, px: 1.5, py: 0.75, borderBottom: '1px solid var(--c-border)', fontSize: 11.5, color: 'var(--c-text-3)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', alignItems: 'end' }}>
-              <span>Piece</span>
-              {mode === 'timeline' && range ? <TimelineAxis ticks={ticks} range={range} /> : <span>{opsScope === 'all' ? 'Operations, with everything under it' : 'Its own operations, in order'}</span>}
+            <Box sx={{ display: 'grid', gridTemplateColumns: gridCols, columnGap: 1.5, px: 1.5, py: 0.75, borderBottom: '1px solid var(--c-border)', fontSize: 11.5, color: 'var(--c-text-3)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', alignItems: 'end' }}>
+              <Box component="span" sx={{ position: 'relative' }}>Piece<ColHandle onDrag={(dx) => setCols((c) => ({ ...c, piece: c.piece + dx }))} onReset={() => setCols((c) => ({ ...c, piece: DEFAULT_COLS.piece }))} /></Box>
+              <Box component="span" sx={{ position: 'relative' }}>
+                {mode === 'timeline' && range ? <TimelineAxis ticks={ticks} range={range} /> : <span>{opsScope === 'all' ? 'Operations, with everything under it' : 'Its own operations, in order'}</span>}
+                <ColHandle onDrag={(dx) => setCols((c) => ({ ...c, done: c.done - dx }))} onReset={() => setCols((c) => ({ ...c, done: DEFAULT_COLS.done }))} />
+              </Box>
               <span>Done</span><Box component="span" sx={{ textAlign: 'right' }}>Blocked</Box>
             </Box>
           )}
@@ -430,7 +466,7 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
             <Box sx={{ height: rows.length * rowH, position: 'relative' }}>
               <Box sx={{ position: 'absolute', top: start * rowH, left: 0, right: 0 }}>
                 {rows.slice(start, end).map((r) => (
-                  <Row key={r.node.id} row={r} parent={r.node.parentId ? tree.byId.get(r.node.parentId) : undefined} wide={wide} height={rowH}
+                  <Row key={r.node.id} row={r} parent={r.node.parentId ? tree.byId.get(r.node.parentId) : undefined} wide={wide} height={rowH} gridCols={gridCols}
                     busy={busy.has(r.node.id)} lane={lanes.get(r.node.id) ?? []} mode={mode} range={range} now={now} names={names}
                     onToggle={(n) => { void toggle(n); }} onOpen={(n) => n.kind === 'piece' && setPiece(n.id)} />
                 ))}
