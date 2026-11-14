@@ -211,7 +211,7 @@ export default function MonthPlan() {
           </Fold>
 
           <Fold testId="month-fold-contractors" title="Contractors" summary={contractors.data ? (contractors.data.contractors.length ? `${contractors.data.contractors.length} with work orders` : 'No work given out yet') : 'Loading…'}>
-            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>Work given to contractors is planned without the plant's machine hours. Give parts of a production order to a contractor from <Box component={Link} to={appPath(company, 'production-orders')} sx={{ color: 'inherit', fontWeight: 600 }}>its production order</Box>.</Typography>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>Work given to contractors is planned without the plant's machine hours. Give steps of a production order to a vendor in <Box component={Link} to={appPath(company, 'planning-vendors')} sx={{ color: 'inherit', fontWeight: 600 }}>Planning › Vendors</Box>.</Typography>
             {contractors.data ? <ContractorTable contractors={contractors.data.contractors} /> : null}
           </Fold>
         </Box>

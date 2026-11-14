@@ -10,7 +10,7 @@ import { holeMatrices, type PreparedModel, type PrepGeom } from './model3dPrep';
  */
 
 /** One piece to draw: element `el` of the prepared model, moved by `pre` (a copy of a line in Progress3D), known to the caller as `tag`. */
-export interface Placement { el: number; tag: number; pre?: THREE.Matrix4 | null }
+export interface Placement { el: number; tag: number; pre?: THREE.Matrix4 | null; /** in the piece's own axes, after its placement (a band of it: sliceMatrix) */ post?: THREE.Matrix4 | null }
 
 /** A shape's geometry (sharing the prepared arrays: no copy). */
 export function geometryOf(g: PrepGeom): THREE.BufferGeometry {
@@ -24,9 +24,31 @@ export function geometryOf(g: PrepGeom): THREE.BufferGeometry {
 
 const M = new THREE.Matrix4();
 /** Element `el`'s world matrix (after `pre`), into `out` at `at` (16 numbers). */
-function worldMatrix(prep: PreparedModel, el: number, pre: THREE.Matrix4 | null | undefined, out: Float32Array, at: number) {
-  if (!pre) { out.set(prep.elMat.subarray(el * 16, el * 16 + 16), at); return; }
-  M.fromArray(prep.elMat, el * 16).premultiply(pre); M.toArray(out, at);
+function worldMatrix(prep: PreparedModel, el: number, pre: THREE.Matrix4 | null | undefined, out: Float32Array, at: number, post?: THREE.Matrix4 | null) {
+  if (!pre && !post) { out.set(prep.elMat.subarray(el * 16, el * 16 + 16), at); return; }
+  M.fromArray(prep.elMat, el * 16);
+  if (pre) M.premultiply(pre);
+  if (post) M.multiply(post);
+  M.toArray(out, at);
+}
+
+/**
+ * Band i of n of a piece, along its longest own axis (2026-11-14, the vendor view: two vendors on one piece share it
+ * 50-50, three a third each). The matrix squeezes the piece into its band; use it as a Placement's post.
+ */
+export function sliceMatrix(prep: PreparedModel, el: number, i: number, n: number): THREE.Matrix4 | null {
+  const g = prep.elGeom[el];
+  if (n <= 1 || g === undefined || g < 0) return null;
+  const b = prep.geoms[g].box;
+  const len = [b[3] - b[0], b[4] - b[1], b[5] - b[2]];
+  const ax = len[0] >= len[1] && len[0] >= len[2] ? 0 : len[1] >= len[2] ? 1 : 2;
+  const lo = b[ax]; const w = len[ax] / n;
+  const sc = [1, 1, 1]; sc[ax] = 1 / n;
+  const to = [0, 0, 0]; to[ax] = lo + i * w;
+  const back = [0, 0, 0]; back[ax] = -lo;
+  return new THREE.Matrix4().makeTranslation(to[0], to[1], to[2])
+    .multiply(new THREE.Matrix4().makeScale(sc[0], sc[1], sc[2]))
+    .multiply(new THREE.Matrix4().makeTranslation(back[0], back[1], back[2]));
 }
 
 /**
@@ -45,7 +67,7 @@ export function instancedMeshes(prep: PreparedModel, items: Placement[], materia
     let geo = geos.get(g); if (!geo) { geo = geometryOf(prep.geoms[g]); geos.set(g, geo); }
     const mesh = new THREE.InstancedMesh(geo, material, list.length);
     const arr = mesh.instanceMatrix.array as Float32Array; const tags = new Int32Array(list.length);
-    list.forEach((it, i) => { worldMatrix(prep, it.el, it.pre, arr, i * 16); tags[i] = it.tag; });
+    list.forEach((it, i) => { worldMatrix(prep, it.el, it.pre, arr, i * 16, it.post); tags[i] = it.tag; });
     mesh.instanceMatrix.needsUpdate = true;
     mesh.userData.tags = tags;
     mesh.computeBoundingSphere(); mesh.computeBoundingBox();
@@ -109,7 +131,7 @@ export function holeMarkers(prep: PreparedModel, items: Placement[], material: T
   const arr = mesh.instanceMatrix.array as Float32Array; let at = 0;
   for (const it of items) {
     const g = prep.elGeom[it.el]; if (g < 0 || !prep.geoms[g].holes.length) continue;
-    worldMatrix(prep, it.el, it.pre, W, 0);
+    worldMatrix(prep, it.el, it.pre, W, 0, it.post);
     at = holeMatrices(prep.geoms[g], W, arr, at);
   }
   mesh.instanceMatrix.needsUpdate = true;
@@ -127,7 +149,7 @@ export function edgeLines(prep: PreparedModel, items: Placement[]): Float32Array
   const out = new Float32Array(n); let o = 0;
   for (const it of items) {
     const g = prep.elGeom[it.el]; if (g < 0) continue;
-    worldMatrix(prep, it.el, it.pre, W, 0);
+    worldMatrix(prep, it.el, it.pre, W, 0, it.post);
     const e = prep.geoms[g].edges;
     for (let k = 0; k < e.length; k += 3) {
       const x = e[k], y = e[k + 1], z = e[k + 2];

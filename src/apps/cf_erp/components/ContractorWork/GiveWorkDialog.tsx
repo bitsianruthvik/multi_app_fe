@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material';
-import { CfApiError } from '../../api/client';
+import { CfApiError, cfApi } from '../../api/client';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
 import {
   createWorkOrder, getContractorGrid, previewWorkOrder, type ContractorGrid, type CreatePlan, type GridRow, type WoDetail,
 } from '../../api/contractorWorkOrders';
@@ -37,6 +38,22 @@ export function GiveWorkDialog({ open, productionOrderId, onClose, onMade }: {
   const [notes, setNotes] = useState('');
   const [plan, setPlan] = useState<CreatePlan | null>(null);
   const [busy, setBusy] = useState(false);
+  // 2026-11-14: a vendor not in the list yet is added here, without leaving the grid (a party with the Subcontractor role).
+  const canAddVendor = useIsPermitted()('cf_erp_parties_manage');
+  const [newVendor, setNewVendor] = useState<string | null>(null);
+  const [vendorError, setVendorError] = useState<string | null>(null);
+  const addVendor = async () => {
+    const name = (newVendor ?? '').trim();
+    if (!name) return;
+    setVendorError(null);
+    try {
+      // A party needs a code: from the name, with three digits so two vendors of one name never clash.
+      const code = `${name.toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'VENDOR'}-${String(Date.now() % 1000).padStart(3, '0')}`;
+      const party = await cfApi.post<{ id: number; name: string }>('/parties', { code, name, roles: ['subcontractor'] });
+      const g = await getContractorGrid(productionOrderId);
+      setGrid(g); setContractorId(party.id); setTypedRates({}); setNewVendor(null);
+    } catch (e) { setVendorError(e instanceof CfApiError ? (e.problems[0] ?? e.message) : (e as Error).message); }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -170,7 +187,8 @@ export function GiveWorkDialog({ open, productionOrderId, onClose, onMade }: {
                           const cl = r.cells[o.id];
                           const picked = sel.has(cellKey(r.key, o.id));
                           const focused = focus.r === ri && focus.c === ci;
-                          if (!cl) return <Box component="td" key={o.id} sx={{ background: 'var(--c-surface-2)' }} />;
+                          // Not in this row's flow: hatched, so the cells that can be given stand out (2026-11-14).
+                          if (!cl) return <Box component="td" key={o.id} title={`${o.name} is not in this row's flow`} sx={{ background: 'repeating-linear-gradient(135deg, var(--c-surface-2) 0 4px, transparent 4px 8px)' }} />;
                           return (
                             <Box component="td" key={o.id} data-testid="give-cell" data-cell={cellKey(r.key, o.id)} data-picked={picked ? '1' : '0'}
                               title={cl.why ?? (picked ? 'Picked — click to drop' : 'Click to pick')}
@@ -181,7 +199,8 @@ export function GiveWorkDialog({ open, productionOrderId, onClose, onMade }: {
                                 outline: focused ? '2px solid var(--c-primary-500)' : undefined, outlineOffset: -2,
                                 color: cl.started ? 'var(--c-text-3)' : undefined,
                               }}>
-                              {cl.workOrder ? <span>{cl.workOrder.contractor.name} <Mono muted>({cl.workOrder.code})</Mono></span> : cl.started ? 'in-house' : picked ? '✓' : ''}
+                              {cl.workOrder ? <span>{cl.workOrder.contractor.name} <Mono muted>({cl.workOrder.code})</Mono></span> : cl.started ? 'in-house' : picked ? '✓'
+                                : cl.editable ? <Box component="span" aria-hidden sx={{ color: 'var(--c-text-3)', opacity: 0.55, fontSize: 13 }}>+</Box> : ''}
                             </Box>
                           );
                         })}
@@ -193,9 +212,18 @@ export function GiveWorkDialog({ open, productionOrderId, onClose, onMade }: {
             </Box>
             <Box sx={{ display: 'grid', gap: 1.5 }} data-testid="give-side">
               <TextField select label="Contractor" value={contractorId ?? ''} onChange={(e) => { setContractorId(Number(e.target.value)); setTypedRates({}); }}
-                inputProps={{ 'data-testid': 'give-contractor' }} helperText={grid.contractors.length ? 'Parties with the Subcontractor role.' : 'No contractor yet — add one under Production › Contractors.'}>
+                inputProps={{ 'data-testid': 'give-contractor' }} helperText={grid.contractors.length ? 'Parties with the Subcontractor role.' : canAddVendor ? 'No vendor yet — add one below.' : 'No vendor yet — ask someone who manages parties to add one.'}>
                 {grid.contractors.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </TextField>
+              {canAddVendor && (newVendor == null
+                ? <Button size="small" sx={{ justifySelf: 'start', mt: -1 }} onClick={() => setNewVendor('')} data-testid="give-new-vendor">+ New vendor</Button>
+                : (
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mt: -1 }}>
+                    <TextField size="small" autoFocus label="Vendor's name" value={newVendor} onChange={(e) => setNewVendor(e.target.value)} error={!!vendorError} helperText={vendorError ?? undefined}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addVendor(); } if (e.key === 'Escape') setNewVendor(null); }} sx={{ flex: '1 1 auto' }} />
+                    <Button size="small" variant="outlined" disabled={!newVendor.trim()} onClick={() => void addVendor()}>Add</Button>
+                  </Box>
+                ))}
               {summary.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Pick cells on the left. One PO line is made per operation, paid by the tonne.</Typography>}
               {summary.map((s) => (
                 <Box key={s.operation.id} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px', gap: 1, alignItems: 'center' }} data-testid="give-op">

@@ -28,6 +28,7 @@ const WeekPlan = lazy(() => import('./pages/planning/WeekPlan'));
 const DailyRoster = lazy(() => import('./pages/planning/DailyRoster'));
 const ProductionRoster = lazy(() => import('./pages/planning/DailyRoster').then((m) => ({ default: m.ProductionRoster })));
 const PlanReview = lazy(() => import('./pages/planning/PlanReview'));
+const PlanVendors = lazy(() => import('./pages/planning/Vendors'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Alerts = lazy(() => import('./pages/Alerts'));
@@ -146,6 +147,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/planning-week', element: wrap(<WeekPlan />) },
     { path: '/:company/cf_erp/planning-day', element: wrap(<DailyRoster />) },
     { path: '/:company/cf_erp/planning-review', element: wrap(<PlanReview />) },
+    { path: '/:company/cf_erp/planning-vendors', element: wrap(<PlanVendors />) },
     { path: '/:company/cf_erp/roster', element: wrap(<ProductionRoster />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/planner', element: wrap(<Planner />) },

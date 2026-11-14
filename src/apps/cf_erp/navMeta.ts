@@ -159,6 +159,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'planning-home', label: 'Overview', path: 'planning', permission: PRODUCTION_MANAGE, countKey: 'planAlerts', keywords: ['planning', 'plan', 'alerts', 'forecast', 'tonnes', 'what changed', 'home'] },
       { key: 'planning-month', label: 'Month plan', path: 'planning-month', permission: PRODUCTION_MANAGE, keywords: ['month plan', 'optimise', 'optimize', 'machines in the plan', 'priority', 'freeze', 'md', 'tonnage', 'suggestions', 'capacity'] },
       { key: 'planning-week', label: 'Week plan', path: 'planning-week', permission: PRODUCTION_MANAGE, keywords: ['week plan', 'weekly', 'plan vs actual', 'went wrong', 'pivot', 'operations', 'publish', 'close week'] },
+      // 2026-11-14: give steps of a production order to vendors, and see who is on what in 3D.
+      { key: 'planning-vendors', label: 'Vendors', path: 'planning-vendors', permission: PRODUCTION_MANAGE, keywords: ['vendor', 'contractor', 'subcontract', 'give work', 'work order', 'outsource', 'who is on what', '3d'] },
       { key: 'planning-day', label: 'Daily roster', path: 'planning-day', permission: PRODUCTION_MANAGE, keywords: ['daily', 'roster', 'tomorrow', 'task sheet', 'drag', 'assign machine', 'publish'] },
       { key: 'planning-review', label: 'Past plans', path: 'planning-review', permission: PRODUCTION_MANAGE, keywords: ['history', 'review', 'past plans', 'what went wrong', 'contractor performance', 'lessons'] },
       // Every production order by sales order: Setting times → Planning → Released …; released from here; contractor work is given from one.
