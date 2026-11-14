@@ -87,10 +87,10 @@ export const INTENT_SECTIONS: NavSection[] = [
 
 /** The third layout: As-is (what is open now) and Historic (orders in a range), each with the same four screens. */
 const flowScreens = (mode: 'asis' | 'historic') => [
-  { label: 'Customer', path: `flow/${mode}/customer`, keywords: ['sales', 'value', 'tonnes', 'units', 'order type', 'part type'] },
-  { label: 'Planning', path: `flow/${mode}/planning`, keywords: ['batch', 'sub-batch', 'plan', 'yet to plan', 'split', 'accuracy'] },
-  { label: 'Production', path: `flow/${mode}/production`, keywords: ['wip', 'work in progress', 'aging', 'stage', 'step', 'today'] },
-  { label: 'Dispatch', path: `flow/${mode}/dispatch`, keywords: ['shipment', 'volume', 'frequency', 'top ten', 'dispatch'] },
+  { label: 'Customer', path: `flow-${mode}-customer`, keywords: ['sales', 'value', 'tonnes', 'units', 'order type', 'part type'] },
+  { label: 'Planning', path: `flow-${mode}-planning`, keywords: ['batch', 'sub-batch', 'plan', 'yet to plan', 'split', 'accuracy'] },
+  { label: 'Production', path: `flow-${mode}-production`, keywords: ['wip', 'work in progress', 'aging', 'stage', 'step', 'today'] },
+  { label: 'Dispatch', path: `flow-${mode}-dispatch`, keywords: ['shipment', 'volume', 'frequency', 'top ten', 'dispatch'] },
 ];
 
 /** The third layout's navigation: As-is and Historic, each with Customer, Planning, Production and Dispatch. */

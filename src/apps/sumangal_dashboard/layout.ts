@@ -18,4 +18,4 @@ export function getLayout(): Layout {
 export function setLayout(v: Layout) {
   try { window.localStorage.setItem(KEY, v); } catch { /* private window: the layout just won't be remembered */ }
 }
-export const HOME: Record<Layout, string> = { topic: 'key-metrics', intent: 'x-alerts', flow: 'flow/asis/customer' };
+export const HOME: Record<Layout, string> = { topic: 'key-metrics', intent: 'x-alerts', flow: 'flow-asis-customer' };
