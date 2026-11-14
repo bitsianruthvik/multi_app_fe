@@ -4,7 +4,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import DrawRounded from '@mui/icons-material/DrawRounded';
 import { CfApiError } from '../../api/client';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
-import { fetchRegisterBlob, getDrawingTree, type DrawingTree, type DrawingTreeRow } from '../../api/drawings';
+import { fetchRegisterBlob, getDrawingTree, getLineModel3d, type DrawingTree, type DrawingTreeRow } from '../../api/drawings';
 import { findRow, inheritedLabel, levelView, rowShows } from '../../lib/drawingLevels';
 import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 import { DrawingViewer, type ViewerDrawing } from './DrawingViewer';
@@ -48,6 +48,9 @@ export function RowDrawingViewer({ target, onClose, large = false }: { target: R
   useEffect(() => {
     let live = true;
     setTree(null); setError(null);
+    // The line's 3D model is read at the same time as the tree, not after it (2026-11-14: the tub girder took ~10 s
+    // longer to open). The read is kept (api/drawings readModel), so the viewer finds it waiting.
+    getLineModel3d(target.orderId, target.lineId).catch(() => { /* the viewer reads it again and says why */ });
     getDrawingTree(target.orderId, target.lineId)
       .then((t) => { if (live) { setTree(t); setAt(findRow(t, target)?.rowId ?? null); } })
       .catch((e) => { if (live) setError(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e))); });
