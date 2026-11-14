@@ -25,6 +25,12 @@ export interface TreeOp {
   reason?: string;
   /** The step's planned minutes; null = no time on it (2026-10-17). */
   minutes?: number | null;
+  /** When the floor started / finished it (ISO; 2026-11-14, the timeline). */
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  /** The planner's slot for it, when it has planned the step. */
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
 }
 
 /** One operation's figures over a set of steps: counted done / total, and planned minutes (null = not every step has a time). */
@@ -88,8 +94,13 @@ export interface TreeOrderChoice {
 
 export type OperationNames = Record<string, { code: string; name: string }>;
 
+/** One level of the tree: its piece count and its two commonest kinds ("Girder segment", "Cut plate"). */
+export interface TreeLevel { level: number; count: number; names: string[] }
+/** A production order with nothing released yet (the empty page lists them). */
+export interface UnreleasedProductionOrder { id: number; code: string; label: string | null; status: string; orderId: number; orderCode: string }
+
 export interface TrackerTreeResponse {
-  scope: { orderId: number | null; lineId: number | null; includeClosed: boolean };
+  scope: { orderId: number | null; lineId: number | null; productionOrderId?: number | null; includeClosed: boolean };
   orders: TreeOrderChoice[];
   summary: { orders: number; lines: number; pieces: number; blockedPieces: number; runningSteps: number; steps: number; stepsDone: number; completion: number | null; weight: 'minutes' | 'count' | null };
   depth: number;
@@ -100,10 +111,16 @@ export interface TrackerTreeResponse {
   truncated: boolean;
   basisNote: { piece: string; row: string };
   operations: OperationNames;
+  /** Operation ids in flow order over everything read: the order a subtree's roll-up is drawn in. */
+  opOrder?: number[];
+  levels?: TreeLevel[];
+  /** How many steps the planner has dated. */
+  planned?: number;
+  unreleased?: UnreleasedProductionOrder[];
   nodes: TreeNode[];
 }
 
-export interface TreeChildrenResponse { node: TreeNode; operations: OperationNames; nodes: TreeNode[] }
+export interface TreeChildrenResponse { node: TreeNode; operations: OperationNames; opOrder?: number[]; nodes: TreeNode[] }
 
 export interface TreePieceResponse {
   node: TreeNode;
@@ -114,7 +131,7 @@ export interface TreePieceResponse {
   steps: ProductionStep[];
 }
 
-export interface TreeQuery { orderId?: number | null; lineId?: number | null; productionOrderId?: number | null; depth?: number | null; search?: string | null; onlyBlocked?: boolean }
+export interface TreeQuery { orderId?: number | 'latest' | null; lineId?: number | null; productionOrderId?: number | null; depth?: number | null; search?: string | null; onlyBlocked?: boolean }
 
 /** A big line's tree is read in full on the server every time (~1 s locally, more on production). */
 const SLOW = { timeoutMs: 120_000 };

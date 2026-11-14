@@ -11,6 +11,9 @@ export interface RowUnit {
   op: { code: string; name: string } | null;
   /** a step of that operation is being worked right now */
   inProgress: boolean;
+  /** 2026-11-14: the operation being worked on the row right now (glows), and else the last one done (painted). */
+  now?: { code: string; name: string } | null;
+  last?: { code: string; name: string } | null;
   pieces: number;
   done: number;
   /** the row's cut pieces and how many are cut (null = it has none) */

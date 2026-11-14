@@ -18,7 +18,7 @@ import { Badge, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows } from './ui'
 import { DataTable, type DataColumn } from './DataTable';
 import { ShipDialog } from './TrackerDialogs';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ProductionGrid } from './Production/ProductionGrid';
+import { TrackerTree } from './Tracker/TrackerTree';
 import { useToast } from './toastContext';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -163,7 +163,7 @@ function MaterialSection({ release, canStock, onChange, refreshKey }: {
  * One released line: its figures and what can be done to it (reserve material,
  * ship, take back), then its production as a GRID — the frozen piece codes down
  * the left, its operations across, a cell per piece per operation (user,
- * 2026-10-01; ProductionGrid) — and its material, read when opened.
+ * 2026-10-01; since 2026-11-14 the Tracker's own tree, each row with its own operations — TrackerTree) — and its material, read when opened.
  *
  * It is handed the release's FIGURES (GET /orders/:id/production —
  * releaseSummaries), never the whole tracker: on the KEPL line that was 11 MB
@@ -283,7 +283,7 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
       </Box>
       {p.pieces === 0
         ? <Typography sx={{ color: 'var(--c-text-2)', mb: 2 }}>Nothing is made for this line — it is bought in, so only its material is tracked below.</Typography>
-        : <ProductionGrid key={`${r.line.id}:${gridKey}`} lineId={r.line.id} canAct={canProduce && confirmed} onChanged={() => { void figuresStale(); setMaterialKey((k) => k + 1); }} />}
+        : <TrackerTree key={`${r.line.id}:${gridKey}`} lineId={r.line.id} readOnly={!(canProduce && confirmed)} onChanged={() => { void figuresStale(); setMaterialKey((k) => k + 1); }} />}
       <MaterialSection release={r} canStock={canStock && confirmed} refreshKey={materialKey}
         onChange={(next) => { changed(next); setGridKey((k) => k + 1); }} />
 

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
+import { keyframes } from '@mui/system';
 import * as THREE from 'three';
 import { getLineModel3d, type Model3D } from '../../api/drawings';
 import { getRowProgress, type RowProgress } from '../../api/rowProgress';
-import { lookOf, legendOf, marksOf, rowOfElement, type Look } from '../../lib/progress3d';
+import { lookOf, legendOf, marksOf, rowOfElement, type LegendEntry, type Look } from '../../lib/progress3d';
 import { GESTURES_3D } from '../../lib/model3d';
 import type { PreparedModel } from '../../lib/model3dPrep';
 import { prepared } from '../../lib/model3dPrepare';
@@ -19,6 +20,12 @@ import { bindClicks, createOrbit, frameBox, highlightMaterial, VIEW_DIR } from '
  * to turn about it; a clicked piece is outlined in the highlight colour (its own small mesh — no rebuild).
  * Drawn as the drawing viewer's 3D is (2026-11-08): each distinct shape once, instanced per look; holes as markers.
  */
+
+/** The legend's glowing swatch breathes like the pieces do. */
+const glowKf = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 7px 2px rgba(59, 130, 246, 0.8); }
+`;
 
 interface LineData { lineId: number; model: Model3D | null; progress: RowProgress | null; error?: string }
 
@@ -98,8 +105,11 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
   }, [lines, list]);
   const legend = useMemo(() => {
     const looks = placed.map((p) => p.look);
-    const seen = new Map<string, { colour: string; label: string; ghost?: boolean }>();
-    for (const l of lines) for (const x of legendOf(l.progress as RowProgress, looks)) seen.set(`${x.colour}|${x.label}|${x.ghost ? 1 : 0}`, x);
+    const seen = new Map<string, LegendEntry>();
+    for (const l of lines) for (const x of legendOf(l.progress as RowProgress, looks)) {
+      const k = `${x.colour}|${x.label}|${x.ghost ? 1 : 0}`;
+      if (!seen.has(k)) seen.set(k, x);
+    }
     return [...seen.values()];
   }, [placed, lines]);
 
@@ -140,7 +150,10 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
       for (const m of instancedMeshes(prep, items, mat, geos[line])) { scene.add(m); meshes.push(m); if (m.boundingBox) all.union(m.boundingBox); }
       if (look.pulse) pulsing.push(mat);
       const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(edgeLines(prep, items), 3));
-      if (look.ghost) {
+      if (look.pulse) {
+        // A bright edge as well, so a piece being worked stands out even inside the structure.
+        scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })));
+      } else if (look.ghost) {
         // The steel that is not there yet: dashed outline.
         const edges = new THREE.LineSegments(eg, new THREE.LineDashedMaterial({ color: 0x5b6878, dashSize: 60, gapSize: 50 }));
         edges.computeLineDistances(); scene.add(edges);
@@ -185,8 +198,8 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
     ro.observe(el);
     let raf = 0; const t0 = performance.now();
     const loop = () => {
-      // A step being worked right now breathes (a soft glow, about once a second).
-      const glow = 0.25 + 0.25 * Math.sin(((performance.now() - t0) / 1000) * Math.PI * 2);
+      // A piece being worked right now glows and breathes (about once a second); the rest are lit flat.
+      const glow = 0.55 + 0.4 * Math.sin(((performance.now() - t0) / 1000) * Math.PI * 2);
       for (const m of pulsing) m.emissiveIntensity = glow;
       const holesSeen = pixelsOf(holeMm, camera.position.distanceTo(controls.target), camera, renderer.domElement.clientHeight || 500) >= HOLE_MIN_PX;
       for (const h of holes) h.visible = holesSeen;
@@ -211,14 +224,32 @@ function Scene({ lines, height }: { lines: LineData[]; height: number }) {
           {picked ?? `${GESTURES_3D} · click a piece to see where it is`}
         </Typography>
       </Box>
-      <Box data-testid="progress3d-legend" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', fontSize: 12.5, color: 'var(--c-text-2)' }}>
-        {legend.map((x) => (
-          <Box key={`${x.colour}${x.label}`} sx={{ display: 'flex', gap: 0.6, alignItems: 'center' }}>
-            <Box sx={{ width: 14, height: 14, borderRadius: '3px', background: x.ghost ? 'transparent' : x.colour, border: x.ghost ? '1.5px dashed #5b6878' : '1px solid rgba(0,0,0,0.15)' }} />
-            {x.label}
+      <Box data-testid="progress3d-legend" sx={{ display: 'grid', gap: 0.75, fontSize: 12.5, color: 'var(--c-text-2)' }}>
+        {/* How to read a colour: glowing = being worked now, solid = the last operation done on it. */}
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+            <Box sx={{ width: 14, height: 14, borderRadius: '3px', background: '#3b82f6', border: '1.5px solid #fff', animation: `${glowKf} 1.2s ease-in-out infinite` }} />
+            <span><b>Glowing</b> — that operation is being worked on it now</span>
           </Box>
-        ))}
-        <Box sx={{ color: 'var(--c-text-3)' }}>A part gone into its assembly takes the assembly&rsquo;s colour · a glowing piece is being worked now</Box>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+            <Box sx={{ width: 14, height: 14, borderRadius: '3px', background: '#3b82f6', border: '1px solid rgba(0,0,0,0.15)' }} />
+            <span><b>Solid</b> — nothing running; the last operation done on it</span>
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+          {legend.map((x) => (
+            <Box key={`${x.colour}${x.label}${x.ghost ? 'g' : ''}`} sx={{ display: 'flex', gap: 0.6, alignItems: 'center' }}
+              title={x.op ? `${x.working ? `${x.working} being worked now` : 'none being worked now'}${x.last ? ` · last done on ${x.last}` : ''}` : undefined}>
+              <Box sx={{
+                width: 14, height: 14, borderRadius: '3px', background: x.ghost ? 'transparent' : x.colour, border: x.ghost ? '1.5px dashed #5b6878' : '1px solid rgba(0,0,0,0.15)',
+                ...(x.working ? { animation: `${glowKf} 1.2s ease-in-out infinite` } : {}),
+              }} />
+              {x.label}
+              {x.op && x.working ? <Box component="span" sx={{ fontSize: 11, color: 'var(--c-info-700)', fontWeight: 600 }}>{x.working} now</Box> : null}
+            </Box>
+          ))}
+        </Box>
+        <Box sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>A part gone into its assembly takes the assembly&rsquo;s colour.</Box>
       </Box>
     </Box>
   );

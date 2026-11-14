@@ -74,7 +74,7 @@ export default function ProductionOrderDetail() {
       <Box sx={{ mt: 2 }}>
         {po.lineIds.length > 0 && (
           <Box sx={{ mb: 2 }}>
-            <SectionCard title="In 3D" subtitle="Every piece coloured by the step it is at. A part gone into its assembly takes the assembly’s colour; uncut parts are dashed.">
+            <SectionCard title="In 3D" subtitle="Each piece glows in the colour of the operation being worked on it, or shows the last one done.">
               <Progress3D orderId={po.order.id} lineIds={po.lineIds} productionOrderId={po.id} />
             </SectionCard>
           </Box>

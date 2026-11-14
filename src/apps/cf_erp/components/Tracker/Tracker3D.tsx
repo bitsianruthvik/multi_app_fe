@@ -47,7 +47,7 @@ export function Tracker3D() {
           <MenuItem value="">All of the order</MenuItem>
           {pos.map((p) => <MenuItem key={p.id} value={p.id}>{p.code} · {p.stateLabel}</MenuItem>)}
         </TextField>
-        <InfoTip text="Each line of the order, once per unit, each piece coloured by the step it is at. A part gone into its assembly takes the assembly's colour; uncut parts are dashed. Pieces not released yet are grey." />
+        <InfoTip text="Each line of the order, once per unit. A piece glows in the colour of the operation being worked on it now; with nothing running it shows, solid, the colour of the last operation done on it. Finished is green, nothing done yet light grey, not released steel grey. A part gone into its assembly takes the assembly's colour; uncut parts are dashed." />
       </Box>
       <Surface e={1} sx={{ p: 1, minHeight: 420 }}>
         {!order ? <SkeletonBlock h={420} r={8} />
