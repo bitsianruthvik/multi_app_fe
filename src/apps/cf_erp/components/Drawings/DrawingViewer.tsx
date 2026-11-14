@@ -95,8 +95,11 @@ export type ViewerDrawing = Pick<Drawing, 'id' | 'mark' | 'fileName' | 'fileKind
 /** Level navigation: where the person is in the line's structure, and how to step. */
 export interface ViewerLevels { view: LevelView; onGo: (rowId: number) => void }
 
-/** How long an assembly's file waits for the model before it is fetched anyway. */
-const MODEL_WAIT_MS = 2000;
+/**
+ * How long the viewer waits for the model before it opens the 2D file anyway. A large assembly's model can take well over
+ * 2 s on the server; it used to give up at 2 s and then 2D stayed the choice (user, 2026-11-14: "2D is coming before 3D").
+ */
+const MODEL_WAIT_MS = 60000;
 
 type Loaded =
   | { state: 'loading' }
@@ -688,6 +691,13 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       )}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 3, pb: 1, minHeight: 36, flexWrap: 'wrap' }}>
+        {(model || canPart) && (
+          <ToggleButtonGroup size="small" exclusive value={mode3d ? '3d' : '2d'} aria-label="3D or 2D" sx={{ mr: 0.5 }}
+            onChange={(_, v) => { if (!v) return; setModePhysics(false); if (v === '3d') { if (!mode3d) void loadPart(); setPick3d(true); } else setPick3d(false); }}>
+            <ToggleButton value="3d" data-testid="viewer-3d-toggle" sx={{ textTransform: 'none' }}><ViewInArRounded sx={{ fontSize: 18, mr: 0.5 }} />3D</ToggleButton>
+            <ToggleButton value="2d" data-testid="viewer-2d-toggle" sx={{ textTransform: 'none' }}>2D drawing</ToggleButton>
+          </ToggleButtonGroup>
+        )}
         {!isPdf && !mode3d && (
           <>
             {ib('Zoom out', <ZoomOutRounded fontSize={iconSize} />, pz.zoomOut, { disabled: !view })}
@@ -711,10 +721,6 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             <ToggleButton value="file" data-testid="viewer-source-file">Customer sheet</ToggleButton>
           </ToggleButtonGroup>
         )}
-        {(model || canPart) && (
-          <Button size={large ? 'large' : 'small'} variant={mode3d ? 'contained' : 'outlined'} startIcon={<ViewInArRounded />} onClick={() => { if (!mode3d) void loadPart(); setModePhysics(false); setPick3d(modePhysics ? true : !mode3d); }}
-            data-testid="viewer-3d-toggle" aria-pressed={mode3d}>{mode3d ? '2D drawing' : '3D'}</Button>
-        )}
         {physicsInfo && (
           <Button size={large ? 'large' : 'small'} variant={modePhysics ? 'contained' : 'outlined'} startIcon={<ScienceRounded />} onClick={() => setModePhysics((x) => !x)}
             data-testid="viewer-physics-toggle" aria-pressed={modePhysics}>{modePhysics ? 'Back to the drawing' : 'Physics'}</Button>
@@ -727,6 +733,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
           <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the physics view…</Box>}>
             <PhysicsView source={physicsSrc} info={physicsInfo} />
           </Suspense>
+        )}
+        {pick3d === null && !modePhysics && (
+          <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Reading the 3D model…</Box>
         )}
         {mode3d && !modePhysics && (
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}>
@@ -743,7 +752,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             )}
           </Box>
         )}
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d || modePhysics ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d || modePhysics || pick3d === null ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
           {(showModel ? !view : loaded.state === 'loading') && (
             <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}>
               <CircularProgress size={18} /> {showModel ? 'Drawing it from the model…' : 'Loading the drawing…'}
