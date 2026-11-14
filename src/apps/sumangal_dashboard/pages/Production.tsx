@@ -29,7 +29,7 @@ export default function Production() {
       footnote="Working days are the days a stage has entries in the ERP. Weights use the ERP’s raw casting weight. Material between stages is stage quantities subtracted, for batches started since April 2024, and is always shown up to the last data date.">
       {d && (
         <>
-          <SectionCard title={`Between stages on ${dateLabel(d.asOf)}`}>
+          <SectionCard title={`Between stages on ${dateLabel(d.asOf)}`} info="Tonnes between stages on the last data date: injected but not poured, poured but not inspected, and inspected but not cleared, from the ERP’s stage records. Cleared, not shipped is the still-to-ship weight on open order lines. The date range does not change these figures.">
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={4} useFlexGap flexWrap="wrap">
               <Big value={tonnes(d.now.injected)} label="Injected, not poured" />
               <Big value={tonnes(d.now.poured)} label="Poured, not inspected" />
@@ -38,19 +38,19 @@ export default function Production() {
             </Stack>
           </SectionCard>
           <Grid>
-            <SectionCard title="Kg per working day, by stage">
+            <SectionCard title="Kg per working day, by stage" info="Kilograms through each stage in the selected date range, divided by that stage’s working days in the same range. Working days are days with entries for the stage in the ERP; Dispatched counts days with dispatches.">
               <RowBars rows={d.stages.map((s) => ({ key: s.stage, label: s.stage, value: s.kgPerDay }))} format={(v) => `${num(v)} kg`} />
             </SectionCard>
             <Stack spacing={2.25}>
-              <SectionCard title="Tonnes by month">
+              <SectionCard title="Tonnes by month" info="Tonnes through Injection, Melting (metal poured), Inspection and Dispatched in each month of the selected date range.">
                 <Lines labels={d.months.map((m) => monthLabel(m.mo))} format={(v) => `${v} t`} height={230} series={[{ label: 'Injection', data: d.months.map((m) => m.injection) }, { label: 'Melting', data: d.months.map((m) => m.melting) }, { label: 'Inspection', data: d.months.map((m) => m.inspection) }, { label: 'Dispatched', data: d.months.map((m) => m.dispatched) }]} />
               </SectionCard>
-              <SectionCard title="Between stages over time" subtitle="Tonnes at month end">
+              <SectionCard title="Between stages over time" subtitle="Tonnes at month end" info="Tonnes between stages at each month end, from three months after the first data date. The date range does not change this chart; the other filters do.">
                 <Lines labels={d.wip.map((s) => short(s.me))} format={(v) => `${v} t`} height={230} series={[{ label: 'Injected, not poured', data: d.wip.map((s) => s.injected) }, { label: 'Poured, not inspected', data: d.wip.map((s) => s.poured) }, { label: 'Inspected, not cleared', data: d.wip.map((s) => s.inspected) }]} />
               </SectionCard>
             </Stack>
           </Grid>
-          <SectionCard title="All stages" flush><ReportTable rows={d.stages} columns={cols} getRowId={(r) => r.stage} bare pageSize={15} /></SectionCard>
+          <SectionCard title="All stages" flush info="Tonnes, kg per working day, working days and pieces for each stage in the selected date range. The Dispatched row counts shipments."><ReportTable rows={d.stages} columns={cols} getRowId={(r) => r.stage} bare pageSize={15} /></SectionCard>
         </>
       )}
     </Page>

@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { Autocomplete, Box, Button, Chip, Menu, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, Chip, Menu, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useState } from 'react';
 import AddRounded from '@mui/icons-material/AddRounded';
 import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import { ErrorNotice, ListSkeleton, PageHeader, StatSkeleton } from '@shared/ui';
-import { FILTER_KEYS, FILTER_LABEL, PERIOD_LABEL, useMeta, type Filters, type FilterKey, type PeriodKey } from '../filters';
+import { FILTER_KEYS, FILTER_LABEL, useMeta, type Filters, type FilterKey } from '../filters';
 import { dateLabel } from '../format';
 
 /** What a filter's options mean, where the name alone isn't enough. */
@@ -42,20 +42,34 @@ function AddFilter({ filters, keys }: { filters: Filters; keys: readonly FilterK
   );
 }
 
-/** Period and filters. The same strip, in the same place, on every screen. */
+/** Any From and To date within the data. Empty means the whole data. */
+function DateRange({ filters }: { filters: Filters }) {
+  const meta = useMeta();
+  if (!meta) return null;
+  const { from, to } = filters.dates;
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" aria-label="Date range">
+      <TextField size="small" type="date" label="From" value={from} sx={{ width: 160 }}
+        slotProps={{ htmlInput: { min: meta.from, max: to || meta.asOf } }}
+        onChange={(e) => filters.setRange(e.target.value, to)} />
+      <TextField size="small" type="date" label="To" value={to} sx={{ width: 160 }}
+        slotProps={{ htmlInput: { min: from || meta.from, max: meta.asOf } }}
+        onChange={(e) => filters.setRange(from, e.target.value)} />
+      {filters.rangeSet && <Button size="small" onClick={() => filters.setRange('', '')} sx={{ textTransform: 'none' }}>All dates</Button>}
+    </Stack>
+  );
+}
+
+/** Date range and filters. The same strip, in the same place, on every screen. */
 export function FilterStrip({ filters, keys = FILTER_KEYS, period = true }: { filters: Filters; keys?: readonly FilterKey[]; period?: boolean }) {
   const meta = useMeta();
   const shown = (k: FilterKey) => (k === 'customer' ? meta?.options.customers.find((c) => String(c.id) === filters.values.customer)?.name ?? filters.values.customer : filters.values[k]);
   return (
     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
-      {period && (
-        <ToggleButtonGroup size="small" exclusive value={filters.period} onChange={(_, v: PeriodKey | null) => v && filters.setPeriod(v)} aria-label="Period">
-          {(Object.keys(PERIOD_LABEL) as PeriodKey[]).map((p) => <ToggleButton key={p} value={p} sx={{ textTransform: 'none', px: 1.5, py: 0.4 }}>{PERIOD_LABEL[p]}</ToggleButton>)}
-        </ToggleButtonGroup>
-      )}
+      {period && <DateRange filters={filters} />}
       <AddFilter filters={filters} keys={keys} />
       {filters.active.filter((k) => keys.includes(k)).map((k) => <Chip key={k} size="small" color="primary" variant="outlined" label={`${FILTER_LABEL[k]}: ${shown(k)}`} onDelete={() => filters.setValue(k, '')} />)}
-      {filters.active.length > 1 && <Button size="small" onClick={filters.clear} sx={{ textTransform: 'none' }}>Clear all</Button>}
+      {(filters.active.length > 1 || (period && filters.rangeSet)) && <Button size="small" onClick={filters.clear} sx={{ textTransform: 'none' }}>Clear all</Button>}
     </Stack>
   );
 }

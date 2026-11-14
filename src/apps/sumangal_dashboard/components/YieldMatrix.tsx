@@ -19,7 +19,7 @@ export function YieldMatrix({ filters: f }: { filters: Filters }) {
   const { data: d, error, reload } = useReport<Report>(f.ready ? `/yield${f.query({ by })}` : null);
   const maxCell = d ? Math.max(1, ...d.matrix.flatMap((r) => AREAS.map((a) => Number(r[a]) || 0))) : 1;
   return (
-    <SectionCard title="By stage and type of work" subtitle="Rejected % of metal poured. Darker is higher." flush actions={(
+    <SectionCard title="By stage and type of work" subtitle="Rejected % of metal poured. Darker is higher." flush info="Rejected weight at each stage as a percentage of the metal poured for each type of work, in the selected date range. The buttons choose the type: finish code, metal, piece weight or line size. Types with under 1 t poured are left out; Total is all rejections for the type over its poured metal." actions={(
       <ToggleButtonGroup size="small" exclusive value={by} onChange={(_, v) => v && setBy(v)}>
         {BY.map(([k, l]) => <ToggleButton key={k} value={k} sx={{ textTransform: 'none', py: 0.3 }}>{l}</ToggleButton>)}
       </ToggleButtonGroup>

@@ -55,7 +55,7 @@ export default function XMonth() {
       footnote="Open order lines by the month of their delivery date, as of the last data date. Each line's unshipped pieces are placed at the furthest stage they have reached. The usual month is the median of the last 12 complete months; low and high are the lowest and highest of those months. Next expected shipment is a customer's last shipment plus their usual gap; customers with no shipment in three usual gaps are left out.">
       {d && (
         <>
-          <SectionCard title="What the plant manages in a month" subtitle="The last 12 complete months">
+          <SectionCard info="The median tonnes a month over the last 12 complete months for metal poured, tonnes dispatched and tonnes ordered by customers, with the lowest and highest month of each. Ordered counts sales orders by order date. The page filters do not change these figures." title="What the plant manages in a month" subtitle="The last 12 complete months">
             <FactRow cols={3}>
               <Fact label="Poured" value={`${d.poured.usual} t`} sub={`Lowest ${d.poured.low} t · highest ${d.poured.high} t`} />
               <Fact label="Dispatched" value={`${d.dispatched.usual} t`} sub={`Lowest ${d.dispatched.low} t · highest ${d.dispatched.high} t`} />
@@ -63,7 +63,7 @@ export default function XMonth() {
             </FactRow>
           </SectionCard>
 
-          <SectionCard title="Still to ship, by month due" subtitle={`Against the usual month's dispatch of ${d.dispatched.usual} t (dashed line)`} action={<Open to="orders" label="Open orders" />}>
+          <SectionCard info="Open order lines, not yet fully shipped, grouped by delivery date: past due, this month and the next four months, later, and no date. Each line’s unshipped tonnes are split by the furthest stage its pieces have reached (not started, in wax, poured, inspected, cleared), and the dashed line marks the usual monthly dispatch. The page filters apply." title="Still to ship, by month due" subtitle={`Against the usual month's dispatch of ${d.dispatched.usual} t (dashed line)`} action={<Open to="orders" label="Open orders" />}>
             <Swatches items={d.stageBuckets.map((s, i) => ({ label: s, color: COLORS[i] }))} />
             <Box sx={{ mt: 1.5, position: 'relative' }}>
               <Box sx={{ position: 'absolute', top: 0, bottom: 0, left: `calc(110px + (100% - 110px - 190px) * ${d.dispatched.usual / max})`, borderLeft: '2px dashed var(--c-text-3)', zIndex: 1 }} />
@@ -83,19 +83,19 @@ export default function XMonth() {
             </Box>
           </SectionCard>
 
-          <SectionCard title="Due in the next 60 days or already past due, by customer" subtitle="Where each customer's unshipped tonnes stand" flush>
+          <SectionCard info="For each customer with open order lines due within 60 days or already past due: unshipped tonnes, past-due tonnes, tonnes not yet poured (not started plus in wax), tonnes poured but not inspected, tonnes inspected or cleared, and the line count. The split is the same as in the card above. The page filters apply, and a click on a row filters the page to that customer." title="Due in the next 60 days or already past due, by customer" subtitle="Where each customer's unshipped tonnes stand" flush>
             <ReportTable rows={d.byCustomer} columns={custCols} getRowId={(r) => r.id} bare pageSize={10} defaultSortKey="tonnes" defaultSortDir="desc" onRowClick={(r) => f.setValue('customer', String(r.id))} empty="Nothing due." />
           </SectionCard>
 
-          <SectionCard title="Shipments expected in the next 30 days" subtitle="From each customer's usual gap between shipments" action={<Open to="rhythm" label="Customer rhythm" />} flush>
+          <SectionCard info="Customers whose next expected shipment is within 30 days or already past. Next expected is the last shipment plus the usual gap between shipments; a customer with no shipment in the last three usual gaps is left out, as is one with neither open nor ready tonnes. Due within 30 days is the open tonnes on lines due on or before 30 days after the data date, so it includes lines already past due." title="Shipments expected in the next 30 days" subtitle="From each customer's usual gap between shipments" action={<Open to="rhythm" label="Customer rhythm" />} flush>
             <ReportTable rows={d.shipments} columns={shipCols} getRowId={(r) => r.id} bare pageSize={10} defaultSortKey="next" defaultSortDir="asc" empty="No shipments expected from the usual gaps." />
           </SectionCard>
 
-          <SectionCard title="Ordered, poured and dispatched, by month" subtitle="Tonnes">
+          <SectionCard info="Tonnes for each of the last 12 complete months: ordered by customers (sales orders by order date), poured (metal melted) and dispatched. The page filters do not change these figures." title="Ordered, poured and dispatched, by month" subtitle="Tonnes">
             <Lines labels={d.months.map((m) => monthLabel(m.mo))} format={(v) => `${v} t`} height={260} series={[{ label: 'Ordered by customers', data: d.months.map((m) => m.orderedT), color: '#b4b2a9' }, { label: 'Poured', data: d.months.map((m) => m.pouredT), color: '#eb6834' }, { label: 'Dispatched', data: d.months.map((m) => m.dispatchedT), color: 'var(--c-primary-600)' }]} />
           </SectionCard>
 
-          <SectionCard title="Materials: monthly use against stock" subtitle="The 25 most-used materials of the last 90 days" action={<Open to="material-suppliers" label="Suppliers" />} flush>
+          <SectionCard info="The 25 materials with the most issued from the store in the last 90 days. Used a month is the 90-day issue divided by three. Days of use in stock is store stock divided by the average daily issue (the 90-day issue over 90), and it is red when that is below the item’s purchase lead time." title="Materials: monthly use against stock" subtitle="The 25 most-used materials of the last 90 days" action={<Open to="material-suppliers" label="Suppliers" />} flush>
             <ReportTable rows={d.materials} columns={matCols} getRowId={(r) => r.id} bare pageSize={10} defaultSortKey="perMonth" defaultSortDir="desc" />
           </SectionCard>
         </>

@@ -5,6 +5,7 @@ import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { Surface } from './Surface';
 import { useChartPalette } from './hooks/useChartPalette';
+import { InfoButton } from './InfoButton';
 
 export interface KpiDelta {
   /** Change in percent against the comparison period; null when there is nothing to compare with. */
@@ -31,7 +32,7 @@ const TONE = {
  * no evidence. Clickable when it leads to the screen that explains it.
  */
 export function KpiTile({
-  label, display, delta, spark, tone = 'default', icon, hint, onClick, footer,
+  label, display, delta, spark, tone = 'default', icon, hint, onClick, footer, info,
 }: {
   label: string;
   display: ReactNode;
@@ -42,6 +43,8 @@ export function KpiTile({
   hint?: string;
   onClick?: () => void;
   footer?: ReactNode;
+  /** Plain-language explanation of the figure, opened from an "i" button. */
+  info?: ReactNode;
 }) {
   const palette = useChartPalette();
   const up = (delta?.pct ?? 0) >= 0;
@@ -64,7 +67,8 @@ export function KpiTile({
             background: 'var(--c-primary-50)', color: 'var(--c-primary-600)', '& svg': { fontSize: 17 },
           }}>{icon}</Box>
         )}
-        <Typography sx={{ fontSize: { xs: 12, sm: 12.5 }, color: 'var(--c-text-2)', fontWeight: 500, lineHeight: 1.25 }}>{label}</Typography>
+        <Typography sx={{ fontSize: { xs: 12, sm: 12.5 }, color: 'var(--c-text-2)', fontWeight: 500, lineHeight: 1.25, flex: 1, minWidth: 0 }}>{label}</Typography>
+        {info && <InfoButton text={info} label={`About: ${label}`} />}
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{

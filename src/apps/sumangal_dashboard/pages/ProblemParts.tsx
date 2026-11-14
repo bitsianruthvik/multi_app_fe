@@ -34,7 +34,7 @@ export default function ProblemParts() {
   const reason: DataColumn<Part> = { key: 'reason', header: 'Top reason', sortValue: (r) => r.topReason, render: (r) => r.topReason ?? '—' };
   const cols = view === 'ranked' ? [...base, reason] : [...base, change, reason];
   return (
-    <Page title="Problem parts" question={d ? `${span(d.now)}, against ${span(d.prev)}` : 'The parts behind most of the rejected weight.'} filters={f} period={false} loading={loading} error={error} reload={reload} hasData={!!d}
+    <Page title="Problem parts" question={d ? `${span(d.now)}, against ${span(d.prev)}` : 'The parts behind most of the rejected weight.'} filters={f} loading={loading} error={error} reload={reload} hasData={!!d}
       footnote={d ? `Rejected weight in the period over metal poured in the period, so a part’s % can include castings poured earlier. “Getting worse” and “Getting better” cover parts with at least ${d.minPouredT} t poured in both periods. Select a part for its reasons and stages.` : undefined}>
       {d && (
         <>
@@ -45,14 +45,14 @@ export default function ProblemParts() {
             </ToggleButtonGroup>
             <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>with the {d.months} before</Typography>
           </Stack>
-          <SectionCard>
+          <SectionCard info="Figures for the window set by Compare the last, the complete calendar months ending with the last data month. Parts make half counts the most-rejected parts needed to reach half of all rejected kg. Rejected is the total rejected weight in the window, and Parts with any rejection counts parts with some rejected kg.">
             <Grid cols="1fr 1fr 1fr">
               <Big value={num(d.partsForHalf)} label="Parts make half of rejected weight" help={`Out of ${num(d.partsPoured)} parts poured`} />
               <Big value={tonnes(d.rejectedKg / 1000, 1)} label="Rejected in this period" />
               <Big value={num(d.partsWithRejects)} label="Parts with any rejection" />
             </Grid>
           </SectionCard>
-          <SectionCard title="Parts" flush actions={(
+          <SectionCard title="Parts" flush info="Parts ranked by rejected kg in the window, or the parts whose rejected share rose or fell most against the window before. Getting worse and Getting better cover only parts with at least 2 t poured in both windows. Rejected % is rejected kg over metal poured for the part, and Top reason is the reason with the most rejected kg for that part." actions={(
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               {VIEWS.map(([k, l]) => <ToggleButton key={k} value={k} sx={{ textTransform: 'none', py: 0.3 }}>{l}</ToggleButton>)}
             </ToggleButtonGroup>

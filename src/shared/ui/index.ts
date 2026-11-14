@@ -45,6 +45,7 @@ export { GlassBar } from './GlassBar';
 export { Mono, CapsLabel } from './Mono';
 export { PageHeader } from './PageHeader';
 export { SectionCard, StickyActionBar } from './SectionCard';
+export { InfoButton } from './InfoButton';
 export { StatusBadge, ToneBadge } from './StatusBadge';
 export { StatStrip, type Stat } from './StatStrip';
 export { KpiTile, KpiGrid, type KpiDelta } from './KpiTile';

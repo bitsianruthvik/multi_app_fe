@@ -25,11 +25,11 @@ const common: DataColumn<Row>[] = [
 const dueCol: DataColumn<Row> = { key: 'due', header: 'Delivery date', sortValue: (r) => r.due, render: (r) => dateLabel(r.due) };
 const atCol: DataColumn<Row> = { key: 'at', header: 'Most pieces are', sortValue: (r) => r.at, render: (r) => r.at };
 
-const LISTS: { key: Key; title: string; help: string; sortKey: string; sortDir: 'asc' | 'desc'; first: DataColumn<Row>[]; last: DataColumn<Row>[] }[] = [
-  { key: 'dueNotPoured', title: 'Due in 30 days, not poured', help: 'Most pieces haven’t been poured yet', sortKey: 'days', sortDir: 'asc', first: [{ key: 'days', header: 'Days to delivery', numeric: true, align: 'right', sortValue: (r) => r.daysToDue, render: (r) => red(r.daysToDue ?? '—') }, dueCol], last: [atCol] },
-  { key: 'pastDue', title: 'Past due', help: 'Delivery date gone, not fully shipped', sortKey: 'days', sortDir: 'desc', first: [{ key: 'days', header: 'Days past due', numeric: true, align: 'right', sortValue: (r) => r.daysOverdue, render: (r) => red(r.daysOverdue) }, dueCol], last: [atCol] },
-  { key: 'waitingAfterPour', title: 'Waiting 60+ days since pouring', help: 'Most pieces poured but not inspected', sortKey: 'days', sortDir: 'desc', first: [{ key: 'days', header: 'Days since last pour', numeric: true, align: 'right', sortValue: (r) => r.sincePour, render: (r) => red(r.sincePour ?? '—') }, dueCol], last: [] },
-  { key: 'readyToShip', title: 'Cleared, not shipped', help: 'Most pieces cleared for dispatch', sortKey: 'tonnes', sortDir: 'desc', first: [dueCol], last: [] },
+const LISTS: { key: Key; title: string; help: string; info: string; sortKey: string; sortDir: 'asc' | 'desc'; first: DataColumn<Row>[]; last: DataColumn<Row>[] }[] = [
+  { key: 'dueNotPoured', title: 'Due in 30 days, not poured', help: 'Most pieces haven’t been poured yet', info: 'Open order lines due in the next 30 days where most pending pieces are not yet poured, either not injected or injected but not poured. Sorted by days to delivery, fewest first. Pending t is the tonnes still to ship.', sortKey: 'days', sortDir: 'asc', first: [{ key: 'days', header: 'Days to delivery', numeric: true, align: 'right', sortValue: (r) => r.daysToDue, render: (r) => red(r.daysToDue ?? '—') }, dueCol], last: [atCol] },
+  { key: 'pastDue', title: 'Past due', help: 'Delivery date gone, not fully shipped', info: 'Open order lines whose delivery date has passed as of the last data date. Sorted by days past due, most first. Pending t is the tonnes still to ship.', sortKey: 'days', sortDir: 'desc', first: [{ key: 'days', header: 'Days past due', numeric: true, align: 'right', sortValue: (r) => r.daysOverdue, render: (r) => red(r.daysOverdue) }, dueCol], last: [atCol] },
+  { key: 'waitingAfterPour', title: 'Waiting 60+ days since pouring', help: 'Most pieces poured but not inspected', info: 'Open order lines where most pending pieces are poured but not inspected, and the last pour was 60 or more days before the last data date. Sorted by days since the last pour, most first.', sortKey: 'days', sortDir: 'desc', first: [{ key: 'days', header: 'Days since last pour', numeric: true, align: 'right', sortValue: (r) => r.sincePour, render: (r) => red(r.sincePour ?? '—') }, dueCol], last: [] },
+  { key: 'readyToShip', title: 'Cleared, not shipped', help: 'Most pieces cleared for dispatch', info: 'Open order lines where most pending pieces are cleared for dispatch but not shipped. Sorted by pending tonnes, largest first.', sortKey: 'tonnes', sortDir: 'desc', first: [dueCol], last: [] },
 ];
 
 /** Open orders sorted into four lists. Every row is an order someone can chase. */
@@ -61,7 +61,7 @@ export default function ActionList() {
               );
             })}
           </Box>
-          <SectionCard title={meta.title} subtitle={meta.help} flush>
+          <SectionCard title={meta.title} subtitle={meta.help} info={meta.info} flush>
             <ReportTable key={active} rows={list.rows} columns={[...meta.first, ...common, ...meta.last]} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey={meta.sortKey} defaultSortDir={meta.sortDir} onRowClick={(r) => setLine(r.id)} empty="Nothing on this list." />
           </SectionCard>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Everything due in the next 30 days: {num(d.dueSoon.lines)} lines, {tonnes(d.dueSoon.tonnes, 1)}.</Typography>

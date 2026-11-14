@@ -20,7 +20,7 @@ const show = (m: Metric, v: number | null) => ({ money: crore, t: (x: number | n
 const span = (s: Span) => `${monthLabel(s.first)} to ${monthLabel(s.last)}`;
 
 /** One list of biggest moves: what rose on one side, what fell on the other. */
-function MoverCard({ title, subtitle, data, format, changeFormat = format, goodWhen = 'up', onPick }: { title: string; subtitle: string; data: Movers; format: (v: number) => string; changeFormat?: (v: number) => string; goodWhen?: 'up' | 'down'; onPick?: (id: number) => void }) {
+function MoverCard({ title, subtitle, info, data, format, changeFormat = format, goodWhen = 'up', onPick }: { title: string; subtitle: string; info?: string; data: Movers; format: (v: number) => string; changeFormat?: (v: number) => string; goodWhen?: 'up' | 'down'; onPick?: (id: number) => void }) {
   const side = (rows: Mover[], up: boolean) => {
     const good = up === (goodWhen === 'up'); const color = good ? 'var(--c-success-600)' : 'var(--c-danger-600)';
     return (
@@ -43,7 +43,7 @@ function MoverCard({ title, subtitle, data, format, changeFormat = format, goodW
     );
   };
   return (
-    <SectionCard title={title} subtitle={subtitle}>
+    <SectionCard title={title} subtitle={subtitle} info={info}>
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: 'repeat(2, minmax(0,1fr))' } }}>{side(data.up, true)}{side(data.down, false)}</Box>
     </SectionCard>
   );
@@ -57,18 +57,22 @@ export default function WhatChanged() {
   const [customer, setCustomer] = useState<number | null>(null);
   const [line, setLine] = useState<number | null>(null);
   return (
-    <Page title="What changed" question={d ? `${span(d.now)}, against ${span(d.prev)}` : 'The biggest moves between two periods.'} filters={f} period={false} loading={loading} error={error} reload={reload} hasData={!!d}
+    <Page title="What changed" question={d ? `${span(d.now)}, against ${span(d.prev)}` : 'The biggest moves between two periods.'} filters={f} loading={loading} error={error} reload={reload} hasData={!!d}
       footnote={d ? `Complete calendar months only. On-time changes cover customers with at least 10 lines due in both periods; vendor changes cover vendors with at least 10 returned lines and 5 t sent in both.${d.prevPartial ? ` Data starts on ${d.from}, so the earlier period is a little short.` : ''}` : undefined}>
       {d && (
         <>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-            <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>Compare the last</Typography>
-            <ToggleButtonGroup size="small" exclusive value={months} onChange={(_, v) => v && setMonths(v)}>
-              {['3', '6', '12'].map((m) => <ToggleButton key={m} value={m} sx={{ textTransform: 'none', py: 0.3, px: 1.5 }}>{m} months</ToggleButton>)}
-            </ToggleButtonGroup>
-            <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>with the {d.months} before</Typography>
-          </Stack>
-          <SectionCard title="The business" flush>
+          {f.rangeSet ? (
+            <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>The date range against the same number of days just before it.</Typography>
+          ) : (
+            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>Compare the last</Typography>
+              <ToggleButtonGroup size="small" exclusive value={months} onChange={(_, v) => v && setMonths(v)}>
+                {['3', '6', '12'].map((m) => <ToggleButton key={m} value={m} sx={{ textTransform: 'none', py: 0.3, px: 1.5 }}>{m} months</ToggleButton>)}
+              </ToggleButtonGroup>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 700 }}>with the {d.months} before</Typography>
+            </Stack>
+          )}
+          <SectionCard title="The business" flush info="Each summary figure for the two periods, with the change between them as a percent of the earlier period. Green is better and red worse, given the figure’s direction. Periods are complete calendar months.">
             <TableContainer>
               <Table size="small">
                 <TableHead><TableRow><TableCell /><TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{span(d.prev)}</TableCell><TableCell align="right" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{span(d.now)}</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>Change</TableCell></TableRow></TableHead>
@@ -89,12 +93,12 @@ export default function WhatChanged() {
             </TableContainer>
           </SectionCard>
           <Grid>
-            <MoverCard title="Customer sales" subtitle="Select a customer for more" data={d.customerSales} format={crore} onPick={setCustomer} />
-            <MoverCard title="Customer on-time delivery" subtitle="Customers with at least 10 lines due in both periods" data={d.customerOnTime} format={(v) => `${Math.round(v)}%`} changeFormat={(v) => `${Math.round(v)} pts`} onPick={setCustomer} />
-            <MoverCard title="Rejection reasons" subtitle="Rejected kg" data={d.reasons} format={(v) => `${num(v)} kg`} goodWhen="down" />
-            <MoverCard title="Outside vendors" subtitle="Median days away" data={d.vendors} format={(v) => `${Math.round(v)}d`} goodWhen="down" />
+            <MoverCard title="Customer sales" subtitle="Select a customer for more" info="The five customers whose sales rose most and the five whose sales fell most, comparing the two periods. Change is in rupees." data={d.customerSales} format={crore} onPick={setCustomer} />
+            <MoverCard title="Customer on-time delivery" subtitle="Customers with at least 10 lines due in both periods" info="Customers with at least 10 order lines due in both periods, ranked by the change in their share of lines shipped on time. On time means fully shipped by the delivery date. Change is in percentage points." data={d.customerOnTime} format={(v) => `${Math.round(v)}%`} changeFormat={(v) => `${Math.round(v)} pts`} onPick={setCustomer} />
+            <MoverCard title="Rejection reasons" subtitle="Rejected kg" info="Rejection reasons with at least 100 kg rejected in either period, ranked by the change in rejected kg. A rise is shown in red, since fewer rejected kg is better." data={d.reasons} format={(v) => `${num(v)} kg`} goodWhen="down" />
+            <MoverCard title="Outside vendors" subtitle="Median days away" info="Vendor and process pairs with at least 10 returned lines and 5 t sent in both periods, ranked by the change in median days away. A fall is shown in green, since fewer days away is better." data={d.vendors} format={(v) => `${Math.round(v)}d`} goodWhen="down" />
           </Grid>
-          <SectionCard title="Kg per working day, by stage" flush>
+          <SectionCard title="Kg per working day, by stage" flush info="Kilograms passing each production stage per working day, for the two periods. Working days are the days logged at that stage. The change is the percent change between the periods.">
             <TableContainer>
               <Table size="small">
                 <TableHead><TableRow><TableCell sx={{ fontWeight: 700 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>{span(d.prev)}</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>{span(d.now)}</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>Change</TableCell></TableRow></TableHead>

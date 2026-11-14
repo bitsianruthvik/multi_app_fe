@@ -29,11 +29,11 @@ export function PartSheet({ id, filters, onClose }: { id: number; filters: Filte
             <Big size={24} value={`${num(d.rejectedKg)} kg`} label="Rejected weight" />
             <Big size={24} value={`${d.pouredT ?? '—'} t`} label="Poured" />
           </Box>
-          <SectionCard title="Rejected kg by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.rejectedKg)} format={(v) => `${num(v)} kg`} height={190} color="var(--c-danger-600)" /></SectionCard>
-          <SectionCard title="By reason"><RowBars rows={d.reasons.map((r) => ({ key: r.reason, label: r.reason, value: r.kg, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} kg`} /></SectionCard>
-          <SectionCard title="Where it was rejected"><RowBars rows={d.areas.map((a) => ({ key: a.area, label: a.area, value: a.kg }))} format={(v) => `${num(v)} kg`} /></SectionCard>
+          <SectionCard info="Kilograms of this part rejected in each month of the data, from the rejection records. Only the page’s other filters apply, not the date range." title="Rejected kg by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.rejectedKg)} format={(v) => `${num(v)} kg`} height={190} color="var(--c-danger-600)" /></SectionCard>
+          <SectionCard info="This part’s rejected kilograms by recorded reason, largest first (top 8), with pieces for each reason. Underscores are shown as dashes." title="By reason"><RowBars rows={d.reasons.map((r) => ({ key: r.reason, label: r.reason, value: r.kg, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} kg`} /></SectionCard>
+          <SectionCard info="This part’s rejected kilograms by production area where the rejection was recorded, largest first." title="Where it was rejected"><RowBars rows={d.areas.map((a) => ({ key: a.area, label: a.area, value: a.kg }))} format={(v) => `${num(v)} kg`} /></SectionCard>
           {d.open.length > 0 && (
-            <SectionCard title="Open orders for this part">
+            <SectionCard info="This part’s open order lines (not fully shipped), most overdue first, up to 10. Each shows order number, customer, pieces still to ship and delivery date, and is shown in red when past its delivery date." title="Open orders for this part">
               <Stack spacing={0.75}>
                 {d.open.map((l) => <Stack key={l.id} direction="row" justifyContent="space-between" spacing={1}><Typography noWrap sx={{ fontSize: 13, minWidth: 0 }}>{l.orderNo} · {l.customer}</Typography><Typography sx={{ fontSize: 12.5, color: l.daysOverdue ? 'var(--c-danger-600)' : 'var(--c-text-2)', flexShrink: 0 }}>{num(l.pending)} pcs · {dateLabel(l.due)}</Typography></Stack>)}
               </Stack>
@@ -59,11 +59,11 @@ export function CustomerSheet({ id, filters, onClose, onLine }: { id: number; fi
             <Big size={24} value={d.creditDays != null ? `${d.creditDays}d` : '—'} label="Credit on invoices" />
             <Big size={24} value={pct(d.rejectionPct, 1)} label="Rejected" help="Of metal poured" />
           </Box>
-          <SectionCard title="Sales by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.sales)} format={crore} height={190} /></SectionCard>
-          <SectionCard title="Median days at each stage"><RowBars rows={d.stages.map((s) => ({ key: s.key, label: s.label, value: s.days }))} format={dayCount} /></SectionCard>
-          <SectionCard title="Biggest parts" subtitle="By sales"><RowBars rows={d.parts.map((p) => ({ key: String(p.die), label: p.name, value: p.sales, sub: `${perKg(p.pricePerKg)}/kg` }))} format={crore} /></SectionCard>
+          <SectionCard info="Sales in rupees for each month of this customer’s data, with the page’s filters and date range applied." title="Sales by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.sales)} format={crore} height={190} /></SectionCard>
+          <SectionCard info="Median days this customer’s order lines spent in each stage, for lines whose delivery date is in the date range and on or before the data date. Stages run from order to plan, through to cleared, to fully shipped." title="Median days at each stage"><RowBars rows={d.stages.map((s) => ({ key: s.key, label: s.label, value: s.days }))} format={dayCount} /></SectionCard>
+          <SectionCard info="The customer’s eight largest parts by sales in the date range, with sales in rupees and price a kg. The bar length is each part’s sales." title="Biggest parts" subtitle="By sales"><RowBars rows={d.parts.map((p) => ({ key: String(p.die), label: p.name, value: p.sales, sub: `${perKg(p.pricePerKg)}/kg` }))} format={crore} /></SectionCard>
           {d.open.length > 0 && (
-            <SectionCard title="Open order lines" subtitle="Longest past due first">
+            <SectionCard info="This customer’s open order lines (not fully shipped), most overdue first, up to 15. Each shows its pieces still to ship and delivery date, with a red tag for days past due. Click a line to open it; the list is not limited by date range." title="Open order lines" subtitle="Longest past due first">
               <Stack spacing={0.5}>
                 {d.open.map((l) => (
                   <Box key={l.id} role="button" tabIndex={0} onClick={() => onLine(l.id)} onKeyDown={(e) => { if (e.key === 'Enter') onLine(l.id); }} sx={{ display: 'flex', gap: 1, alignItems: 'center', p: 1, borderRadius: 1.5, cursor: 'pointer', '&:hover': { background: 'var(--c-surface-2)' } }}>
@@ -93,9 +93,9 @@ export function LineSheet({ id, onClose, onCustomer }: { id: number; onClose: ()
             <Big size={17} value={dateLabel(d.due)} label="Delivery date" />
             <Big size={17} value={d.shipped ? dateLabel(d.shipped) : 'Still open'} tone={(d.daysLate ?? 0) > 0 || d.daysOverdue ? 'danger' : undefined} label={d.shipped ? 'Fully shipped' : d.at} help={d.daysLate != null ? (d.daysLate > 0 ? `${d.daysLate} days late` : 'On time') : d.daysOverdue ? `${d.daysOverdue} days past due` : undefined} />
           </Box>
-          {d.steps && <SectionCard title="Days at each stage"><RowBars rows={d.steps.map((s) => ({ key: s.key, label: s.label, value: s.days }))} format={dayCount} /></SectionCard>}
-          <SectionCard title="Quantities"><RowBars rows={[{ key: 'o', label: 'Ordered', value: d.qty }, { key: 'p', label: 'Planned', value: d.planned }, { key: 'c', label: 'Poured', value: d.poured }, { key: 'k', label: 'Passed inspection', value: d.okQty }, { key: 's', label: 'Shipped', value: d.shippedQty }]} format={(v) => `${num(v)} pcs`} /></SectionCard>
-          <SectionCard title="Dates in the ERP">
+          {d.steps && <SectionCard info="Days this order line spent at each stage, from order to fully shipped, as recorded for the line. A stage with no value has no bar." title="Days at each stage"><RowBars rows={d.steps.map((s) => ({ key: s.key, label: s.label, value: s.days }))} format={dayCount} /></SectionCard>}
+          <SectionCard info="This line’s ordered, planned, poured, passed-inspection and shipped pieces, as recorded for the line." title="Quantities"><RowBars rows={[{ key: 'o', label: 'Ordered', value: d.qty }, { key: 'p', label: 'Planned', value: d.planned }, { key: 'c', label: 'Poured', value: d.poured }, { key: 'k', label: 'Passed inspection', value: d.okQty }, { key: 's', label: 'Shipped', value: d.shippedQty }]} format={(v) => `${num(v)} pcs`} /></SectionCard>
+          <SectionCard info="The dates recorded for this line: casting date on the work order, last pour, first inspection and last inspection, shown with its finish, metal and weight." title="Dates in the ERP">
             <Stack spacing={0.75}>
               {[['Casting date on work order', d.castingDue], ['Last pour', d.lastPour], ['First inspection', d.firstInspection], ['Last inspection', d.lastInspection]].map(([k, v]) => <Stack key={k as string} direction="row" justifyContent="space-between"><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{k}</Typography><Typography sx={{ fontSize: 13, fontWeight: 600 }}>{dateLabel(v)}</Typography></Stack>)}
             </Stack>

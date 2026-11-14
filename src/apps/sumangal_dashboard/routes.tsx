@@ -5,6 +5,10 @@ import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { SumangalShell, SwitchLayout, ToHome } from './components/SumangalShell';
 
 const KeyMetrics = lazy(() => import('./pages/KeyMetrics'));
+const FlowCustomer = lazy(() => import('./pages/flow/FlowCustomer'));
+const FlowPlanning = lazy(() => import('./pages/flow/FlowPlanning'));
+const FlowProduction = lazy(() => import('./pages/flow/FlowProduction'));
+const FlowDispatch = lazy(() => import('./pages/flow/FlowDispatch'));
 const XAlerts = lazy(() => import('./pages/XAlerts'));
 const XToday = lazy(() => import('./pages/XToday'));
 const XMonth = lazy(() => import('./pages/XMonth'));
@@ -61,6 +65,14 @@ export function getSumangalDashboardRoutes(
   );
   const screens: [string, React.ReactNode][] = [
     ['key-metrics', <KeyMetrics />],
+    ['flow/asis/customer', <FlowCustomer mode="asis" />],
+    ['flow/asis/planning', <FlowPlanning mode="asis" />],
+    ['flow/asis/production', <FlowProduction mode="asis" />],
+    ['flow/asis/dispatch', <FlowDispatch mode="asis" />],
+    ['flow/historic/customer', <FlowCustomer mode="historic" />],
+    ['flow/historic/planning', <FlowPlanning mode="historic" />],
+    ['flow/historic/production', <FlowProduction mode="historic" />],
+    ['flow/historic/dispatch', <FlowDispatch mode="historic" />],
     ['x-alerts', <XAlerts />],
     ['x-today', <XToday />],
     ['x-month', <XMonth />],
@@ -91,6 +103,7 @@ export function getSumangalDashboardRoutes(
     ...screens.map(([p, el]) => ({ path: `/:company/sumangal_dashboard/${p}`, element: wrap(el) })),
     { path: '/:company/sumangal_dashboard/layout-intent', element: <ProtectedRoute><SwitchLayout to="intent" /></ProtectedRoute> },
     { path: '/:company/sumangal_dashboard/layout-topic', element: <ProtectedRoute><SwitchLayout to="topic" /></ProtectedRoute> },
+    { path: '/:company/sumangal_dashboard/layout-flow', element: <ProtectedRoute><SwitchLayout to="flow" /></ProtectedRoute> },
     ...landing.map((p) => ({
       path: `/:company/sumangal_dashboard${p ? `/${p}` : ''}`,
       element: <ProtectedRoute><ToHome /></ProtectedRoute>,

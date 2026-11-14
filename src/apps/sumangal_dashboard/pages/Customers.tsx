@@ -92,14 +92,14 @@ export default function Customers() {
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Sales" icon={<CurrencyRupeeRounded />} display={crore(d.kpis.sales)} tone="primary" spark={d.months.map((m) => m.sales)} footer="Invoice value before tax" />
-            <KpiTile label="Price per kg" icon={<ScaleRounded />} display={perKg(d.kpis.pricePerKg)} footer={`${num(d.kpis.tonnes)} t invoiced`} />
-            <KpiTile label="Customers billed" icon={<GroupsRounded />} display={num(d.kpis.customers)} footer={d.kpis.topShare != null ? `Largest: ${d.kpis.topShare}% of sales` : undefined} />
-            <KpiTile label="Lines on time" icon={<LocalShippingRounded />} display={pct(d.kpis.onTimePct)} hint={ON_TIME_HELP} />
+            <KpiTile label="Sales" info="Invoice value before tax of invoices dated in the selected date range. The small chart shows monthly sales."icon={<CurrencyRupeeRounded />} display={crore(d.kpis.sales)} tone="primary" spark={d.months.map((m) => m.sales)} footer="Invoice value before tax" />
+            <KpiTile label="Price per kg" info="Invoice value divided by kg invoiced in the selected date range, in rupees per kg. The footer gives the tonnes invoiced."icon={<ScaleRounded />} display={perKg(d.kpis.pricePerKg)} footer={`${num(d.kpis.tonnes)} t invoiced`} />
+            <KpiTile label="Customers billed" info="Number of customers with an invoice dated in the selected date range. The footer gives the largest customer’s share of sales."icon={<GroupsRounded />} display={num(d.kpis.customers)} footer={d.kpis.topShare != null ? `Largest: ${d.kpis.topShare}% of sales` : undefined} />
+            <KpiTile label="Lines on time" info="Order lines due in the selected date range (due on or before the last data date; short-closed lines are left out). A line is on time when its full ordered quantity shipped by its due date; a line not yet complete counts as late once its due date has passed."icon={<LocalShippingRounded />} display={pct(d.kpis.onTimePct)} hint={ON_TIME_HELP} />
           </KpiGrid>
           <Grid cols="3fr 2fr">
-            <SectionCard title="Customer map" subtitle="Sales, price per kg and delivery"><CustomerMap rows={d.rows} average={d.kpis.pricePerKg} onPick={setCustomer} /></SectionCard>
-            <SectionCard title="By size of customer">
+            <SectionCard title="Customer map" subtitle="Sales, price per kg and delivery" info="Each customer with at least ₹20 lakh of sales in the selected date range is a dot. Right is more sales and up is a higher price per kg (both log scales), and colour is the share of its due lines delivered on time. The dashed line is the overall price per kg."><CustomerMap rows={d.rows} average={d.kpis.pricePerKg} onPick={setCustomer} /></SectionCard>
+            <SectionCard title="By size of customer" info="Customers ranked by sales in the selected date range, in four groups: the largest, the next 4, the next 10, and all others. Each group shows its share of sales, price per kg, and the share of its due lines delivered on time.">
               <Stack spacing={1.25}>
                 {d.tiers.map((t) => (
                   <Box key={t.label} sx={{ p: 1.25, borderRadius: 1.5, background: 'var(--c-surface-2)' }}>
@@ -115,12 +115,12 @@ export default function Customers() {
               </Stack>
             </SectionCard>
           </Grid>
-          <SectionCard title="All customers" subtitle="Select a customer for more. Select a heading to sort." flush>
+          <SectionCard title="All customers" subtitle="Select a customer for more. Select a heading to sort." flush info="One row per customer invoiced in the selected date range, with sales and share, price per kg, orders and tonnes per order, and billed every (median days between invoice dates). Also on-time share, median days late, credit days (median from invoice date to due date), and actual / promised days (median days from order to shipment, against order to due date).">
             <ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey="sales" defaultSortDir="desc" onRowClick={(r) => setCustomer(r.id)} empty="No customers for these filters." />
           </SectionCard>
           <Grid>
-            <SectionCard title="Invoices by due date" subtitle="Invoice value by the due date on the invoice"><Bars labels={d.billing.map((m) => monthLabel(m.mo))} data={d.billing.map((m) => m.billed)} format={crore} height={210} /></SectionCard>
-            <SectionCard title="Credit on invoices" subtitle="Sales by days between invoice date and due date">
+            <SectionCard title="Invoices by due date" subtitle="Invoice value by the due date on the invoice" info="Invoice value in the selected date range, by the month of the due date on each invoice. Invoices without a due date are left out."><Bars labels={d.billing.map((m) => monthLabel(m.mo))} data={d.billing.map((m) => m.billed)} format={crore} height={210} /></SectionCard>
+            <SectionCard title="Credit on invoices" subtitle="Sales by days between invoice date and due date" info="Invoice value in the selected date range grouped by days from invoice date to due date, showing the five largest groups. Invoices without a due date are left out.">
               <RowBars rows={d.credit.map((c) => ({ key: String(c.days), label: `${c.days} days`, value: c.billed }))} format={crore} />
             </SectionCard>
           </Grid>

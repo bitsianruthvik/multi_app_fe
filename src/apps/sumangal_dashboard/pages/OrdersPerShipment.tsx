@@ -34,17 +34,17 @@ export default function OrdersPerShipment() {
       {d && k && (
         <>
           <KpiGrid>
-            <KpiTile label="Average sales order" icon={<ReceiptLongRounded />} display={kg(k.orderKg)} />
-            <KpiTile label="Average shipment" icon={<LocalShippingRounded />} display={kg(k.shipKg)} />
-            <KpiTile label="Shipped in shipments with more than one order" icon={<LayersRounded />} display={pct(k.multiPct)} footer="Of tonnes" />
-            <KpiTile label="Orders in those shipments placed apart" icon={<DateRangeRounded />} display={dayCount(k.placedApart)} footer="Median, first to last order date" />
+            <KpiTile label="Average sales order" info="Average kg per sales order, counting orders by order date in the selected date range, for the customer and market filters."icon={<ReceiptLongRounded />} display={kg(k.orderKg)} />
+            <KpiTile label="Average shipment" info="Average kg per shipment, counting shipments by dispatch date in the selected date range. A shipment is one dispatch document."icon={<LocalShippingRounded />} display={kg(k.shipKg)} />
+            <KpiTile label="Shipped in shipments with more than one order" info="Share of tonnes shipped in the selected date range that went out in shipments carrying more than one sales order."icon={<LayersRounded />} display={pct(k.multiPct)} footer="Of tonnes" />
+            <KpiTile label="Orders in those shipments placed apart" info="Median days from the first to the last sales order date, across shipments in the selected date range that carried more than one order."icon={<DateRangeRounded />} display={dayCount(k.placedApart)} footer="Median, first to last order date" />
           </KpiGrid>
-          <SectionCard title="By customer" subtitle="Grey: average sales order. Blue: average shipment." flush>
+          <SectionCard title="By customer" subtitle="Grey: average sales order. Blue: average shipment." flush info="One row per customer with at least 3 t shipped in the selected date range, largest first. Shows the average sales order and average shipment in kg, order and shipment counts, median orders per shipment, median days the orders were placed apart, and tonnes shipped. Select a row to filter the page to that customer.">
             <ReportTable rows={d.customers} columns={cols} getRowId={(r) => r.id} bare pageSize={12} defaultSortKey="tonnes" defaultSortDir="desc" onRowClick={(r) => f.setValue('customer', String(r.id))} empty="Nothing for these filters." />
           </SectionCard>
           <Grid>
-            <SectionCard title="Tonnes shipped, by orders in the shipment"><RowBars rows={d.per.map((p) => ({ key: p.label, label: `${p.label} order${p.label === '1' ? '' : 's'}`, value: p.tonnes }))} format={(v) => `${num(v)} t`} /></SectionCard>
-            <SectionCard title="Tonnes shipped, by how far apart its orders were placed"><RowBars rows={d.spread.map((p) => ({ key: p.label, label: p.label, value: p.tonnes }))} format={(v) => `${num(v)} t`} /></SectionCard>
+            <SectionCard title="Tonnes shipped, by orders in the shipment" info="Tonnes shipped in the selected date range, grouped by how many sales orders each shipment carried: 1, 2, 3, 4 to 5, or 6 or more."><RowBars rows={d.per.map((p) => ({ key: p.label, label: `${p.label} order${p.label === '1' ? '' : 's'}`, value: p.tonnes }))} format={(v) => `${num(v)} t`} /></SectionCard>
+            <SectionCard title="Tonnes shipped, by how far apart its orders were placed" info="Tonnes shipped in the selected date range, grouped by the days between the first and last sales order date in each shipment, from same day to over 180 days."><RowBars rows={d.spread.map((p) => ({ key: p.label, label: p.label, value: p.tonnes }))} format={(v) => `${num(v)} t`} /></SectionCard>
           </Grid>
         </>
       )}

@@ -43,20 +43,20 @@ export default function Quality() {
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Rejected, of metal poured" icon={<RecyclingRounded />} display={pct(d.kpis.pct, 1)} />
-            <KpiTile label="Rejected weight" icon={<ScaleRounded />} display={tonnes(d.kpis.rejectedKg / 1000, 1)} footer={`${num(d.kpis.pieces)} pieces`} />
-            <KpiTile label="Metal poured" icon={<WhatshotRounded />} display={tonnes(d.kpis.pouredTonnes)} />
+            <KpiTile label="Rejected, of metal poured" info="Rejected weight in the selected date range as a percentage of metal poured (kg through the Melting stage) in the same range."icon={<RecyclingRounded />} display={pct(d.kpis.pct, 1)} />
+            <KpiTile label="Rejected weight" info="Rejected weight in the selected date range: rejected pieces times raw casting weight. The footer gives the rejected pieces."icon={<ScaleRounded />} display={tonnes(d.kpis.rejectedKg / 1000, 1)} footer={`${num(d.kpis.pieces)} pieces`} />
+            <KpiTile label="Metal poured" info="Tonnes of metal poured in the selected date range, counted as kg through the Melting stage."icon={<WhatshotRounded />} display={tonnes(d.kpis.pouredTonnes)} />
           </KpiGrid>
           <Grid>
-            <SectionCard title="By stage" subtitle="Rejected % of what entered the stage">
+            <SectionCard title="By stage" subtitle="Rejected % of what entered the stage" info="For each stage from Injection to Machining inspection, rejected kg as a percentage of the kg that entered that stage in the selected date range. Each line shows the rejected kg and the stage’s input tonnes.">
               <RowBars rows={d.stages.map((s) => ({ key: s.stage, label: s.stage, value: s.pct, sub: `${num(s.rejectedKg)} kg of ${tonnes(s.inputTonnes)}` }))} format={(v) => `${v.toFixed(2)}%`} />
             </SectionCard>
-            <SectionCard title="By reason" subtitle="Top reasons by rejected weight">
+            <SectionCard title="By reason" subtitle="Top reasons by rejected weight" info="Rejected weight by reason in the selected date range, top 9 reasons. Each row shows the reason’s share of total rejected weight and its pieces.">
               <RowBars rows={d.reasons.slice(0, 9).map((r) => ({ key: r.reason, label: r.reason, value: r.kg, sub: `${pct(r.share)} of rejected weight · ${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} kg`} />
             </SectionCard>
           </Grid>
           <YieldMatrix filters={f} />
-          <SectionCard title="Rejected by" flush actions={(
+          <SectionCard title="Rejected by" flush info="Rejected weight and rejected % for each part, customer or metal, as picked by the buttons, in the selected date range. Poured is the metal poured for that item, and rejected % is its rejected kg over that poured kg. Only parts with at least 0.5 t poured, and customers and metals with at least 1 t, are listed; parts and customers show the top 40." actions={(
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               {VIEWS.map(([k, l]) => <ToggleButton key={k} value={k} sx={{ textTransform: 'none', py: 0.3 }}>{l}</ToggleButton>)}
             </ToggleButtonGroup>
@@ -64,8 +64,8 @@ export default function Quality() {
             <ReportTable key={view} rows={d[view]} columns={cols} getRowId={(r) => r.key} bare pageSize={12} defaultSortKey="rejected" defaultSortDir="desc" empty="Nothing for these filters." />
           </SectionCard>
           <Grid cols="3fr 2fr">
-            <SectionCard title="By department" flush><Stack><ReportTable rows={d.departments} columns={deptCols} getRowId={(r) => r.department} bare pageSize={10} defaultSortKey="rejected" defaultSortDir="desc" /></Stack></SectionCard>
-            <SectionCard title="By month" subtitle="Rejected in the month, over metal poured in the month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.pct)} format={(v) => `${v.toFixed(1)}%`} height={260} /></SectionCard>
+            <SectionCard title="By department" flush info="Rejected weight by the department named on the rejection reason, in the selected date range, with its % of metal poured. Control % is the figure stored in the ERP for that department, not recalculated for these filters."><Stack><ReportTable rows={d.departments} columns={deptCols} getRowId={(r) => r.department} bare pageSize={10} defaultSortKey="rejected" defaultSortDir="desc" /></Stack></SectionCard>
+            <SectionCard title="By month" subtitle="Rejected in the month, over metal poured in the month" info="Rejected weight in each month of the selected date range, divided by the metal poured in that month."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.pct)} format={(v) => `${v.toFixed(1)}%`} height={260} /></SectionCard>
           </Grid>
         </>
       )}

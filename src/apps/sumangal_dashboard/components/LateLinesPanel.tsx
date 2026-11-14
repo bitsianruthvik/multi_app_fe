@@ -26,15 +26,15 @@ export function LateLinesPanel({ filters: f, onLine }: { filters: Filters; onLin
   return (
     <>
       <Grid>
-        <SectionCard title="Median days at each stage" subtitle="Between the dates recorded for each line’s last piece" flush>
+        <SectionCard title="Median days at each stage" subtitle="Between the dates recorded for each line’s last piece" flush info="Median days in each stage for order lines with a delivery date in the selected date range, split into lines fully shipped after their delivery date (late) and lines shipped on or before it (on time). Only lines with every stage date recorded are used, and short-closed lines are left out. The two columns show median days, not line counts.">
           <Table size="small">
             <TableHead><TableRow><TableCell sx={{ fontWeight: 700 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>Late lines</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>On-time lines</TableCell></TableRow></TableHead>
             <TableBody>{d.stages.map((s) => <TableRow key={s.key}><TableCell>{s.label}</TableCell><TableCell align="right" sx={{ fontWeight: 700 }}>{s.lateDays ?? '—'}</TableCell><TableCell align="right">{s.onTimeDays ?? '—'}</TableCell></TableRow>)}</TableBody>
           </Table>
         </SectionCard>
-        <SectionCard title="On time by month due"><Bars labels={d.trend.map((t) => monthLabel(t.mo))} data={d.trend.map((t) => t.onTimePct)} format={(v) => `${v}%`} height={250} max={100} /></SectionCard>
+        <SectionCard title="On time by month due" info="For each month of delivery date in the selected date range, the share of order lines shipped by their delivery date. Only lines due on or before the data date are counted, and a line not yet fully shipped after its delivery date counts as late."><Bars labels={d.trend.map((t) => monthLabel(t.mo))} data={d.trend.map((t) => t.onTimePct)} format={(v) => `${v}%`} height={250} max={100} /></SectionCard>
       </Grid>
-      <SectionCard title="Lines that shipped late" subtitle="Latest first. Select a line for detail." flush>
+      <SectionCard title="Lines that shipped late" subtitle="Latest first. Select a line for detail." flush info="Order lines fully shipped after their delivery date, for delivery dates in the selected date range, with every stage date recorded. Days late is the days from delivery date to fully shipped, most days late first. Shows up to 500 lines; select a line to open its detail.">
         <ReportTable rows={d.lateList} columns={cols} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey="late" defaultSortDir="desc" onRowClick={(r) => onLine(r.id)} empty="No late lines for these filters." />
       </SectionCard>
     </>

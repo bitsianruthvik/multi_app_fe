@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Box, type SxProps, type Theme } from '@mui/material';
 import { Surface } from './Surface';
+import { InfoButton } from './InfoButton';
 
 /**
  * A titled solid panel — the repeated shape on every detail tab and settings
@@ -19,6 +20,7 @@ export function SectionCard({
   children,
   flush = false,
   e = 1,
+  info,
   sx,
 }: {
   title?: ReactNode;
@@ -29,12 +31,14 @@ export function SectionCard({
   children: ReactNode;
   flush?: boolean;
   e?: 0 | 1 | 2 | 3;
+  /** Plain-language explanation of what the card shows, opened from an "i" button. */
+  info?: ReactNode;
   sx?: SxProps<Theme>;
 }) {
   const act = actions ?? action;
   return (
     <Surface e={e} sx={{ overflow: 'hidden', ...(sx as object) }}>
-      {(title || act) && (
+      {(title || act || info) && (
         <Box
           sx={{
             display: 'flex',
@@ -59,7 +63,12 @@ export function SectionCard({
               <Box sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.25 }}>{subtitle}</Box>
             )}
           </Box>
-          {act && <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>{act}</Box>}
+          {(act || info) && (
+            <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+              {act}
+              {info && <InfoButton text={info} label={`About: ${typeof title === 'string' ? title : 'this card'}`} />}
+            </Box>
+          )}
         </Box>
       )}
       <Box sx={flush ? undefined : { px: 2.5, py: 2 }}>{children}</Box>

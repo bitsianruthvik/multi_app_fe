@@ -48,17 +48,17 @@ export default function MaterialSuppliers() {
             {d.groups.map((g) => <MenuItem key={g.group} value={g.group}>{g.group}</MenuItem>)}
           </TextField>
           <KpiGrid>
-            <KpiTile label="Purchases" icon={<CurrencyRupeeRounded />} display={crore(d.kpis.value)} />
-            <KpiTile label="Suppliers" icon={<GroupsRounded />} display={num(d.kpis.suppliers)} footer={d.kpis.topShare != null ? `Largest: ${d.kpis.topShare}%` : undefined} />
-            <KpiTile label="Items bought" icon={<CategoryRounded />} display={num(d.kpis.items)} />
-            <KpiTile label="PO to receipt" icon={<ScheduleRounded />} display={dayCount(d.kpis.leadDays)} footer="Median, all materials" />
+            <KpiTile label="Purchases" info="Value, in ₹ crore, of material purchases (inward quantity times rate) dated in the selected date range. Rates that are typing errors are left out, and the Material group choice applies."icon={<CurrencyRupeeRounded />} display={crore(d.kpis.value)} />
+            <KpiTile label="Suppliers" info="Number of suppliers with purchases in the selected date range and Material group. The footer is the largest supplier’s share of those purchases."icon={<GroupsRounded />} display={num(d.kpis.suppliers)} footer={d.kpis.topShare != null ? `Largest: ${d.kpis.topShare}%` : undefined} />
+            <KpiTile label="Items bought" info="Number of different items bought in the selected date range and Material group."icon={<CategoryRounded />} display={num(d.kpis.items)} />
+            <KpiTile label="PO to receipt" info="Median days from the purchase order date to the goods receipt, for receipts dated in the selected date range that name a purchase order line. It covers all materials, whatever Material group is picked."icon={<ScheduleRounded />} display={dayCount(d.kpis.leadDays)} footer="Median, all materials" />
           </KpiGrid>
-          <SectionCard title="By supplier" flush><ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.supplier} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" empty="Nothing for this period." /></SectionCard>
+          <SectionCard title="By supplier" flush info="One row per supplier with purchases in the selected date range and Material group, largest first. Receipts counts the inward documents, and Items counts the different items. Median days is purchase order to goods receipt for that supplier’s receipts in the date range."><ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.supplier} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" empty="Nothing for this period." /></SectionCard>
           <Grid>
-            <SectionCard title="By material group"><RowBars rows={d.groups.map((g) => ({ key: g.group, label: g.group, value: g.value }))} format={crore} onClick={(k) => setGroup(group === k ? '' : k)} selected={group} /></SectionCard>
-            <SectionCard title="Purchases by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.value)} format={crore} height={260} /></SectionCard>
+            <SectionCard title="By material group" info="Purchases in the selected date range for each material group, largest first. Click a group to filter the page to it. This list is not narrowed by the Material group choice."><RowBars rows={d.groups.map((g) => ({ key: g.group, label: g.group, value: g.value }))} format={crore} onClick={(k) => setGroup(group === k ? '' : k)} selected={group} /></SectionCard>
+            <SectionCard title="Purchases by month" info="Purchases in ₹ crore by the month of the inward date, for the selected date range and Material group."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.value)} format={crore} height={260} /></SectionCard>
           </Grid>
-          <SectionCard title="Top items and their rates" flush><ReportTable rows={d.items} columns={itemCols} getRowId={(r) => r.item} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" /></SectionCard>
+          <SectionCard title="Top items and their rates" flush info="The 25 items with the highest purchases in the selected date range and Material group. Average rate is purchases divided by quantity for that range, in ₹ per item unit. Trend compares the average rate for the 6 full months before the data date with the 6 months before those, whatever the date range; red is up and green is down."><ReportTable rows={d.items} columns={itemCols} getRowId={(r) => r.item} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" /></SectionCard>
         </>
       )}
     </Page>

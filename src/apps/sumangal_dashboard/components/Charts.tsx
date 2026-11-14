@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
-import { DataCards, DataTable, ToneBadge, useChartPalette } from '@shared/ui';
+import { DataCards, DataTable, InfoButton, ToneBadge, useChartPalette } from '@shared/ui';
 import { useMediaQuery, useTheme } from '@mui/material';
 import type { ComponentProps } from 'react';
 import { onTimeTone, pct } from '../format';
@@ -133,12 +133,15 @@ export function StageLegend({ parts, colors }: { parts: { key: string; label: st
   );
 }
 
-export function Big({ value, label, tone, help, size = 30 }: { value: ReactNode; label: ReactNode; tone?: 'success' | 'warning' | 'danger'; help?: ReactNode; size?: number }) {
+export function Big({ value, label, tone, help, size = 30, info }: { value: ReactNode; label: ReactNode; tone?: 'success' | 'warning' | 'danger'; help?: ReactNode; size?: number; info?: ReactNode }) {
   const color = tone ? `var(--c-${tone}-600)` : 'var(--c-text)';
   return (
     <Box>
       <Typography sx={{ fontSize: size, fontWeight: 800, color, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</Typography>
-      <Typography sx={{ fontSize: 13, fontWeight: 600, mt: 0.5 }}>{label}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{label}</Typography>
+        {info && <InfoButton text={info} label={`About: ${typeof label === 'string' ? label : 'this figure'}`} />}
+      </Box>
       {help && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25, lineHeight: 1.4 }}>{help}</Typography>}
     </Box>
   );

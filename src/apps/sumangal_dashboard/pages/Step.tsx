@@ -49,13 +49,13 @@ export default function Step({ slug, title, question, extra }: { slug: string; t
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Output" icon={<ScaleRounded />} display={tonnes(d.kpis.tonnes)} footer={`${num(d.kpis.pieces)} pieces`} />
-            <KpiTile label="Kg per working day" icon={<SpeedRounded />} display={num(d.kpis.kgPerDay)} footer={`${num(d.kpis.workDays)} working days`} />
-            {d.previous && <KpiTile label={`Days from ${d.previous.toLowerCase()}`} icon={<ScheduleRounded />} display={dayCount(d.kpis.gapDays)} footer={`Median. 90th percentile ${dayCount(d.kpis.gapSlow)}`} />}
-            {hasRejects && <KpiTile label="Rejected here" icon={<RecyclingRounded />} display={pct(d.kpis.rejectionPct, 2)} footer={`${num(d.kpis.rejectedKg)} kg`} />}
+            <KpiTile label="Output" info="Tonnes through this step in the selected date range, by the ERP’s raw casting weight. Pieces are shown under the figure."icon={<ScaleRounded />} display={tonnes(d.kpis.tonnes)} footer={`${num(d.kpis.pieces)} pieces`} />
+            <KpiTile label="Kg per working day" info="Kilograms through this step in the selected date range, divided by its working days in the same range. Working days are days with entries at this step; for Dispatched they are days with dispatches."icon={<SpeedRounded />} display={num(d.kpis.kgPerDay)} footer={`${num(d.kpis.workDays)} working days`} />
+            {d.previous && <KpiTile label={`Days from ${d.previous.toLowerCase()}`} info="Median days from the previous step to this step, per batch line, for batches entered in the selected date range. The footer gives the 90th percentile: 10% of batch lines take longer than that."icon={<ScheduleRounded />} display={dayCount(d.kpis.gapDays)} footer={`Median. 90th percentile ${dayCount(d.kpis.gapSlow)}`} />}
+            {hasRejects && <KpiTile label="Rejected here" info="Rejected weight recorded at this step in the selected date range (rejected pieces times raw casting weight), as a percentage of the kg through this step. The footer gives the rejected kg."icon={<RecyclingRounded />} display={pct(d.kpis.rejectionPct, 2)} footer={`${num(d.kpis.rejectedKg)} kg`} />}
           </KpiGrid>
           {d.waiting && (
-            <SectionCard title={`Waiting here now: ${d.waiting.label.toLowerCase()}`} flush>
+            <SectionCard title={`Waiting here now: ${d.waiting.label.toLowerCase()}`} flush info="Weight waiting for this step as of the last data date. For Dispatched it is open order lines that are cleared and not shipped, at their pending quantity; for other steps it is pieces the step before passed on that this step has not yet entered. Where bands are shown, they split the tonnes by days waiting.">
               <Box sx={{ p: 2 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={3}>
                   <Box sx={{ flexShrink: 0, minWidth: 160 }}><Big value={tonnes(d.waiting.tonnes)} label={`${num(d.waiting.lines)} ${d.waiting.bands ? 'batch lines' : 'order lines'}`} /></Box>
@@ -66,21 +66,21 @@ export default function Step({ slug, title, question, extra }: { slug: string; t
             </SectionCard>
           )}
           <Grid>
-            <SectionCard title="Tonnes by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.tonnes)} format={(v) => `${v} t`} height={230} /></SectionCard>
+            <SectionCard title="Tonnes by month" info="Tonnes through this step in each month of the selected date range."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.tonnes)} format={(v) => `${v} t`} height={230} /></SectionCard>
             {d.previous
-              ? <SectionCard title={`Median days from ${d.previous.toLowerCase()}, by month`}><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.gapDays)} format={(v) => `${v}d`} height={230} /></SectionCard>
-              : <SectionCard title="Kg per working day, by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.kgPerDay)} format={(v) => num(v)} height={230} /></SectionCard>}
+              ? <SectionCard title={`Median days from ${d.previous.toLowerCase()}, by month`} info="Median days from the previous step to this step for batch lines in each month of the selected date range."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.gapDays)} format={(v) => `${v}d`} height={230} /></SectionCard>
+              : <SectionCard title="Kg per working day, by month" info="Kilograms through this step per working day in each month of the selected date range."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.kgPerDay)} format={(v) => num(v)} height={230} /></SectionCard>}
           </Grid>
           {d.breaks.length > 0 && <Box sx={{ display: 'grid', gap: 2.25, gridTemplateColumns: { xs: 'minmax(0,1fr)', md: `repeat(${Math.min(2, d.breaks.length)}, minmax(0,1fr))` } }}>
-            {d.breaks.map((b) => <SectionCard key={b.dim} title={b.dim === 'Where' ? 'Where it was treated' : `By ${b.dim.toLowerCase()}`}><RowBars rows={b.rows.map((r) => ({ key: r.label, label: r.label, value: r.tonnes, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} t`} /></SectionCard>)}
+            {d.breaks.map((b) => <SectionCard key={b.dim} title={b.dim === 'Where' ? 'Where it was treated' : `By ${b.dim.toLowerCase()}`} info="Tonnes through this step in the selected date range for the 10 largest values of the grouping named in the title, with pieces under each."><RowBars rows={b.rows.map((r) => ({ key: r.label, label: r.label, value: r.tonnes, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} t`} /></SectionCard>)}
           </Box>}
           {hasRejects && d.reasons.length > 0 && (
             <Grid>
-              <SectionCard title="Rejection reasons here"><RowBars rows={d.reasons.map((r) => ({ key: r.reason, label: r.reason, value: r.kg, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} kg`} /></SectionCard>
-              <SectionCard title="Rejected here, by month" subtitle="Rejected kg over kg entering this step"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.rejectionPct)} format={(v) => `${v}%`} height={250} /></SectionCard>
+              <SectionCard title="Rejection reasons here" info="Rejected weight at this step by reason in the selected date range, largest first (top 8). Pieces are shown under each reason."><RowBars rows={d.reasons.map((r) => ({ key: r.reason, label: r.reason, value: r.kg, sub: `${num(r.pieces)} pieces` }))} format={(v) => `${num(v)} kg`} /></SectionCard>
+              <SectionCard title="Rejected here, by month" subtitle="Rejected kg over kg entering this step" info="This step’s rejected kg as a percentage of the kg through this step in each month of the selected date range, using the same definitions as Rejected here."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.rejectionPct)} format={(v) => `${v}%`} height={250} /></SectionCard>
             </Grid>
           )}
-          <SectionCard title="Parts through this step" subtitle="Largest first" flush><ReportTable rows={d.parts} columns={partCols} getRowId={(r) => r.die} bare pageSize={10} defaultSortKey="tonnes" defaultSortDir="desc" empty="Nothing for these filters." /></SectionCard>
+          <SectionCard title="Parts through this step" subtitle="Largest first" flush info="Each part’s tonnes and pieces through this step in the selected date range, largest first (up to 25 parts). Rejected kg and rejected % are this step’s rejections for that part; hidden for Dispatched and Heat treatment."><ReportTable rows={d.parts} columns={partCols} getRowId={(r) => r.die} bare pageSize={10} defaultSortKey="tonnes" defaultSortDir="desc" empty="Nothing for these filters." /></SectionCard>
           {extra?.(f)}
         </>
       )}

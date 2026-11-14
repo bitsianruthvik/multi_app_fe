@@ -74,7 +74,7 @@ export default function XToday() {
       {d && (
         <>
           <Grid>
-            <SectionCard title={`Each step's last working day (data to ${dateLabel(d.asOf)})`} subtitle="Bars: the last 14 working days. Number: last day against the usual day.">
+            <SectionCard info="For each production step, the kilograms recorded on its last working day in the data, against its usual day, which is the median of its working days. The bars show its last 14 working days, with the last one darkest. The figure turns red when the last day is under half the usual day." title={`Each step's last working day (data to ${dateLabel(d.asOf)})`} subtitle="Bars: the last 14 working days. Number: last day against the usual day.">
               <Box>
                 {d.stages.map((s) => (
                   <Box key={s.stage} sx={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr) 150px', gap: 1.5, alignItems: 'center', py: 0.6, borderTop: '1px solid var(--c-border)' }}>
@@ -90,7 +90,7 @@ export default function XToday() {
                 ))}
               </Box>
             </SectionCard>
-            <SectionCard title="Waiting at each step now" subtitle="Passed on by the step before, not yet entered here" action={<Open to="production" label="All steps" />}>
+            <SectionCard info="Pieces that the step before has passed on and that are not yet entered at each step, in tonnes, with the line count, the tonnes waiting over 30 days and the age of the oldest line. Age is days from each line’s ‘since’ date to the data date, and the cleared row is the wait for dispatch." title="Waiting at each step now"subtitle="Passed on by the step before, not yet entered here" action={<Open to="production" label="All steps" />}>
               <Box>
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 80px 70px 110px 110px', gap: 1, pb: 0.5, fontSize: 11.5, color: 'var(--c-text-3)', fontWeight: 600 }}><span>Waiting for</span><span style={{ textAlign: 'right' }}>Tonnes</span><span style={{ textAlign: 'right' }}>Lines</span><span style={{ textAlign: 'right' }}>Over 30 days</span><span style={{ textAlign: 'right' }}>Oldest</span></Box>
                 {d.waiting.map((w) => (
@@ -103,11 +103,11 @@ export default function XToday() {
             </SectionCard>
           </Grid>
 
-          <SectionCard title="Work lists" flush>
+          <SectionCard info="Seven tabs of work lists, each with its count: to pour, past due, to inspect, ready to ship, at vendors, machining late and materials short. To pour is open lines due within 30 days whose stage is ‘Not injected’ or ‘Injected, not poured’, and past due is open lines with a delivery date before the data date. Each other tab’s rule is written above its list." title="Work lists" flush>
             <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" sx={{ px: 1.5, borderBottom: '1px solid var(--c-border)' }}>
               {TABS.map(([k, l, n]) => <Tab key={k} value={k} label={`${l} · ${n}`} sx={{ textTransform: 'none', fontWeight: 600, minHeight: 44 }} />)}
             </Tabs>
-            {tab === 'pour' && <><Hint>Due in the next 30 days, with less than the ordered quantity poured. Soonest first.</Hint><ReportTable rows={d.toPour.rows} columns={lineCols} getRowId={(r) => r.id} bare pageSize={12} defaultSortKey="due" defaultSortDir="asc" empty="Nothing due soon is unpoured." /></>}
+            {tab === 'pour' && <><Hint>Due in the next 30 days and not yet poured: stage ‘Not injected’ or ‘Injected, not poured’. Soonest first.</Hint><ReportTable rows={d.toPour.rows} columns={lineCols} getRowId={(r) => r.id} bare pageSize={12} defaultSortKey="due" defaultSortDir="asc" empty="Nothing due soon is unpoured." /></>}
             {tab === 'pastdue' && <><Hint>Open order lines past their delivery date. Most overdue first.</Hint><ReportTable rows={d.pastDue.rows} columns={lineCols} getRowId={(r) => r.id} bare pageSize={12} defaultSortKey="late" defaultSortDir="desc" empty="Nothing is past due." /></>}
             {tab === 'inspect' && <><Hint>Poured and not yet inspected ({num(d.toInspect.lines)} batch lines in all). Biggest first; the 40 biggest are listed.</Hint><ReportTable rows={d.toInspect.rows} columns={inspCols} getRowId={(r) => r.key} bare pageSize={12} defaultSortKey="kg" defaultSortDir="desc" /></>}
             {tab === 'ship' && <><Hint>Cleared and not shipped, by customer, with the customer's next expected shipment.</Hint><ReportTable rows={d.toShip.rows} columns={shipCols} getRowId={(r) => r.id} bare pageSize={12} defaultSortKey="tonnes" defaultSortDir="desc" empty="Nothing is ready and waiting." /></>}

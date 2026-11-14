@@ -54,10 +54,10 @@ export default function Orders() {
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Open orders" icon={<InventoryRounded />} display={tonnes(d.kpis.openTonnes)} footer={`${num(d.kpis.openLines)} lines`} />
-            <KpiTile label="Past due" icon={<EventBusyRounded />} display={`${num(d.kpis.overdueLines)} lines`} tone={d.kpis.overdueLines ? 'danger' : 'default'} footer={tonnes(d.kpis.overdueTonnes)} />
-            <KpiTile label="On time" icon={<LocalShippingRounded />} display={pct(d.kpis.onTimePct)} hint={ON_TIME_HELP} footer={`${num(d.kpis.onTime)} of ${num(d.kpis.lines)} lines due`} />
-            <KpiTile label="Median delay when late" icon={<ScheduleRounded />} display={dayCount(d.kpis.medianDelay)} footer={`Actual ${dayCount(d.kpis.leadDays)}, promised ${dayCount(d.kpis.promisedDays)}`} />
+            <KpiTile label="Open orders" icon={<InventoryRounded />} display={tonnes(d.kpis.openTonnes)} footer={`${num(d.kpis.openLines)} lines`} info="Tonnes still to ship on every open order line as of the last data date, whatever the selected period. The footer gives the number of open lines." />
+            <KpiTile label="Past due" icon={<EventBusyRounded />} display={`${num(d.kpis.overdueLines)} lines`} tone={d.kpis.overdueLines ? 'danger' : 'default'} footer={tonnes(d.kpis.overdueTonnes)} info="Open order lines whose delivery date is before the last data date. The figure is the number of lines, and the footer gives their tonnes still to ship." />
+            <KpiTile label="On time" icon={<LocalShippingRounded />} display={pct(d.kpis.onTimePct)} hint={ON_TIME_HELP} footer={`${num(d.kpis.onTime)} of ${num(d.kpis.lines)} lines due`} info="Share of order lines due in the selected period that were fully shipped by their delivery date. Lines not fully shipped by then count as late. The footer gives the on-time lines out of lines due." />
+            <KpiTile label="Median delay when late" icon={<ScheduleRounded />} display={dayCount(d.kpis.medianDelay)} footer={`Actual ${dayCount(d.kpis.leadDays)}, promised ${dayCount(d.kpis.promisedDays)}`} info="Median days from the delivery date to full shipment, for lines due in the period that shipped late. The footer compares the median days from order date to shipment (actual) with the median days from order date to delivery date (promised)." />
           </KpiGrid>
           <Stack direction="row">
             <ToggleButtonGroup size="small" exclusive value={tab} onChange={(_, v) => v && setTab(v)}>
@@ -70,15 +70,15 @@ export default function Orders() {
           {tab === 'plan' && <PlanPanel filters={f} />}
           {tab === 'open' && (<>
           <Grid>
-            <SectionCard title="Open orders by delivery date" subtitle="Tonnes pending">
+            <SectionCard title="Open orders by delivery date" subtitle="Tonnes pending" info="Tonnes still to ship on open order lines, grouped by how far the delivery date is from the last data date: overdue bands first, then dates ahead. Lines with no delivery date are in the last band. Not limited to the selected period.">
               <RowBars rows={d.bands.map((b) => ({ key: b.label, label: b.label, value: b.tonnes, hot: b.label.includes('overdue'), sub: `${num(b.lines)} lines` }))} format={(v) => `${v} t`} />
             </SectionCard>
-            <SectionCard title="On time by month due"><Bars labels={d.trend.map((t) => monthLabel(t.mo))} data={d.trend.map((t) => t.onTimePct)} format={(v) => `${v}%`} height={290} max={100} /></SectionCard>
+            <SectionCard title="On time by month due" info="Share of order lines on time, grouped by the month of their delivery date, for lines due in the selected period. It uses the same on-time rule as the On time tile."><Bars labels={d.trend.map((t) => monthLabel(t.mo))} data={d.trend.map((t) => t.onTimePct)} format={(v) => `${v}%`} height={290} max={100} /></SectionCard>
           </Grid>
-          <SectionCard title="Delivery by customer" subtitle="Select a customer for more" flush>
+          <SectionCard title="Delivery by customer" subtitle="Select a customer for more" flush info="Customers with order lines due in the selected period: lines due, share on time, median days late, actual and promised days from order date, tonnes still open and past due lines. Open tonnes and past due lines are as of the last data date, not the period.">
             <ReportTable rows={d.customers} columns={custCols} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey="lines" defaultSortDir="desc" onRowClick={(r) => setCustomer(r.id)} empty="No lines due for these filters." />
           </SectionCard>
-          <SectionCard title="Open order lines" subtitle="Longest past due first. Select a line for detail." flush>
+          <SectionCard title="Open order lines" subtitle="Longest past due first. Select a line for detail." flush info="Every open order line as of the last data date, not limited to the selected period. Days past due counts from the delivery date to the last data date. Most pieces are is the stage where most of the line’s pending pieces sit.">
             <ReportTable rows={d.list} columns={openCols} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey="overdue" defaultSortDir="desc" onRowClick={(r) => setLine(r.id)} empty="No open lines for these filters." />
           </SectionCard>
           </>)}

@@ -43,14 +43,14 @@ export default function MachiningOrders() {
       {d && (
         <>
           <KpiGrid>
-            <KpiTile label="Order value" icon={<CurrencyRupeeRounded />} display={crore(d.kpis.value)} footer={`${num(d.kpis.vendors)} vendors`} />
-            <KpiTile label="Order lines" icon={<ReceiptLongRounded />} display={num(d.kpis.lines)} />
-            <KpiTile label="Open pieces" icon={<InventoryRounded />} display={num(d.kpis.openPcs)} />
-            <KpiTile label="Open lines past planned date" icon={<EventBusyRounded />} display={num(d.kpis.pastPlanLines)} tone={d.kpis.pastPlanLines ? 'danger' : 'default'} />
+            <KpiTile label="Order value" info="Total value, in ₹ crore, of machining purchase order lines dated in the selected date range. The footer counts the vendors with orders in that range."icon={<CurrencyRupeeRounded />} display={crore(d.kpis.value)} footer={`${num(d.kpis.vendors)} vendors`} />
+            <KpiTile label="Order lines" info="Number of machining purchase order lines dated in the selected date range."icon={<ReceiptLongRounded />} display={num(d.kpis.lines)} />
+            <KpiTile label="Open pieces" info="Pieces still to come back on the machining order lines dated in the selected date range: ordered pieces minus received pieces, added up."icon={<InventoryRounded />} display={num(d.kpis.openPcs)} />
+            <KpiTile label="Open lines past planned date" info="Order lines in the selected date range that still have pieces open and whose planned completion date is before the data date."icon={<EventBusyRounded />} display={num(d.kpis.pastPlanLines)} tone={d.kpis.pastPlanLines ? 'danger' : 'default'} />
           </KpiGrid>
-          <SectionCard title="By vendor" flush><ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.vendor} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" empty="No orders for this period." /></SectionCard>
-          <SectionCard title="Order value by month"><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.value)} format={crore} height={220} /></SectionCard>
-          <SectionCard title="Open order lines" subtitle="Longest past planned date first" flush><ReportTable rows={d.openList} columns={openCols} getRowId={(r) => r.key} bare pageSize={12} defaultSortKey="past" defaultSortDir="desc" empty="No open lines." /></SectionCard>
+          <SectionCard title="By vendor" flush info="One row per machining vendor with orders in the selected date range, largest order value first. The bar shows order value, and the percentage is the vendor’s share of the total in the range. Past planned date counts that vendor’s open lines whose planned date is before the data date."><ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.vendor} bare pageSize={12} defaultSortKey="value" defaultSortDir="desc" empty="No orders for this period." /></SectionCard>
+          <SectionCard title="Order value by month" info="Value, in ₹ crore, of machining purchase orders in the selected date range, by the month of the order date."><Bars labels={d.months.map((m) => monthLabel(m.mo))} data={d.months.map((m) => m.value)} format={crore} height={220} /></SectionCard>
+          <SectionCard title="Open order lines" subtitle="Longest past planned date first" flush info="Machining order lines in the selected date range that still have pieces to come back, most days past their planned date first. Days past plan counts from the planned date to the data date, and a dash means the line is not yet past plan. Shows up to 300 lines."><ReportTable rows={d.openList} columns={openCols} getRowId={(r) => r.key} bare pageSize={12} defaultSortKey="past" defaultSortDir="desc" empty="No open lines." /></SectionCard>
         </>
       )}
     </Page>

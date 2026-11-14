@@ -67,6 +67,7 @@ export const SECTIONS: NavSection[] = [
   },
   { key: 'customers', label: 'Customers', screens: [{ label: 'Customers', path: 'customers', keywords: ['sales', 'price', 'billing', 'credit'] }] },
   { key: 'layout', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
+  { key: 'layout-flow', label: 'By flow ⇄', screens: [{ label: 'Open the by-flow dashboard', path: 'layout-flow', keywords: ['switch', 'as-is', 'historic', 'flow', 'third'] }] },
 ];
 
 /** The second layout: the same data arranged by what the reader wants to do. Detail screens are shared with the first. */
@@ -82,4 +83,20 @@ export const INTENT_SECTIONS: NavSection[] = [
     screens: SECTIONS.filter((s) => s.key !== 'layout').flatMap((s) => s.screens).filter((s) => !s.path.startsWith('step-')),
   },
   { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
+];
+
+/** The third layout: As-is (what is open now) and Historic (orders in a range), each with the same four screens. */
+const flowScreens = (mode: 'asis' | 'historic') => [
+  { label: 'Customer', path: `flow/${mode}/customer`, keywords: ['sales', 'value', 'tonnes', 'units', 'order type', 'part type'] },
+  { label: 'Planning', path: `flow/${mode}/planning`, keywords: ['batch', 'sub-batch', 'plan', 'yet to plan', 'split', 'accuracy'] },
+  { label: 'Production', path: `flow/${mode}/production`, keywords: ['wip', 'work in progress', 'aging', 'stage', 'step', 'today'] },
+  { label: 'Dispatch', path: `flow/${mode}/dispatch`, keywords: ['shipment', 'volume', 'frequency', 'top ten', 'dispatch'] },
+];
+
+/** The third layout's navigation: As-is and Historic, each with Customer, Planning, Production and Dispatch. */
+export const FLOW_SECTIONS: NavSection[] = [
+  { key: 'flow-asis', label: 'As-is', screens: flowScreens('asis') },
+  { key: 'flow-historic', label: 'Historic', screens: flowScreens('historic') },
+  { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
+  { key: 'layout-intent', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
 ];

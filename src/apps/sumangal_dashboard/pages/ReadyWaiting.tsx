@@ -35,15 +35,15 @@ export default function ReadyWaiting() {
       {d && k && (
         <>
           <KpiGrid>
-            <KpiTile label="Ready, not shipped" icon={<Inventory2Rounded />} display={tonnes(k.tonnes, 1)} />
-            <KpiTile label="Customers" icon={<GroupsRounded />} display={num(k.customers)} />
-            <KpiTile label="Of it past its due date" icon={<EventBusyRounded />} display={tonnes(k.pastDue, 1)} tone={k.pastDue ? 'warning' : 'default'} />
-            <KpiTile label="Customers past their usual shipment" icon={<LocalShippingRounded />} display={num(k.overdueSlot)} tone={k.overdueSlot ? 'warning' : 'default'} />
+            <KpiTile label="Ready, not shipped" info="Tonnes cleared for dispatch and not shipped, as of the last data date. Only open order lines count, never more than the line still has to ship. The customer filter applies; the date range does not."icon={<Inventory2Rounded />} display={tonnes(k.tonnes, 1)} />
+            <KpiTile label="Customers" info="Number of customers with cleared, unshipped castings as of the last data date."icon={<GroupsRounded />} display={num(k.customers)} />
+            <KpiTile label="Of it past its due date" info="The part of the ready tonnes that sits on order lines whose due date is before the last data date."icon={<EventBusyRounded />} display={tonnes(k.pastDue, 1)} tone={k.pastDue ? 'warning' : 'default'} />
+            <KpiTile label="Customers past their usual shipment" info="Customers whose next expected shipment, the last shipment plus their usual gap between shipments, is already before the last data date. Shows how many."icon={<LocalShippingRounded />} display={num(k.overdueSlot)} tone={k.overdueSlot ? 'warning' : 'default'} />
           </KpiGrid>
-          <SectionCard title="By customer" subtitle="Largest first" flush>
+          <SectionCard title="By customer" subtitle="Largest first" flush info="One row per customer with ready castings, largest first. Shows ready tonnes, order lines, the oldest ready line in days since it was cleared, tonnes past due, the usual rhythm (from the median gap between shipments), the last shipment and next expected shipment. Days to next counts down to the next expected shipment; overdue values are shown in red.">
             <ReportTable rows={d.rows} columns={cols} getRowId={(r) => r.id} bare pageSize={15} defaultSortKey="tonnes" defaultSortDir="desc" empty="Nothing ready and waiting." />
           </SectionCard>
-          <SectionCard title="How long it has been ready"><RowBars rows={d.age.map((a) => ({ key: a.label, label: `Cleared ${a.label.toLowerCase()} ago`, value: a.tonnes }))} format={(v) => `${v} t`} /></SectionCard>
+          <SectionCard title="How long it has been ready" info="Ready tonnes grouped by days since they were cleared: up to 7 days, 8 to 30 days, and over 30 days."><RowBars rows={d.age.map((a) => ({ key: a.label, label: `Cleared ${a.label.toLowerCase()} ago`, value: a.tonnes }))} format={(v) => `${v} t`} /></SectionCard>
         </>
       )}
     </Page>
