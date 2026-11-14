@@ -1277,7 +1277,7 @@ export interface PurchaseOrder extends PurchaseOrderRow {
   pendingApprovals?: { id: number; type: string; typeLabel: string; requestedBy: { id: number; name: string | null } | null; requestedAt: string; note: string | null }[];
   closed?: { at: string; by: { id: number; name: string | null } | null; reason: string | null } | null;
   /** Every change of the PO's (lineId null) or a line's expected date, newest first, with who and when. */
-  dateChanges?: { id: number; lineId: number | null; from: string | null; to: string | null; by: { id: number; name: string | null } | null; at: string }[];
+  dateChanges?: { id: number; lineId: number | null; from: string | null; to: string | null; by: { id: number; name: string | null } | null; at: string; /** §110: the vendor's word */ note?: string | null }[];
   notes: string | null;
   lines: PurchaseLine[];
 }

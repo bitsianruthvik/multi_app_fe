@@ -99,6 +99,8 @@ export const SECTIONS: NavSection[] = [
     key: 'mgmt',
     label: 'Management',
     screens: [
+      // §110 (2026-11-14): the MD's one screen — today, planned vs reality, alerts and requests, each with its action.
+      { key: 'md-dashboard', label: 'MD dashboard', path: 'md-dashboard', permission: 'cf_erp_plate_change_approve|cf_erp_approve_month_plan|cf_erp_approve_purchase_order', countKey: 'alerts', keywords: ['md', 'today', 'planned vs actual', 'reality', 'alerts', 'requests', 'delays'] },
       { key: 'mgmt-dashboard', label: 'Dashboard', path: 'management', permission: bothOf(PRODUCTION, APPROVE_ANY), keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report', 'work orders'] },
       { key: 'management-overview', label: 'Plan health', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'overview', 'plan health', 'baseline', 'slipping', 'slip', 'late'] },
       // §105: the MD reads each week's plan (orders × operations, tonnes) — told when Planning publishes it.
@@ -168,6 +170,8 @@ export const SECTIONS: NavSection[] = [
     label: 'Production',
     screens: [
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION_MANAGE, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material', '3d', 'progress'] },
+      // §110: the delay alerts of the person's departments (Planning, Stores, Purchase, the floor, the MD).
+      { key: 'alerts', label: 'Alerts', path: 'alerts', permission: 'cf_erp_production_manage|cf_erp_stores|cf_erp_inventory_manage|cf_erp_purchase|cf_erp_floor|cf_erp_plate_change_approve|cf_erp_approve_month_plan', countKey: 'alerts', keywords: ['alerts', 'delays', 'late', 'notifications', 'bell', 'procurement late', 'start late', 'unplanned'] },
       // §105: the roster Planning published for the day — what production works to.
       { key: 'roster', label: 'Roster', path: 'roster', permission: `${PRODUCTION_MANAGE}|${FLOOR}`, keywords: ['roster', 'today', 'task sheet', 'daily plan', 'what to work on'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },

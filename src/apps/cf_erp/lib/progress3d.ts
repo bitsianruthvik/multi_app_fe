@@ -15,16 +15,44 @@ import type { RowProgress, RowProgressRow, RowUnit } from '../api/rowProgress';
  *  - outside the production order asked for: very faint.
  */
 
-export const DONE = '#2e9b57';
+/** Finished: navy, so it is never read as the last operation's green. */
+export const DONE = '#1e3a8a';
 export const WAITING = '#c9d1da';
 export const NOT_RELEASED = '#8a99ab';
 export const OUTSIDE = '#e3e7ec';
-/** Distinct, colour-blind-friendly hues for operations, in flow order (then repeated a shade darker). */
-const OP_HUES = ['#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6', '#ec4899', '#84cc16', '#f97316', '#06b6d4', '#a855f7', '#eab308', '#0ea5e9'];
 
-export const opColour = (ops: { code: string }[], code: string): string => {
-  const i = Math.max(0, ops.findIndex((o) => o.code === code));
-  return OP_HUES[i % OP_HUES.length];
+/** HSL (h 0–360, s and l 0–100) as #rrggbb — the 3D materials and the legend take the same string. */
+function hex(h: number, s: number, l: number): string {
+  const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/**
+ * AN OPERATION'S COLOUR (user, 2026-11-14: "red for the early stage things like cutting and green for late stage
+ * stuff … based on the starting and ending activities in the operations tree … ensure there are no activities which are
+ * similar"). The operations in FLOW order (the server's seq: each piece's flow orders its own operations and a part's
+ * come before its assembly's — nothing is hard-coded, so a new operation takes its place by itself): the first is red,
+ * the last green, the rest spread over red → orange → yellow → lime → green by their place. Neighbours step through
+ * three lightness / saturation pairs, so two operations next to each other in the flow never look alike even when there
+ * are twenty of them; same-lightness colours are three places apart on the hue scale.
+ */
+const SHADES: [number, number][] = [[82, 47], [70, 33], [92, 62]];
+/** The colour of the i-th of n stages in flow order — red first, green last. The Planning Gantt uses it too. */
+export function stageColour(i: number, n: number): string {
+  // The first and the last stay plain red and plain green, whatever their place in the shade cycle.
+  if (n <= 1 || i >= n - 1) return hex(135, 70, 38);
+  if (i <= 0) return hex(0, 85, 48);
+  const [s, l] = SHADES[i % SHADES.length];
+  return hex(Math.round((i / (n - 1)) * 135), s, l);
+}
+export const opColour = (ops: { code: string; seq?: number }[], code: string): string => {
+  const ordered = [...ops].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  return stageColour(Math.max(0, ordered.findIndex((o) => o.code === code)), ordered.length);
 };
 
 export interface Look { colour: string; ghost: boolean; pulse: boolean; faint: boolean; words: string }

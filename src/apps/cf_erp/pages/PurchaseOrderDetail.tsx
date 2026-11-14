@@ -296,13 +296,14 @@ export default function PurchaseOrderDetail() {
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
       {(p.dateChanges?.length ?? 0) > 0 && (
-        <SectionCard title="Expected date changes" subtitle="Who moved the expected delivery date, and when. A GRN keeps its own actual receipt date.">
+        <SectionCard title="Expected date changes" subtitle="Who moved the expected delivery date, when, and what the vendor said. Each move is sent to Stores, Planning and the MD. A GRN keeps its own actual receipt date.">
           <Box data-testid="po-date-changes" sx={{ display: 'grid', gap: 0.5 }}>
             {p.dateChanges!.map((d) => (
               <Typography key={d.id} sx={{ fontSize: 13, overflowWrap: 'anywhere' }}>
                 <Mono>{String(d.at).slice(0, 16).replace('T', ' ')}</Mono>{' · '}
                 {d.lineId == null ? 'The PO' : (p.lines.find((l) => l.id === d.lineId)?.item.code ?? 'A line')}: {d.from ?? 'no date'} → {d.to ?? (d.lineId == null ? 'no date' : "the PO's date")}
                 {d.by?.name ? ` · ${d.by.name}` : ''}
+                {d.note ? <Box component="span" sx={{ color: 'var(--c-text-2)' }}> — “{d.note}”</Box> : null}
               </Typography>
             ))}
           </Box>

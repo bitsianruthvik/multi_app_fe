@@ -218,7 +218,7 @@ export const getRequisition = (id: number) => cfApi.get<Requisition>(`/requisiti
 export const getLineMaterialReady = (lineId: number) => cfApi.get<LineMaterialReady>(`/order-lines/${lineId}/material-ready`);
 
 /** A PO line's date and/or quantity (the existing route); answers with the purchase order. */
-export const updatePurchaseLine = (lineId: number, body: { expectedDate?: string | null; quantity?: number }) => cfApi.put<WithPlanned<PurchaseOrder>>(`/purchase-lines/${lineId}`, body);
+export const updatePurchaseLine = (lineId: number, body: { expectedDate?: string | null; quantity?: number; /** §110: the vendor's word behind a moved date */ dateNote?: string | null }) => cfApi.put<WithPlanned<PurchaseOrder>>(`/purchase-lines/${lineId}`, body);
 
 // ---- what a changed date does to the plan -----------------------------------------------
 

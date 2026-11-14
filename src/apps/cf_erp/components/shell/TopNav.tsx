@@ -14,12 +14,13 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useCommandPalette } from '../commandPaletteContext';
 import { HelpButton } from '../../help/HelpButton';
+import { AlertBell } from './AlertBell';
 
 /**
  * Row 1 of the top navigation — fab_erp's FabErpTopNav for cf_erp: the primary
  * sections with an underline on the active one, a visible search field that
- * opens the ⌘K palette, Create, theme and the account menu. There is no bell:
- * the app has no notifications, and a bell that never lights up is furniture —
+ * opens the ⌘K palette, Create, the alerts bell (§110, 2026-11-14: delay alerts by department), theme and the account
+ * menu. Before §110 there was no bell, the app having no notifications —
  * "what needs you" is Home, which the logo and the first section both reach.
  * The one glass surface on the page (§5.3).
  */
@@ -122,6 +123,7 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
 
       {/* In-app help for whatever screen this is (TM/CF_ERP_HELP_SPEC.md); `?` opens it too. */}
       <HelpButton />
+      <AlertBell />
 
       <Tooltip title={resolvedMode === 'dark' ? 'Switch to light' : 'Switch to dark'}>
         <IconButton size="small" onClick={() => setPreference(resolvedMode === 'dark' ? 'light' : 'dark')}

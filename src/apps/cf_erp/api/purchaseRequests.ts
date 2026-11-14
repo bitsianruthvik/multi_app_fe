@@ -227,7 +227,7 @@ export const closePurchaseOrder = (id: number, reason: string) => cfApi.post<Pur
 /** §73: Management sends the PO back to the buyer (not placed), with the reason. */
 export const rejectPurchaseOrder = (id: number, note: string) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/reject`, { note });
 /** The PO's own expected delivery date (a line without its own date takes it); the change is recorded with who and when. */
-export const setPoExpectedDate = (id: number, expectedDate: string | null) => cfApi.put<PurchaseOrder>(`/purchase-orders/${id}`, { expectedDate });
+export const setPoExpectedDate = (id: number, expectedDate: string | null, dateNote?: string | null) => cfApi.put<PurchaseOrder>(`/purchase-orders/${id}`, { expectedDate, ...(dateNote ? { dateNote } : {}) });
 /** Send a PO made by hand for Management approval (it is placed when Management approves it). */
 export const sendForApproval = (id: number, supplierId?: number | null) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/order`, supplierId ? { supplierId } : {});
 export const getPendingLines = (q: { search?: string; supplierId?: number | null } = {}) =>

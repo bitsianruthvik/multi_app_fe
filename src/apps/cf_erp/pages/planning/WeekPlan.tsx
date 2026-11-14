@@ -13,6 +13,7 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useUrlParam } from '../../hooks/useUrlState';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
+import { PlanGantt } from '../../components/Planning/PlanGantt';
 import { Badge, EmptyState, ErrorNotice, InfoTip, ListSkeleton, Mono, PageHeader, SectionCard, StatStrip } from '../../components/ui';
 import { FacetChip } from '../../components/FilterBar';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -98,6 +99,8 @@ export default function WeekPlan() {
 
           {view === 'plan' && r && (
             <Box sx={{ display: 'grid', gap: 2 }}>
+              {/* §110 (2026-11-14): the week as a Gantt, with machine load by day and finish against committed. */}
+              <SectionCard flush><PlanGantt units={r.units} orders={r.orders} from={r.from ?? s.week.start} to={s.week.end} today={s.today} title={`Week ${s.week.no} as a Gantt`} /></SectionCard>
               <SectionCard flush title={<Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>Orders × operations<InfoTip text="Hours of work this week per order and operation (machine type), and the tonnes each order finishes in the week. This is what the MD sees." /></Box>}>
                 <PivotTable pivot={r.pivot} tonnesLabel="Finishes" />
               </SectionCard>

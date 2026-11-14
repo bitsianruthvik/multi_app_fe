@@ -18,6 +18,7 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useUrlParam } from '../../hooks/useUrlState';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
+import { PlanGantt } from '../../components/Planning/PlanGantt';
 import { Badge, ErrorNotice, InfoTip, ListSkeleton, Mono, PageHeader, SectionCard, StatStrip } from '../../components/ui';
 import { DataTable, type DataColumn } from '../../components/DataTable';
 import { FacetChip } from '../../components/FilterBar';
@@ -43,7 +44,7 @@ export default function MonthPlan() {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_production_manage');
   const [monthParam, setMonthParam] = useUrlParam('month', '');
-  const [tab, setTab] = useUrlParam('view', 'weeks');
+  const [tab, setTab] = useUrlParam('view', 'gantt');
   const screen = useLoad(() => getMonthPlan(monthParam || undefined), [monthParam]);
   const contractors = useLoad(() => getPlanContractors(), []);
   const s = screen.data;
@@ -242,9 +243,11 @@ export default function MonthPlan() {
           <SectionCard flush title="The plan"
             actions={(
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {[['weeks', 'By week'], ['load', 'Machine load'], ['units', `Shipping units (${result.units.length})`], ['pivot', 'Orders × operations']].map(([k, l]) => <FacetChip key={k} label={l} active={tab === k} onClick={() => setTab(k)} />)}
+                {[['gantt', 'Gantt'], ['weeks', 'By week'], ['load', 'Machine load'], ['units', `Shipping units (${result.units.length})`], ['pivot', 'Orders × operations']].map(([k, l]) => <FacetChip key={k} label={l} active={tab === k} onClick={() => setTab(k)} />)}
               </Box>
             )}>
+            {/* §110 (2026-11-14): the plan as a Gantt — orders, their units, each unit's own steps — with load and finish charts. */}
+            {tab === 'gantt' && <PlanGantt units={result.units} orders={result.orders} from={result.from} to={result.last} today={s.today} title={`What the plan does, ${monthText(month)}`} />}
             {tab === 'weeks' && (
               <Box sx={{ p: 2, display: 'grid', gap: 2 }}>
                 <WeekBars weeks={result.weeks.map((w) => ({ no: w.no, start: w.start, end: w.end, planned: w.tonnes, current: s.today >= w.start && s.today <= w.end }))} />
