@@ -167,7 +167,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (gridLineId == null || structureRoot == null) return;
     rootsSeen.current += 1;
     // The first answer: the values were read beside it — again only when it chose something. Every later one: again.
-    if (rootsSeen.current > 1) reloadValues();
+    // (While the server is still settling the line the structure is re-read every few seconds: the values wait for the last one.)
+    if (rootsSeen.current > 1) { if (!bom.settling) reloadValues(); }
     else if (bom.autofilled > 0) { reloadValues(); reloadDrawings(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gridLineId, structureRoot]);
@@ -1063,6 +1064,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   return (
     <Box ref={panelRoot} data-bom-panel="" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }} {...backgroundDrop}>
       {voided && <Alert severity="warning" data-testid="nesting-voided" onClose={() => setVoided(null)} sx={{ py: 0.25 }}>{voided}</Alert>}
+      {bom.settling && (
+        <Alert severity="info" icon={<CircularProgress size={16} />} sx={{ mb: 1 }} data-testid="bom-settling">
+          Working out this line&apos;s automatic choices and the values that follow from them{bom.settlingSeconds >= 20 ? ` (${bom.settlingSeconds} s so far; a large line can take a few minutes the first time)` : ''}.
+          The rows below are as they stand now and fill in by themselves.
+        </Alert>
+      )}
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
       <SectionCard
         title={orderGrid ? undefined : type.title}

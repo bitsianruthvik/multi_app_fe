@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cfApi, CfApiError, qs } from '../../api/client';
 import { postBomChanges, type BomChange, type BomChangesResponse } from '../../api/bomChanges';
 import { getLinePlaceholders, getRecordBomCodes, placeholderKey, type PlaceholderRow } from '../../api/placeholders';
@@ -78,6 +78,15 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
    */
   const tree = useLoad(() => (recordId == null ? Promise.resolve(null) : cfApi.get<Explosion>(`/records/${recordId}/bom/tree`)), [recordId]);
   const structure = useLoad(() => (lineId == null ? Promise.resolve(null) : cfApi.get<LineStructure>(`/order-lines/${lineId}/structure`)), [lineId]);
+  // A large line first opened: the server answers at once with `settling` and works its choices and values out behind
+  // the read. Read again a few seconds after each such answer, until it is done (2026-11-16).
+  const settling = !!structure.data?.settling;
+  const reloadStructure = structure.reload; const structureLoading = structure.loading;
+  useEffect(() => {
+    if (!settling || structureLoading) return undefined;
+    const t = window.setTimeout(reloadStructure, 4000);
+    return () => window.clearTimeout(t);
+  }, [settling, structureLoading, reloadStructure, structure.data]);
   // A row has no code until its line is LOCKED; until then it shows the code its
   // pieces will get, with # where each piece's own number goes. Only a line's
   // structure has a line to roll out, and the tree never waits for it.
@@ -198,6 +207,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     state,
     /** Selections the line's structure read chose (0 when none, or not an order line). */
     autofilled: structure.data?.autofilled ?? 0,
+    /** The server is still working out the line's choices and values; the structure is read again until it is done. */
+    settling,
+    settlingSeconds: structure.data?.settlingSeconds ?? 0,
     /** A row's placeholder, by its BOM line (or by item for what the line sells). */
     placeholderOf: (node: StructureNode) => placeholderRows.get(placeholderKey(node.lineId, node.id)) ?? null,
     /** A record BOM row's position code, by its tree node key — null on an order line. */

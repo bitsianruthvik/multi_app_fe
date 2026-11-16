@@ -533,6 +533,12 @@ export interface LineStructure extends Explosion {
   };
   /** How many selections this read chose (its values were refreshed): a screen that read the values beside it reads them again. */
   autofilled?: number;
+  /**
+   * The server is still working out this line's choices and values (a large line, first opened): the structure is as it
+   * stands now, and the screen reads again until this is false (2026-11-16). `settlingSeconds`: how long that has run.
+   */
+  settling?: boolean;
+  settlingSeconds?: number;
 }
 
 export interface WhereUsedRow {
