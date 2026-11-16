@@ -106,8 +106,11 @@ function PivotCard({ mode, title, info, fixed, choices, defaultPrimary, defaultS
       </Box>
       {error && <Typography sx={{ px: 2, pb: 2, color: 'error.main', fontSize: 'inherit' }} onClick={reload}>Could not load this split. Try again.</Typography>}
       {loading && !data && <Typography sx={{ px: 2, pb: 2, fontSize: 'inherit' }}>Loading…</Typography>}
-      {data && (
-        <ReportTable rows={data.pivot} columns={pivotColumns(data.dims)} getRowId={(r) => r.key} bare pageSize={15} defaultSortKey="tonnes" defaultSortDir="desc" empty="No castings in this window." />
+      {data && !Array.isArray(data.pivot) && (
+        <Typography sx={{ px: 2, pb: 2, fontSize: 'inherit', color: 'text.secondary' }}>This view is not available yet: the server is still updating. Try again in a minute.</Typography>
+      )}
+      {data && Array.isArray(data.pivot) && (
+        <ReportTable rows={data.pivot} columns={pivotColumns(Array.isArray(data.dims) ? data.dims : by)} getRowId={(r) => r.key} bare pageSize={15} defaultSortKey="tonnes" defaultSortDir="desc" empty="No castings in this window." />
       )}
     </SectionCard>
   );
