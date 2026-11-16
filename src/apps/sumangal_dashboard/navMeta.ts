@@ -91,6 +91,7 @@ const flowScreens = (mode: 'asis' | 'historic') => [
   { label: 'Planning', path: `flow-${mode}-planning`, keywords: ['batch', 'sub-batch', 'plan', 'yet to plan', 'split', 'accuracy'] },
   { label: 'Production', path: `flow-${mode}-production`, keywords: ['wip', 'work in progress', 'aging', 'stage', 'step', 'today'] },
   { label: 'Dispatch', path: `flow-${mode}-dispatch`, keywords: ['shipment', 'volume', 'frequency', 'top ten', 'dispatch'] },
+  { label: 'Vendors', path: `flow-${mode}-vendors`, keywords: ['job work', 'outside', 'turnaround', 'tat', 'part type', 'monthly volume', 'machining', 'turning', 'fettling'] },
 ];
 
 /** The third layout's navigation: As-is and Historic, each with Customer, Planning, Production and Dispatch. */

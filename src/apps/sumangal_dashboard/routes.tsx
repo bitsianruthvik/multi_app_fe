@@ -9,6 +9,7 @@ const FlowCustomer = lazy(() => import('./pages/flow/FlowCustomer'));
 const FlowPlanning = lazy(() => import('./pages/flow/FlowPlanning'));
 const FlowProduction = lazy(() => import('./pages/flow/FlowProduction'));
 const FlowDispatch = lazy(() => import('./pages/flow/FlowDispatch'));
+const FlowVendors = lazy(() => import('./pages/flow/FlowVendors'));
 const XAlerts = lazy(() => import('./pages/XAlerts'));
 const XToday = lazy(() => import('./pages/XToday'));
 const XMonth = lazy(() => import('./pages/XMonth'));
@@ -69,10 +70,12 @@ export function getSumangalDashboardRoutes(
     ['flow-asis-planning', <FlowPlanning mode="asis" />],
     ['flow-asis-production', <FlowProduction mode="asis" />],
     ['flow-asis-dispatch', <FlowDispatch mode="asis" />],
+    ['flow-asis-vendors', <FlowVendors mode="asis" />],
     ['flow-historic-customer', <FlowCustomer mode="historic" />],
     ['flow-historic-planning', <FlowPlanning mode="historic" />],
     ['flow-historic-production', <FlowProduction mode="historic" />],
     ['flow-historic-dispatch', <FlowDispatch mode="historic" />],
+    ['flow-historic-vendors', <FlowVendors mode="historic" />],
     ['x-alerts', <XAlerts />],
     ['x-today', <XToday />],
     ['x-month', <XMonth />],

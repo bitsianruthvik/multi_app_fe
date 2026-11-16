@@ -4,7 +4,7 @@ import { KpiGrid, KpiTile, SectionCard, type DataColumn } from '@shared/ui';
 import { useReport } from '../../api';
 import { useFilters } from '../../filters';
 import { dateLabel, monthLabel } from '../../format';
-import { Lines, ReportTable } from '../../components/Charts';
+import { Bars, Lines, ReportTable } from '../../components/Charts';
 import { StackedBars } from '../../components/FlowParts';
 import { fmtDays, fmtN, fmtT } from '../../components/flowFormat';
 import { Page } from '../../components/Page';
@@ -22,6 +22,7 @@ interface AsisReport {
   lastDay: string | null;
   wip: { stage: string; units: number; tonnes: number; buckets: Record<string, number | null> }[];
   work: { stage: string; todayKg: number | null; avg90Kg: number | null; vsAvgPct: number | null }[];
+  stepWip: StepWipAsis;
   ageBuckets: string[];
 }
 interface HistoricReport {
@@ -31,9 +32,24 @@ interface HistoricReport {
   timeline: { date: string; tonnes: Record<string, number | null> }[];
   stage: string;
   aging: { date: string; buckets: Record<string, number | null> }[];
+  stepWip: StepWipHistoric;
   ageBuckets: string[];
 }
+/** Pieces and tonnes that have cleared one step and not yet the next, on the last data day. */
+interface StepWipAsis {
+  gaps: { gap: string; pcs: number; tonnes: number }[];
+  totalPcs: number;
+  totalTonnes: number;
+}
+/** The same gaps at each month end in the range, and each gap's average across those month ends. */
+interface StepWipHistoric {
+  gaps: string[];
+  months: { date: string; tonnes: Record<string, number> }[];
+  avgTonnes: Record<string, number | null>;
+}
 type WorkRow = AsisReport['work'][number];
+type StepRow = StepWipAsis['gaps'][number];
+type StepAvgRow = { gap: string; avg: number | null };
 
 const sumOf = (xs: (number | null | undefined)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
 const fmtKg = (v: number | null | undefined) => (v == null ? '—' : Math.round(v).toLocaleString('en-IN'));
@@ -48,8 +64,18 @@ const WORK_COLS: DataColumn<WorkRow>[] = [
   },
 ];
 
-const ASIS_NOTE = 'Work in progress is the pieces the ERP records between stages on open order lines, shown as tonnes. Waiting time is days since the stage began, from the line’s dates. Inspected, not shipped joins ‘Inspected, not cleared’ and ‘Cleared, not shipped’. Today is the last working day in the data; the benchmark is the average per working day over the 90 days before it.';
-const HIST_NOTE = 'Each order line’s whole weight is counted in the stage it was in on that day, from its order, injection, pour and inspection dates; shipped lines are left out after shipment. Averages are over the month ends in the chosen dates. Waiting time is the weighted average days since entering the stage.';
+const STEP_COLS: DataColumn<StepRow>[] = [
+  { key: 'gap', header: 'Cleared … not yet …', render: (r) => <b>{r.gap}</b>, sortValue: (r) => r.gap },
+  { key: 'pcs', header: 'Pieces', numeric: true, align: 'right', sortValue: (r) => r.pcs, render: (r) => fmtN(r.pcs) },
+  { key: 't', header: 'Tonnes', numeric: true, align: 'right', sortValue: (r) => r.tonnes, render: (r) => fmtT(r.tonnes) },
+];
+const STEP_AVG_COLS: DataColumn<StepAvgRow>[] = [
+  { key: 'gap', header: 'Cleared … not yet …', render: (r) => <b>{r.gap}</b>, sortValue: (r) => r.gap },
+  { key: 'avg', header: 'Average tonnes at month ends', numeric: true, align: 'right', sortValue: (r) => r.avg, render: (r) => fmtT(r.avg) },
+];
+
+const ASIS_NOTE = 'Work in progress is the pieces the ERP records between stages on open order lines, shown as tonnes. Waiting time is days since the stage began, from the line’s dates. Inspected, not shipped joins ‘Inspected, not cleared’ and ‘Cleared, not shipped’. Today is the last working day in the data; the benchmark is the average per working day over the 90 days before it. Between steps counts, for each batch item, the pieces that have cleared one step and not yet the next. Heat treatment and machining inspection count only for batch items that record them.';
+const HIST_NOTE = 'Each order line’s whole weight is counted in the stage it was in on that day, from its order, injection, pour and inspection dates; shipped lines are left out after shipment. Averages are over the month ends in the chosen dates. Waiting time is the weighted average days since entering the stage. Between steps is taken at each month end, so it does not change with the day, week or year view.';
 
 function AsisBody({ d }: { d: AsisReport }) {
   const totalT = sumOf(d.wip.map((s) => s.tonnes));
@@ -78,6 +104,19 @@ function AsisBody({ d }: { d: AsisReport }) {
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Today is {dateLabel(d.lastDay)}.</Typography>
         </Box>
         <ReportTable rows={d.work} columns={WORK_COLS} getRowId={(r) => r.stage} bare pageSize={15} />
+      </SectionCard>
+
+      <SectionCard
+        title="Work in progress between each pair of steps"
+        info="Tonnes and pieces that have cleared one step and not yet cleared the next, on open order lines, as of the last data day. Counted per batch item, so a piece is in one gap at a time. Heat treatment and machining inspection count only for batch items that record them, so an item that skips a step is not counted as waiting at it. Pieces rejected at a step count as having left it. Pieces from batches with no order line have no weight, so they count in pieces but not in tonnes. The totals here can differ from the four-step WIP above, which uses a coarser grouping of the same records."
+      >
+        <Bars
+          labels={d.stepWip.gaps.map((g) => g.gap)}
+          data={d.stepWip.gaps.map((g) => g.tonnes)}
+          format={fmtT}
+          height={Math.max(220, d.stepWip.gaps.length * 34)}
+        />
+        <ReportTable rows={d.stepWip.gaps} columns={STEP_COLS} getRowId={(r) => r.gap} bare pageSize={15} />
       </SectionCard>
     </>
   );
@@ -137,6 +176,25 @@ function HistoricBody({ d, setG, stage, setStage }: HistoricBodyProps) {
           series={d.ageBuckets.map((b) => ({ label: b, data: d.aging.map((p) => p.buckets[b] ?? 0) }))}
           format={fmtT}
           height={280}
+        />
+      </SectionCard>
+
+      <SectionCard
+        title="Work in progress between each pair of steps, by month end"
+        info="Tonnes that have cleared one step and not yet cleared the next, at each month end in the chosen dates, stacked by gap. Counted per batch item, so a piece is in one gap at a time. Heat treatment and machining inspection count only for batch items that record them. The filters apply. The table gives each gap’s average across those month ends."
+      >
+        <StackedBars
+          labels={d.stepWip.months.map((m) => monthLabel(m.date.slice(0, 7)))}
+          series={d.stepWip.gaps.map((g) => ({ label: g, data: d.stepWip.months.map((m) => m.tonnes[g] ?? 0) }))}
+          format={fmtT}
+          height={320}
+        />
+        <ReportTable
+          rows={d.stepWip.gaps.map((g) => ({ gap: g, avg: d.stepWip.avgTonnes[g] ?? null }))}
+          columns={STEP_AVG_COLS}
+          getRowId={(r) => r.gap}
+          bare
+          pageSize={15}
         />
       </SectionCard>
     </>
