@@ -27,8 +27,8 @@ On **Structure & values**, click **Add line**. For an RDSO girder, choose **From
 ### 4. Hand over to design
 The design engineer fills the missing values, saves the execution plan, freezes the design and nests the plates. You can follow along on the stage tabs. See the [design and planning guide](help:design).
 
-### 5. Mark it quoted
-When the quotation has gone out, click **Mark quoted** in the order header. If the customer goes elsewhere, **Mark lost** (it can be reopened later).
+### 5. If the customer goes elsewhere
+Click **Mark lost** in the order header (it can be reopened later). There is no separate "quoted" status: an inquiry stays an inquiry until the customer accepts.
 
 ### 6. The material request
 Once nesting is saved, **Material required** shows what the order needs and what the store has; **Download required materials** gives it as Excel to send with your offer. The material request itself is created there once the MD has accepted the order. See [Material required](help:order-buying).

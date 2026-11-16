@@ -42,7 +42,7 @@ interface PaletteAction { id: string; label: string; hint?: string; permission?:
 export type PaletteDialog = 'classification';
 
 const ACTIONS: PaletteAction[] = [
-  { id: 'new-order', label: 'New order', hint: 'An inquiry, or a stock order', permission: 'cf_erp_orders_manage', slug: 'orders?new=1' },
+  { id: 'new-order', label: 'New order', hint: 'A customer inquiry', permission: 'cf_erp_orders_manage', slug: 'orders?new=1' },
   { id: 'new-item', label: 'New item', hint: 'Add an item to the catalog', permission: 'cf_erp_catalog_manage', slug: 'items?new=1' },
   // The Classification screen manages the tree; this makes one node from
   // anywhere, the way the item form does, so nothing has to be abandoned.

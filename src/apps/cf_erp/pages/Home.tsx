@@ -11,7 +11,6 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import MarkEmailUnreadRounded from '@mui/icons-material/MarkEmailUnreadRounded';
-import RequestQuoteRounded from '@mui/icons-material/RequestQuoteRounded';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
 import EditNoteRounded from '@mui/icons-material/EditNoteRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
@@ -56,7 +55,7 @@ const STAT_META: Record<string, { icon: ReactNode; path: string; tone?: Stat['to
 };
 
 const QUEUE_ICON: Record<string, ReactNode> = {
-  overdue: <WarningAmberRounded />, inquiries: <MarkEmailUnreadRounded />, quoted: <RequestQuoteRounded />, selections: <ChecklistRounded />,
+  overdue: <WarningAmberRounded />, inquiries: <MarkEmailUnreadRounded />, selections: <ChecklistRounded />,
   drafts: <EditNoteRounded />, flows: <RouteRounded />, shifts: <ScheduleRounded />, untimed: <TimerRounded />, held: <PauseCircleRounded />,
   ready: <PlayCircleRounded />, material: <LockRounded />, onhold: <PauseCircleRounded />, release: <RocketLaunchRounded />,
   buy: <ShoppingCartRounded />, deliveries: <LocalShippingRounded />, delivered: <DoneAllRounded />,

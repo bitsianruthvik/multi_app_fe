@@ -564,7 +564,8 @@ export interface LineCandidates extends Candidates {
 // ---- Sales orders -------------------------------------------------------------
 
 export type OrderType = 'customer' | 'stock';
-export type OrderStatus = 'draft' | 'inquiry' | 'quoted' | 'confirmed' | 'closed' | 'lost' | 'cancelled' | 'revised';
+/** 2026-11-16: 'draft' (stock orders) and 'quoted' were taken out — nothing reaches them. */
+export type OrderStatus = 'inquiry' | 'confirmed' | 'closed' | 'lost' | 'cancelled' | 'revised';
 
 /** One revision of an order, as GET /orders/:id lists them. */
 export interface OrderRevision { id: number; revision: number; status: OrderStatus; revisedAt: string | null }

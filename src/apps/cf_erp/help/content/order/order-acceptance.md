@@ -10,7 +10,7 @@ order: 70
 When the customer says yes, Sales clicks **Customer accepted** on the order. The MD then accepts the order; that confirms it and opens its material request. The customer's acceptance is a button on the order, not a step of the flow.
 
 ## Customer accepted
-The button sits at the top of an inquiry or a quoted order. It opens a pop-up with three tabs. Only the first one needs filling.
+The button sits at the top of an inquiry. It opens a pop-up with three tabs. Only the first one needs filling.
 - **Acceptance**: **Accepted on** (today unless you change it), **Customer PO / reference** and a **Note for the MD**.
 - **Accounting**: the charges, the payment milestones and the post-production stages. It is off at first. Switch on **Fill the accounting now** to set them here, or leave them for later.
 - **Inventory**: who supplies the material, for the order and each line. A change is saved as soon as you make it.

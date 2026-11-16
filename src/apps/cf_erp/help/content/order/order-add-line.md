@@ -15,7 +15,6 @@ Press **1**, **2** or **3**, or use the arrows and Enter.
 2. **From a standard drawing**: type the drawing number. Its BOM, values and part drawings are copied.
 3. **From a new drawing**: upload a DWG or DXF. AI builds the line at once; rows to check are marked.
 
-A stock order only has **Build from parts**, with catalog items.
 
 ## How to add a line from a standard drawing
 1. Click **Add line**, then **From a standard drawing**.

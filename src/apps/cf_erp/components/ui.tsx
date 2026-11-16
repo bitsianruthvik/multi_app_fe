@@ -151,10 +151,8 @@ export function StatusBadge({ status }: { status: RecordStatus | 'inactive' | 'a
 
 /** A sales order's commercial stage — set by people, never by production progress. */
 const ORDER_STATUS: Record<OrderStatus, { family: Family; label: string; help: string }> = {
-  draft: { family: 'warning', label: 'Draft', help: 'A stock order being prepared.' },
   inquiry: { family: 'info', label: 'Inquiry', help: 'The customer asked; the structure can be designed and estimated now.' },
-  quoted: { family: 'info', label: 'Quoted', help: 'A quotation went out; waiting for the customer.' },
-  confirmed: { family: 'success', label: 'Confirmed', help: 'Committed to the customer (or to stock).' },
+  confirmed: { family: 'success', label: 'Confirmed', help: 'The customer accepted and Management approved: committed.' },
   closed: { family: 'neutral', label: 'Closed', help: 'Delivered and done — nothing on it changes any more.' },
   lost: { family: 'neutral', label: 'Lost', help: 'The customer went elsewhere. Can be reopened as an inquiry.' },
   cancelled: { family: 'danger', label: 'Cancelled', help: 'Stopped. Kept for history.' },

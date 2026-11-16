@@ -29,7 +29,7 @@ import { staggerRowsSx } from '../components/salesMotion';
 const STATUS_CHIPS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'overdue', label: 'Past date' },
-  ...(['inquiry', 'quoted', 'confirmed', 'draft', 'closed', 'lost', 'cancelled'] as OrderStatus[])
+  ...(['inquiry', 'confirmed', 'closed', 'lost', 'cancelled'] as OrderStatus[])
     .map((st) => ({ value: st, label: ORDER_STATUS_LABEL[st] })),
   { value: 'all', label: 'All' },
 ];
@@ -55,8 +55,7 @@ const COLUMNS: DataColumn<SalesOrder>[] = [
       </Box>
     ),
   },
-  // Off by default: the Customer / Stock chips filter by it and the project cell
-  // already says "For stock". Still one click away in the column menu.
+  // Off by default: every new order is a customer's (a stock order made before 2026-11-16 still says "For stock").
   { key: 'type', header: 'Type', render: (o) => <OrderTypeChip type={o.orderType} />, sortValue: (o) => o.orderType, defaultHidden: true },
   { key: 'lines', header: 'Lines', numeric: true, render: (o) => <Mono>{o.lineCount ?? 0}</Mono>, sortValue: (o) => o.lineCount ?? 0 },
   // ONE order value (2026-10-18): accepted terms once they exist, else the estimate from the line rates — labelled.
@@ -91,15 +90,15 @@ export default function Orders() {
   const term = useDebounced(search.trim());
   const chip = STATUS_CHIPS.some((c) => c.value === status) ? status : 'open';
   // Search, type and status chip filter on the server, a page at a time; every figure counts all orders.
+  // lean: the list shows each order's value, not its tax, so the server leaves the GST estimate out (fewer reads).
   const list = usePagedList<SalesOrder, { chips: Record<string, number> }>('/orders', {
-    search: term, orderType: type || undefined, chip, revisions: withEarlier ? 'all' : undefined,
+    lean: 1, search: term, orderType: type || undefined, chip, revisions: withEarlier ? 'all' : undefined,
   }, { defaultSort: { key: 'code', dir: 'desc' } });
   const chips = list.counts?.chips;
   const open = (o: SalesOrder) => navigate(appPath(company, `orders/${o.id}`));
 
   const stats = [
     { label: 'Inquiries', value: chips?.inquiry ?? 0, hint: 'Being designed', onClick: () => setStatus('inquiry') },
-    { label: 'Quoted', value: chips?.quoted ?? 0, hint: 'Waiting for the customer', onClick: () => setStatus('quoted') },
     { label: 'Confirmed', value: chips?.confirmed ?? 0, tone: 'info' as const, onClick: () => setStatus('confirmed') },
     { label: 'Past committed date', value: chips?.overdue ?? 0, tone: 'danger' as const, hint: 'Still open', onClick: () => setStatus('overdue') },
   ];
@@ -108,14 +107,11 @@ export default function Orders() {
 
   return (
     <Box>
-      <PageHeader title="Orders" subtitle="Each sales order is a project, from the first inquiry to delivery. Stock orders make standard products for stock."
+      <PageHeader title="Orders" subtitle="Each sales order is a project, from the first inquiry to delivery."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number, title, customer">
         {STATUS_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={chips?.[c.value]} onClick={() => setStatus(c.value)} />)}
-        <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
-        <FacetChip label="Customer" active={type === 'customer'} onClick={() => setType(type === 'customer' ? '' : 'customer')} />
-        <FacetChip label="Stock" active={type === 'stock'} onClick={() => setType(type === 'stock' ? '' : 'stock')} />
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         <FacetChip label="Show earlier revisions" active={withEarlier} onClick={() => setRevisions(withEarlier ? '' : 'all')} />
       </FilterBar>
@@ -131,7 +127,7 @@ export default function Orders() {
       </Box>
       <NewOrderDialog open={creating} onClose={() => setCreating(false)} onCreated={(o) => {
         invalidateNavCounts();
-        toast.success(`${o.code} created as ${o.status === 'draft' ? 'a draft' : 'an inquiry'}.`);
+        toast.success(`${o.code} created as an inquiry.`);
         open(o);
       }} />
     </Box>

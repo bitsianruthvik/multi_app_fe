@@ -2,9 +2,7 @@ import type { OrderStatus, SalesOrder } from '../api/types';
 
 /** A sales order's stages, in words. */
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
-  draft: 'Draft',
   inquiry: 'Inquiry',
-  quoted: 'Quoted',
   confirmed: 'Confirmed',
   closed: 'Closed',
   lost: 'Lost',
@@ -19,8 +17,6 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
 export function transitionLabel(from: OrderStatus, to: OrderStatus): string {
   if (to === 'inquiry') return from === 'lost' ? 'Reopen as inquiry' : 'Back to inquiry';
   return {
-    draft: 'Back to draft',
-    quoted: 'Mark quoted',
     confirmed: 'Confirm',
     closed: 'Close',
     lost: 'Mark lost',
@@ -33,24 +29,22 @@ export function transitionLabel(from: OrderStatus, to: OrderStatus): string {
 /**
  * The move that carries the sale forward — the one transition that gets the
  * primary button, so a row of stage buttons has a single obvious next step.
- * A confirmed order has none: closing it is an end-of-life action, not a nudge.
+ * Only a lost inquiry has one (reopening it): an inquiry goes forward by its Customer accepted button,
+ * and closing a confirmed order is an end-of-life action, not a nudge.
  */
 export const NEXT_STAGE: Partial<Record<OrderStatus, OrderStatus>> = {
-  draft: 'confirmed',
-  inquiry: 'quoted',
-  quoted: 'confirmed',
   lost: 'inquiry',
 };
 
 /** Moves that need a second look before they happen. */
 export const CONFIRM_MOVE: Partial<Record<OrderStatus, string>> = {
-  confirmed: 'Confirming commits the order and fixes its stage: from here it can only be closed or cancelled, never moved back to inquiry or quoted.',
+  confirmed: 'Confirming commits the order and fixes its stage: from here it can only be closed or cancelled, never moved back to an inquiry.',
   closed: 'A closed order is done: its lines and structure can no longer change.',
   cancelled: 'A cancelled order stops here. It stays on record, and its structure can no longer change.',
   lost: 'The inquiry is marked lost. It can be reopened later.',
 };
 
-export const OPEN_STATUSES: OrderStatus[] = ['draft', 'inquiry', 'quoted', 'confirmed'];
+export const OPEN_STATUSES: OrderStatus[] = ['inquiry', 'confirmed'];
 
 /**
  * Which grant a BOM change needs. The backend works it out from the BOM's

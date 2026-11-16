@@ -19,11 +19,11 @@ One sales order is one project. Its page walks it from inquiry to dispatch: the 
 The header shows ONE value. Before terms exist it is the *estimate* from the line rates. Once the acceptance is sent it is *terms awaiting approval*; after Management approves, *accepted*. If the line rates say something else you also see *estimate ₹…*. Billing and costing use the accepted terms.
 
 ## Buttons in the header
-- **Customer accepted**: on an inquiry or quoted order. It opens the pop-up where the customer's acceptance is marked and sent to the MD; the order then shows **Waiting for the MD**. A customer order is confirmed only when the MD accepts it, never by a status button.
-- **Mark quoted**, **Back to inquiry**, **Mark lost**, **Reopen as inquiry**, **Cancel order**, **Close**: the moves allowed from the current status. Lost, Cancel and Close ask you to confirm. A confirmed order can only be closed or cancelled.
+- **Customer accepted**: on an inquiry. It opens the pop-up where the customer's acceptance is marked and sent to the MD; the order then shows **Waiting for the MD**. A customer order is confirmed only when the MD accepts it, never by a status button.
+- **Mark lost**, **Reopen as inquiry**, **Cancel order**, **Close**: the moves allowed from the current status. Lost, Cancel and Close ask you to confirm. A confirmed order can only be closed or cancelled.
 - **Revise**: once a line is frozen. Rev 2 starts as a copy of rev 1 (every line, structure and value); rev 1 is kept read-only. Nothing in the new revision is frozen; freezing again gives the same codes wherever nothing changed.
 - **Discard revision**: takes a later revision back while none of its lines is frozen. The revision before it becomes current again.
-- **Edit** opens **Details**. The bin deletes a draft, inquiry, lost or cancelled order.
+- **Edit** opens **Details**. The bin deletes an inquiry, a lost or a cancelled order.
 
 ## Good to know
 - A cancel is refused while a line is released to production. Take the release back first.

@@ -54,14 +54,14 @@ import { useToast } from '../components/toastContext';
 import { nudgeIfRefused } from '../components/salesMotion';
 import { FlashOnChange } from '../motion';
 
-const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
+const DELETABLE: OrderStatus[] = ['inquiry', 'lost', 'cancelled'];
 
 /**
  * Where a customer order can be revised from. Only the latest revision is ever
  * in one of these; the one it replaced is 'revised'. A closed, lost or
  * cancelled order has stopped, so there is nothing to revise.
  */
-const REVISABLE: OrderStatus[] = ['inquiry', 'quoted', 'confirmed'];
+const REVISABLE: OrderStatus[] = ['inquiry', 'confirmed'];
 
 /** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
 const PROCESS_FREE_TABS = ['stock', 'details', 'material', 'allowance'];
@@ -360,7 +360,7 @@ export default function OrderDetail() {
             </Button>
           ))}
           {/* A customer's order: Customer accepted (2026-11-12) — then the MD accepts it, which confirms it. */}
-          {o.orderType === 'customer' && ['inquiry', 'quoted'].includes(o.status) && (o.acceptance?.state === 'pending'
+          {o.orderType === 'customer' && o.status === 'inquiry' && (o.acceptance?.state === 'pending'
             ? <Button variant="outlined" disabled={!!busy} onClick={() => setTab('acceptance')} data-testid="go-acceptance">Waiting for the MD</Button>
             : <Button variant="contained" disabled={!!busy} onClick={() => setAccepting(true)} data-testid="customer-accepted">Customer accepted</Button>)}
           {canRevise && <Button variant="outlined" disabled={!!busy} onClick={() => setRevising(true)}>Revise</Button>}
@@ -369,7 +369,7 @@ export default function OrderDetail() {
           {o.revision > 1
             ? canDiscard && <Button color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setDiscarding(true)}>Discard revision</Button>
             : canDelete && DELETABLE.includes(o.status) && (
-              <Tooltip title="Delete — only drafts, inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
+              <Tooltip title="Delete — only inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
             )}
         </>
       )}
@@ -478,7 +478,7 @@ export default function OrderDetail() {
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
         <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />
         {canStock && o.orderType === 'customer' && <OrderCostsCard order={o} />}
-        {canInvoices && o.orderType === 'customer' && o.status !== 'draft' && <OrderInvoicesCard orderId={o.id} />}
+        {canInvoices && o.orderType === 'customer' && <OrderInvoicesCard orderId={o.id} />}
       </Box>
     );
   }

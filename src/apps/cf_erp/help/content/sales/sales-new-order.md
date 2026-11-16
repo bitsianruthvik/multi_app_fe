@@ -6,10 +6,9 @@ roles: [sales, management]
 routes: ["/:company/cf_erp/orders"]
 order: 15
 ---
-The **New order** dialog creates a sales order. A customer order starts as an inquiry; a stock order starts as a draft. Sales opens it from **Orders › New order**.
+The **New order** dialog creates a sales order. Every order is a customer's and starts as an inquiry. Sales opens it from **Orders › New order**.
 
 ## What you see
-- **Customer order / Stock order**: pick the kind first. A stock order makes catalog items only and has no customer.
 - **Customer**: search by code or name. **New customer** next to it opens the customer form, so you can add one without leaving the dialog.
 - **Project title** (for example *ROB at km 60*).
 - **Customer's reference**: their PO or letter number.

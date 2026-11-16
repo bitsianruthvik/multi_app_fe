@@ -9,11 +9,11 @@ order: 20
 The Orders board shows every customer order as a card in a swim lane, so you see at a glance where each project stands. Sales and management use it every day; it is also where the post-production stages are ticked off.
 
 ## What you see
-- Seven lanes, left to right: **Inquiry / draft**, **Pending approval**, **Material**, **In production**, **Dispatched**, **Post-production** and **Closed**. Each lane shows how many cards it holds.
+- Seven lanes, left to right: **Inquiry**, **Pending approval**, **Material**, **In production**, **Dispatched**, **Post-production** and **Closed**. Each lane shows how many cards it holds.
 - Each card shows the order number (click it to open the order), the customer and title, *Due* date and number of lines, and the order value.
 - Badges: **Late** when the committed date has passed, **Rate change waiting** when changed terms wait for Management.
 - What each lane adds to the card:
-  - **Inquiry / draft**: *Sent back: …* with Management's note, if the acceptance was returned.
+  - **Inquiry**: *Sent back: …* with Management's note, if the acceptance was returned.
   - **Pending approval**: *Acceptance v2 waits for Management*.
   - **Material**: how much MR material is locked, or *All material in place*.
   - **In production** and **Dispatched**: how much is released and dispatched.
@@ -36,7 +36,7 @@ Nothing is dragged. A card moves by itself when something real happens: the acce
 
 ## Good to know
 - Ticking stages and closing need the orders permission.
-- The board shows open customer orders and those closed in the last 90 days. Stock orders are not on it.
+- The board shows open customer orders and those closed in the last 90 days.
 
 ## Related
 - [Orders](help:sales-orders)

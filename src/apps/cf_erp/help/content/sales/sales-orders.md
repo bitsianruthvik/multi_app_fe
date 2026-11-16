@@ -6,13 +6,12 @@ roles: [sales, design, management]
 routes: ["/:company/cf_erp/orders"]
 order: 10
 ---
-The Orders list is every sales order. Each order is a project, from the first inquiry to delivery. Stock orders make standard products for stock. Sales opens orders here; design and management use it to find one.
+The Orders list is every sales order. Each order is a project, from the first inquiry to delivery. Sales opens orders here; design and management use it to find one.
 
 ## What you see
-- **The figures strip**: **Inquiries** (being designed), **Quoted** (waiting for the customer), **Confirmed** and **Past committed date** (still open). Click a figure to filter the list to it.
+- **The figures strip**: **Inquiries** (being designed), **Confirmed** and **Past committed date** (still open). Click a figure to filter the list to it.
 - **The search box**: search by order number, title or customer.
-- **Status chips**: **Open** (the default), **Past date**, **Inquiry**, **Quoted**, **Confirmed**, **Draft**, **Closed**, **Lost**, **Cancelled** and **All**. Each chip shows how many orders it holds.
-- **Customer** and **Stock** chips to see only one kind of order.
+- **Status chips**: **Open** (the default), **Past date**, **Inquiry**, **Confirmed**, **Closed**, **Lost**, **Cancelled** and **All**. Each chip shows how many orders it holds.
 - **Show earlier revisions**: an order is shown at its latest revision. Tick this to see the older revisions too.
 - **The table**: **Order** (with a *rev 2* badge once an order has been revised), **Project** (title and customer, with their reference), **Lines**, **Value**, **Committed** (with a red **Past date** badge when late) and **Status**. **Type** and **Received** are hidden columns; open them from the column menu.
 
