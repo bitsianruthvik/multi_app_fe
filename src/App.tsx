@@ -33,6 +33,8 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import CompanyLanding from "./pages/auth/CompanyLanding";
 import AppSelector from "./pages/auth/AppSelector";
+import AdminPanel from "./pages/admin-panel/AdminPanel";
+import ChangePassword from "./pages/admin-panel/ChangePassword";
 import { CompanyMismatch } from "@core/components/CompanyMismatch";
 
 const ProfilePage  = lazy(() => import("@apps/sales_control/pages/user/ProfilePage"));
@@ -89,6 +91,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // "no access", never this login's screens under that company's name.
   if (company && signedInCompany && company !== signedInCompany) {
     return <CompanyMismatch requested={company} signedIn={signedInCompany} />;
+  }
+
+  // A password set by an admin (a new person, a reset) is changed before anything else opens (the server refuses too).
+  const passwordPage = `/${signedInCompany ?? company}/apps/password`;
+  if ((user as { mustChangePassword?: boolean } | null)?.mustChangePassword && (signedInCompany ?? company) && location.pathname !== passwordPage) {
+    return <Navigate to={passwordPage} replace />;
   }
 
   return <>{children}</>;
@@ -174,6 +182,9 @@ function App() {
                   path="/:company/apps"
                   element={<ProtectedRoute><AppSelector /></ProtectedRoute>}
                 />
+                {/* Company level, above the apps: the admin panel (people, roles) and a person's own password. */}
+                <Route path="/:company/apps/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+                <Route path="/:company/apps/password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
 
                 {/* Public routes with slugs */}
                 <Route path="/:company/:app/login" element={<Login />} />

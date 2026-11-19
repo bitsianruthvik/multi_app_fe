@@ -22,10 +22,12 @@ import { isAdminRole } from "@core/utils/roles";
 import { usePublicBrand } from "@apps/cf_crm/usePublicBrand";
 
 const validationSchema = yup.object({
+  // An email, or a username for someone who has none (the server decides which it is).
   email: yup
     .string()
-    .email("Enter a valid email")
-    .required("Email is required"),
+    .trim()
+    .matches(/^([^\s@]+@[^\s@]+\.[^\s@]+|[A-Za-z0-9][A-Za-z0-9._-]{2,39})$/, "Enter your email or username")
+    .required("Enter your email or username"),
   password: yup.string().required("Password is required"),
 });
 
@@ -110,6 +112,12 @@ export default function Login() {
         if (response.data.token) {
 
           login(response.data.token, response.data.user, companySlug, appSlug);
+
+          // A password an admin set is changed before anything else.
+          if (response.data.user?.mustChangePassword) {
+            navigate(`/${companySlug}/apps/password`, { replace: true });
+            return;
+          }
 
           const isAdmin = isAdminRole(response.data.user?.role);
 

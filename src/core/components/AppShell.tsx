@@ -55,6 +55,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onLoginPage       = onLogin || onRegister || onForgotPassword;
   const onCompanyLanding  = !!useMatch({ path: '/:company', end: true });
   const onAppSelector     = !!useMatch('/:company/apps');
+  // Company-level pages above the apps (admin panel, own password) bring their own page, like the app chooser.
+  const onCompanyPage     = !!useMatch('/:company/apps/*');
   const onAudioFlow        = !!useMatch('/:company/audio_intelligence/flow/*');
   const onSalesFlow        = !!useMatch('/:company/sales_control/flow/*');
   const onFabErp           = !!useMatch('/:company/fab_erp/*');
@@ -65,7 +67,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onConnections      = !!useMatch('/:company/connections/*');
   const onSumangal         = !!useMatch('/:company/sumangal_dashboard/*');
 
-  const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
+  const isGlassPage = onCompanyLanding || onAppSelector || onCompanyPage || onLoginPage;
 
   if (isGlassPage || onAudioFlow || onSalesFlow) return <>{children}</>;
 

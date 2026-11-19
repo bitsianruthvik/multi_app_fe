@@ -338,7 +338,7 @@ function LoginTab({ companySlug, companyName, onLogin }: { companySlug: string; 
   const formik = useFormik({
     initialValues: { email: "", password: "" },
     validationSchema: yup.object({
-      email: yup.string().email("Enter a valid email").required("Email is required"),
+      email: yup.string().trim().matches(/^([^\s@]+@[^\s@]+\.[^\s@]+|[A-Za-z0-9][A-Za-z0-9._-]{2,39})$/, "Enter your email or username").required("Enter your email or username"),
       password: yup.string().min(8, "Minimum 8 characters").required("Password is required"),
     }),
     onSubmit: async (values) => {
@@ -359,9 +359,9 @@ function LoginTab({ companySlug, companyName, onLogin }: { companySlug: string; 
     <form onSubmit={formik.handleSubmit} noValidate>
       {error && <div style={errorBubble}>{error}</div>}
       <FocusInput
-        label="Email address"
+        label="Email or username"
         name="email"
-        type="email"
+        type="text"
         placeholder="you@company.com"
         value={formik.values.email}
         onChange={formik.handleChange}

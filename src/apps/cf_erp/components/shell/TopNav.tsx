@@ -149,6 +149,10 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
         <Divider />
         <MenuItem onClick={() => go('help')} sx={{ fontSize: 13.5 }}>Help &amp; manuals</MenuItem>
         <MenuItem onClick={() => { setAvatarAnchor(null); navigate(`/${company}/apps`); }} sx={{ fontSize: 13.5 }}>Switch app</MenuItem>
+        {(user?.isCompanyAdmin || String(user?.role ?? '').toLowerCase() === 'admin') && (
+          <MenuItem onClick={() => { setAvatarAnchor(null); navigate(`/${company}/apps/admin`); }} sx={{ fontSize: 13.5 }}>Admin: people and roles</MenuItem>
+        )}
+        <MenuItem onClick={() => { setAvatarAnchor(null); navigate(`/${company}/apps/password`); }} sx={{ fontSize: 13.5 }}>Change password</MenuItem>
         <Divider />
         <MenuItem onClick={() => { setAvatarAnchor(null); logout(); navigate(`/${company}/cf_erp/login`); }} sx={{ fontSize: 13.5, color: 'var(--c-danger-600)' }}>Sign out</MenuItem>
       </Menu>

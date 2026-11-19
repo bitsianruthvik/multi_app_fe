@@ -23,6 +23,10 @@ interface User {
   company_id?: number;
   uiPermissions?: any[];
   appRoles?: Record<string, AppRole>;
+  /** Company admin panel (2026-11-19): a login for someone with no email; a password an admin set; may open the panel. */
+  username?: string | null;
+  mustChangePassword?: boolean;
+  isCompanyAdmin?: boolean;
 }
 
 interface AuthContextType {

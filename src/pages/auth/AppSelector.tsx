@@ -250,6 +250,21 @@ export default function AppSelector() {
           <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
             {user?.name} · <span style={{ color: "rgba(139,92,246,0.8)", textTransform: "capitalize" }}>{user?.role}</span>
           </span>
+          {(user?.isCompanyAdmin || isAdminRole(user?.role)) && (
+            <button
+              onClick={() => navigate(`/${companySlug}/apps/admin`)}
+              data-testid="open-admin"
+              style={{ background: "rgba(139,92,246,0.25)", border: "1px solid rgba(139,92,246,0.5)", borderRadius: 8, padding: "6px 14px", color: "#fff", fontSize: 13, cursor: "pointer" }}
+            >
+              Admin: people and roles
+            </button>
+          )}
+          <button
+            onClick={() => navigate(`/${companySlug}/apps/password`)}
+            style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "6px 14px", color: "rgba(255,255,255,0.6)", fontSize: 13, cursor: "pointer" }}
+          >
+            Change password
+          </button>
           <button
             onClick={handleLogout}
             style={{
