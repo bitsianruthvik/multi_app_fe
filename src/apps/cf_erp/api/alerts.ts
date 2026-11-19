@@ -4,11 +4,17 @@ import type { Approval } from './approvals';
 /**
  * Delay alerts by department (§110, services/alertService.js) and the MD's dashboard (services/mdDashboardService.js).
  */
-export type AlertKind = 'po_date_moved' | 'po_late' | 'start_late' | 'unplanned_start' | 'finish_late';
-export type Department = 'md' | 'planning' | 'stores' | 'purchase' | 'floor';
-export const DEPARTMENT_LABEL: Record<Department, string> = { md: 'MD', planning: 'Planning', stores: 'Stores', purchase: 'Purchase', floor: 'Shop floor' };
+export type AlertKind = 'po_date_moved' | 'po_late' | 'start_late' | 'unplanned_start' | 'finish_late'
+  // §113: maintenance, engineering, stores and accounts
+  | 'machine_down' | 'repeat_breakdown' | 'pm_overdue' | 'inquiry_waiting' | 'count_skipped' | 'tool_lost' | 'out_too_long' | 'invoice_unpaid';
+export type Department = 'md' | 'planning' | 'stores' | 'purchase' | 'floor' | 'maintenance' | 'engineering' | 'accounts';
+export const DEPARTMENT_LABEL: Record<Department, string> = {
+  md: 'MD', planning: 'Planning', stores: 'Stores', purchase: 'Purchase', floor: 'Shop floor', maintenance: 'Maintenance', engineering: 'Engineering', accounts: 'Accounts',
+};
 export const KIND_LABEL: Record<AlertKind, string> = {
   po_date_moved: 'Delivery date moved', po_late: 'Procurement late', start_late: 'Start late', unplanned_start: 'Unplanned start', finish_late: 'Finish late',
+  machine_down: 'Machine down', repeat_breakdown: 'Repeat breakdown', pm_overdue: 'Preventive job overdue', inquiry_waiting: 'Inquiry waiting',
+  count_skipped: 'Count not done', tool_lost: 'Item lost', out_too_long: 'Out too long', invoice_unpaid: 'Invoice unpaid',
 };
 
 /** The bar beside an alert: danger red, warning amber, info blue. */

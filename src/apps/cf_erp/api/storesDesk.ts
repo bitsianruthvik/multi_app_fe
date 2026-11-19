@@ -49,7 +49,7 @@ export interface GiveOutBody {
   personId?: number | null; machineId?: number | null; notes?: string | null;
   lines: { itemId: number; quantity: number; areaId?: number; batchId?: number }[];
 }
-export interface OutWithList { rows: Custody[]; counts: { person: number; department: number; vendor: number; overdue: number; all: number; d30: number; d90: number; over: number }; longDays: number }
+export interface OutWithList { rows: Custody[]; counts: { person: number; department: number; vendor: number; overdue: number; all: number; d30: number; d90: number; over: number }; longDays: number; /** Where the age bands end, in days (settings). */ bands?: [number, number] }
 export interface CountLine { item: { id: number; code: string | null; name: string; uom: string }; lot: { id: number; code: string } | null; book: number }
 export interface CountList { area: StoreArea; areas: StoreArea[]; kind: 'daily' | 'weekly'; since: string; lines: CountLine[]; lastCount: string | null }
 export interface StockCount {
@@ -90,7 +90,7 @@ export interface TodayPo { id: number; code: string | null; supplier: string | n
 export interface AfterHoursEntry { id: number; code: string | null; type: string; at: string; by: string | null; given: GivenLabel; person: string | null; item: string | null; lines: number }
 export interface StoresToday {
   date: string; settings: DeskSettings;
-  purchaseOrders: { late: number; dueSoon: number; rows: TodayPo[] };
+  purchaseOrders: { late: number; dueSoon: number; followDays?: number; rows: TodayPo[] };
   afterHours: { entries: AfterHoursEntry[]; lastCheckedAt: string | null; hours: { open: string; close: string } };
   count: { toCount: number; countedToday: boolean; dailyDue: boolean; weeklyDone: boolean; pending: number; rejected: number; lastCount: string | null };
   outTooLong: { count: number; longDays: number; rows: Custody[] };

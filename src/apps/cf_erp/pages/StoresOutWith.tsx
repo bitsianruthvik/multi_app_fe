@@ -35,6 +35,7 @@ export default function StoresOutWith() {
   const overdue = holder === 'overdue';
   const list = useLoad(() => getOutWith({ holder: overdue ? undefined : holder || undefined, overdue: overdue ? 1 : undefined, age: age || undefined, search: term || undefined }), [holder, age, term]);
   const counts = list.data?.counts;
+  const [b1, b2] = list.data?.bands ?? [30, 90];
   const rows = list.data?.rows ?? [];
   const begin = (row: Custody, kind: Kind) => { setAct({ row, kind }); setQty(String(row.left)); setNote(''); };
   const save = async () => {
@@ -59,9 +60,9 @@ export default function StoresOutWith() {
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2, mt: -1 }} data-testid="out-age">
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Out for</Typography>
         <FacetChip label="Any time" active={!age} onClick={() => setAge('')} />
-        <FacetChip label="0–30 days" active={age === 'd30'} count={counts?.d30} onClick={() => setAge('d30')} />
-        <FacetChip label="31–90 days" active={age === 'd90'} count={counts?.d90} onClick={() => setAge('d90')} />
-        <FacetChip label="Over 90 days" active={age === 'over'} count={counts?.over} onClick={() => setAge('over')} />
+        <FacetChip label={`0–${b1} days`} active={age === 'd30'} count={counts?.d30} onClick={() => setAge('d30')} />
+        <FacetChip label={`${b1 + 1}–${b2} days`} active={age === 'd90'} count={counts?.d90} onClick={() => setAge('d90')} />
+        <FacetChip label={`Over ${b2} days`} active={age === 'over'} count={counts?.over} onClick={() => setAge('over')} />
       </Box>
       <ErrorNotice error={list.error} onRetry={list.reload} />
       {!list.data && !list.error && <SkeletonRows rows={6} />}

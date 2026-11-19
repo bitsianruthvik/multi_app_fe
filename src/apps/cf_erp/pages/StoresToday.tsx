@@ -88,7 +88,7 @@ export default function StoresToday() {
 
           {po!.rows.length > 0 && (
             <Line testid="today-po" tone={po!.late ? 'danger' : 'warning'} title="Purchase orders to follow up" count={po!.late + po!.dueSoon}
-              hint={[po!.late ? `${po!.late} late` : null, po!.dueSoon ? `${po!.dueSoon} due within 3 days` : null].filter(Boolean).join(' · ')}
+              hint={[po!.late ? `${po!.late} late` : null, po!.dueSoon ? `${po!.dueSoon} due within ${dayText(po!.followDays ?? 3)}` : null].filter(Boolean).join(' · ')}
               action={<Button component={Link} to={to('receive')} variant="outlined" size="small">Receive</Button>}>
               {po!.rows.slice(0, 10).map((p) => (
                 <Row key={p.id}>

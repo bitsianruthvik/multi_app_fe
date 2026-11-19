@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDeskSettings } from '../api/storesDesk';
+import { getMdMe } from '../api/md';
 import type { NavScreen } from '../navMeta';
 import { useIsPermitted } from './useIsPermitted';
 
@@ -22,9 +23,29 @@ export function useStoresV2(): boolean {
   return v2;
 }
 
+/**
+ * §113: is this person standing in for the MD right now (settings md_standin_user + md_standin_on)? Read once a
+ * session; the backend lends them the MD's permissions for each request, and the menu shows them the MD's two screens.
+ */
+let standInKnown: boolean | null = null;
+let standInAsking: Promise<boolean> | null = null;
+const askStandIn = () => {
+  if (standInKnown != null) return Promise.resolve(standInKnown);
+  standInAsking ??= getMdMe().then((m) => !!m.standIn, () => false).then((v) => { standInKnown = v; return v; });
+  return standInAsking;
+};
+export function useMdStandIn(): boolean {
+  const [on, setOn] = useState<boolean>(standInKnown ?? false);
+  useEffect(() => { let live = true; void askStandIn().then((v) => { if (live) setOn(v); }); return () => { live = false; }; }, []);
+  return on;
+}
+const STAND_IN_SCREENS = new Set(['md-dashboard', 'approvals']);
+
 /** A menu screen is shown when the person holds its tag AND it belongs to the Stores menu this company uses. */
 export function useScreenVisible(): (screen: NavScreen) => boolean {
   const isPermitted = useIsPermitted();
   const v2 = useStoresV2();
-  return useCallback((screen: NavScreen) => isPermitted(screen.permission) && (!screen.desk || (screen.desk === 'v2') === v2), [isPermitted, v2]);
+  const standIn = useMdStandIn();
+  return useCallback((screen: NavScreen) => (isPermitted(screen.permission) || (standIn && STAND_IN_SCREENS.has(screen.key)))
+    && (!screen.desk || (screen.desk === 'v2') === v2), [isPermitted, v2, standIn]);
 }

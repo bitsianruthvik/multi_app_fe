@@ -12,6 +12,8 @@ import { ErrorNotice, Mono, PageHeader, SkeletonRows, Surface } from '../compone
 import { AlertRow } from '../components/Alerts/AlertRow';
 import { PromptDialog } from '../components/PromptDialog';
 import { useToast } from '../components/toastContext';
+import { FacetChip } from '../components/FilterBar';
+import MdOverview from './MdOverview';
 
 /**
  * THE MD'S DASHBOARD (user, 2026-11-14): "today's activities, planned versus reality, alerts and requests raised …
@@ -148,7 +150,26 @@ function RequestRow({ r, onDone }: { r: Approval; onDone: (id: number) => void }
   );
 }
 
+/**
+ * §113: the MD dashboard is two views. Overview (the default) — what needs a decision, what to verify, what is going
+ * wrong, each department. Production today — the screen this was before: today's steps and plan against reality.
+ */
 export default function MdDashboard() {
+  const [tab, setTab] = useUrlParam('tab', 'overview');
+  const production = tab === 'production';
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      {!production && <PageHeader title="MD dashboard" subtitle="What needs your decision, what to verify, what is going wrong, and how each department is doing." />}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }} data-testid="md-tabs">
+        <FacetChip label="Overview" active={!production} onClick={() => setTab('overview')} />
+        <FacetChip label="Production today" active={production} onClick={() => setTab('production')} />
+      </Box>
+      {production ? <MdProduction /> : <MdOverview />}
+    </Box>
+  );
+}
+
+function MdProduction() {
   const company = useCompanySlug();
   const [by, setBy] = useUrlParam('by', 'order');
   const view = by === 'operation' ? 'operation' : 'order';
@@ -163,7 +184,7 @@ export default function MdDashboard() {
 
   return (
     <Box>
-      <PageHeader title="MD dashboard" subtitle={planned ? `Against the plan of ${String(d.data?.planRunAt).slice(0, 16).replace('T', ' ')}.` : 'The planner has not been run — progress is shown, nothing is behind a plan yet.'}
+      <PageHeader title="Production today" subtitle={planned ? `Against the plan of ${String(d.data?.planRunAt).slice(0, 16).replace('T', ' ')}.` : 'The planner has not been run — progress is shown, nothing is behind a plan yet.'}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setBy(v)} sx={{ height: 32 }}>

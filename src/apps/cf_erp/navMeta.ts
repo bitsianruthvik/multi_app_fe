@@ -107,7 +107,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Management',
     screens: [
       // §110 (2026-11-14): the MD's one screen — today, planned vs reality, alerts and requests, each with its action.
-      { key: 'md-dashboard', label: 'MD dashboard', path: 'md-dashboard', permission: 'cf_erp_plate_change_approve|cf_erp_approve_month_plan|cf_erp_approve_purchase_order', countKey: 'alerts', keywords: ['md', 'today', 'planned vs actual', 'reality', 'alerts', 'requests', 'delays'] },
+      { key: 'md-dashboard', label: 'MD dashboard', path: 'md-dashboard', permission: 'cf_erp_md_dashboard|cf_erp_plate_change_approve|cf_erp_approve_month_plan|cf_erp_approve_purchase_order', countKey: 'alerts', keywords: ['md', 'decisions', 'verify', 'reports', 'departments', 'today', 'planned vs actual', 'reality', 'alerts', 'requests', 'delays'] },
       { key: 'mgmt-dashboard', label: 'Dashboard', path: 'management', permission: bothOf(PRODUCTION, APPROVE_ANY), keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report', 'work orders'] },
       { key: 'management-overview', label: 'Plan health', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'overview', 'plan health', 'baseline', 'slipping', 'slip', 'late'] },
       // §105: the MD reads each week's plan (orders × operations, tonnes) — told when Planning publishes it.
@@ -248,6 +248,8 @@ export const SECTIONS: NavSection[] = [
     key: 'setup',
     label: 'Setup',
     screens: [
+      // §113: every limit the app works by, grouped — the MD's and Setup's.
+      { key: 'company-settings', label: 'Settings', path: 'settings', permission: `cf_erp_md_dashboard|${SETUP_WORK}`, keywords: ['settings', 'limits', 'thresholds', 'alerts', 'escalation', 'stand-in', 'reports', 'hours', 'minimum', 'maximum', 'backdate', 'close period'] },
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: SETUP_WORK, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Value formulas', path: 'formulas', permission: SETUP_WORK, keywords: ['formulas', 'calculation', 'roll-up', 'weight', 'area'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: CODEGEN_WORK, keywords: ['codes', 'numbering', 'names'] },

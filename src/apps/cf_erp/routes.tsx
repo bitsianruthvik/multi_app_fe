@@ -33,6 +33,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const MdDashboard = lazy(() => import('./pages/MdDashboard'));
+const CompanySettings = lazy(() => import('./pages/Settings'));
 const Floor = lazy(() => import('./pages/Floor'));
 const Operators = lazy(() => import('./pages/Operators'));
 const StopReasons = lazy(() => import('./pages/StopReasons'));
@@ -161,6 +162,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
     { path: '/:company/cf_erp/alerts', element: wrap(<Alerts />) },
     { path: '/:company/cf_erp/md-dashboard', element: wrap(<MdDashboard />) },
+    { path: '/:company/cf_erp/settings', element: wrap(<CompanySettings />) },
     { path: '/:company/cf_erp/floor', element: wrap(<Floor />) },
     { path: '/:company/cf_erp/operators', element: wrap(<Operators />) },
     { path: '/:company/cf_erp/stop-reasons', element: wrap(<StopReasons />) },
