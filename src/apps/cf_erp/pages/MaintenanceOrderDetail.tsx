@@ -93,6 +93,8 @@ export default function MaintenanceOrderDetail() {
             <Fact label="Cost">{costText(o, (n) => rupeeText(n, 2))}</Fact>
             {o.workDone && <Fact label="Work done">{o.workDone}</Fact>}
             {o.costNote && <Fact label="Other cost was for">{o.costNote}</Fact>}
+            <Fact label="Owner">{o.owner?.name ?? 'Nobody yet'}</Fact>
+            <Fact label="Due">{o.dueAt ? <>{whenText(o.dueAt)}{o.late ? <span style={{ display: 'block', fontSize: 12.5, color: 'var(--c-danger-600)' }}>{active ? 'Late by' : 'Closed late by'} {durationText(o.lateMinutes)}</span> : null}</> : '—'}</Fact>
             <Fact label="Started">{whenText(o.startedAt)}</Fact>
             <Fact label="Done">{whenText(o.doneAt ?? o.cancelledAt)}</Fact>
           </Box>

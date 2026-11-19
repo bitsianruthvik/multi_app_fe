@@ -43,6 +43,7 @@ const MachineDetail = lazy(() => import('./pages/MachineDetail'));
 const Tools = lazy(() => import('./pages/Tools'));
 // Maintenance (§82): machines board, maintenance orders, preventive plans, planned downtime.
 const MaintenanceBoard = lazy(() => import('./pages/Maintenance'));
+const MaintenanceToday = lazy(() => import('./pages/MaintenanceToday'));
 const MaintenanceOrders = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.MaintenanceOrders })));
 const MaintenancePlans = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.MaintenancePlans })));
 const PlannedDowntime = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.PlannedDowntime })));
@@ -170,6 +171,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/machine-custody', element: wrap(<MachineCustody />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
     { path: '/:company/cf_erp/tools', element: wrap(<Tools />) },
+    { path: '/:company/cf_erp/maintenance-today', element: wrap(<MaintenanceToday />) },
     { path: '/:company/cf_erp/maintenance', element: wrap(<MaintenanceBoard />) },
     { path: '/:company/cf_erp/maintenance-orders', element: wrap(<MaintenanceOrders />) },
     { path: '/:company/cf_erp/maintenance-orders/:id', element: wrap(<MaintenanceOrderDetail />) },

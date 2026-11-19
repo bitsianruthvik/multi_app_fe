@@ -59,7 +59,7 @@ export default function StoresStock() {
   const areas = meta?.areas ?? [];
   const groups = meta?.groups ?? [];
   const filtered = !!term || !!areaParam || !!groupParam || show !== 'stock';
-  const give = (r: LedgerRow) => setGiving({ id: r.item.id, name: r.item.name, uom: r.item.uom, returnable: r.item.returnable, inStock: r.now });
+  const give = (r: LedgerRow) => setGiving({ id: r.item.id, name: r.item.name, uom: r.item.uom, returnable: r.item.returnable, inStock: r.now, issueConditions: r.item.issueConditions ?? null });
 
   return (
     <Box sx={{ minWidth: 0 }}>

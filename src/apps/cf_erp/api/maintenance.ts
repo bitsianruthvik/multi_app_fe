@@ -40,6 +40,8 @@ export interface MaintenanceOrder {
   partsCost: number | null; otherCost: number; costNote: string | null; cost: number | null;
   requisitions: { id: number; code: string }[];
   canFalseAlarm: boolean; next: MoStatus[];
+  /** §114: who answers for it, when it is due (plant clock), and how late it is or was. */
+  owner: { id: number; name: string | null } | null; dueAt: string | null; late: boolean; lateMinutes: number; minutesLeft: number | null; takenMinutes: number | null;
   events?: { id: number; event: string; from: string | null; to: string | null; note: string | null; by: string | null; at: string }[];
   now?: string;
 }
@@ -98,3 +100,33 @@ export const previewDowntime = (body: DowntimeInput) => cfApi.post<{ next: Occur
 export const createDowntime = (body: DowntimeInput) => cfApi.post<{ id: number; calendarRows: number; next: Occurrence[] }>('/maintenance/downtime', body);
 export const updateDowntime = (id: number, body: Partial<DowntimeInput>) => cfApi.put<{ id: number; calendarRows: number; next: Occurrence[] }>(`/maintenance/downtime/${id}`, body);
 export const deleteDowntime = (id: number) => cfApi.del<{ ok: boolean }>(`/maintenance/downtime/${id}`);
+
+/* §114 MAINTENANCE TODAY — one read of everything maintenance has to clear (backend services/maintenanceDeskService.js). */
+export interface NoPlanMachine { id: number; code: string; name: string; owner: string | null; liveOn: string | null }
+export interface SpareRow { item: { id: number; code: string | null; name: string; uom: string | null }; stock: number; min: number | null; noMinimum: boolean; machines: string; machineCount: number }
+export interface WearRow {
+  id: number; kind: 'worn' | 'lost'; quantity: number; note: string | null; at: string;
+  item: { id: number; code: string | null; name: string; uom: string | null };
+  wasWith: string | null; department: string | null; machine: string | null; order: string | null;
+  daysUsed: number; lifeDays: number | null; early: boolean; lifePct: number | null;
+  reviewed: { at: string; by: string | null; note: string | null } | null;
+}
+export interface MaintenanceToday {
+  now: string;
+  counts: { open: number; late: number; down: number; waitingParts: number; noOwner: number; setups: number; mine: number; noPlan: number; spares: number; wear: number; wearEarly: number };
+  tickets: MaintenanceOrder[]; noPlan: NoPlanMachine[]; spares: SpareRow[]; wear: WearRow[];
+  people: { id: number; name: string }[]; targets: Record<MoSource, number>;
+}
+export interface HealthRow {
+  id: number; code: string; name: string; owner: string | null; faults: number; downHours: number; repairHours: number | null; daysBetweenFaults: number | null;
+  cost: number; openTickets: number; preventiveDone: number; preventiveOnTimePct: number | null; preventiveDue: number; cycle: 'set' | 'none_needed' | 'missing'; noPlanReason: string | null;
+}
+export interface ToolRule { id: number; code: string | null; name: string; uom: string | null; lifeDays: number | null; issueConditions: string | null; dueDays: number | null; wornLastYear: number; wornAfterDays: number | null }
+
+export const getMaintenanceToday = () => cfApi.get<MaintenanceToday>('/maintenance/today');
+export const getMachineHealth = () => cfApi.get<{ days: number; rows: HealthRow[] }>('/maintenance/health');
+export const assignOrder = (id: number, body: { ownerUserId?: number | null; dueAt?: string }) => cfApi.post<MaintenanceOrder>(`/maintenance/orders/${id}/assign`, body);
+export const setNoPlan = (machineId: number, reason: string | null) => cfApi.post<{ id: number }>(`/maintenance/machines/${machineId}/no-plan`, { reason });
+export const reviewWear = (id: number, note: string) => cfApi.post<{ id: number }>(`/maintenance/wear/${id}/review`, { note });
+export const getToolRules = (q: { search?: string; set?: number } = {}) => cfApi.get<{ rows: ToolRule[] }>(`/maintenance/tool-rules${qs(q)}`);
+export const setToolRule = (itemId: number, body: { lifeDays?: number | null; issueConditions?: string | null }) => cfApi.put<{ id: number }>(`/maintenance/tool-rules/${itemId}`, body);

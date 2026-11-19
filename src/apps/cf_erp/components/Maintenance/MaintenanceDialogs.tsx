@@ -266,7 +266,7 @@ export function DowntimeDialog({ open, rule, today, machines, machineId: given =
 }
 
 /** A PREVENTIVE PLAN — every N days / N run hours / N tonnes (hours and tonnes from the machine log). */
-export function PlanDialog({ open, plan, machines, onClose, onDone }: { open: boolean; plan: Plan | null; machines: MachineOption[]; onClose: () => void; onDone: (msg: string) => void }) {
+export function PlanDialog({ open, plan, machines, presetMachineId = null, onClose, onDone }: { open: boolean; plan: Plan | null; machines: MachineOption[]; /** §114: a new plan for this machine (Maintenance today). */ presetMachineId?: number | null; onClose: () => void; onDone: (msg: string) => void }) {
   const [machineId, setMachineId] = useState<number | null>(null);
   const [title, setTitle] = useState('');
   const [days, setDays] = useState('');
@@ -276,10 +276,10 @@ export function PlanDialog({ open, plan, machines, onClose, onDone }: { open: bo
   const [active, setActive] = useState(true);
   useEffect(() => {
     if (!open) return;
-    setMachineId(plan?.machine.id ?? null); setTitle(plan?.title ?? ''); setDays(plan?.everyDays != null ? String(plan.everyDays) : plan ? '' : '30');
+    setMachineId(plan?.machine.id ?? presetMachineId ?? null); setTitle(plan?.title ?? ''); setDays(plan?.everyDays != null ? String(plan.everyDays) : plan ? '' : '30');
     setHours(plan?.everyRunHours != null ? String(plan.everyRunHours) : ''); setTonnes(plan?.everyTonnes != null ? String(plan.everyTonnes) : '');
     setLastDone(''); setActive(plan ? plan.status === 'active' : true);
-  }, [open, plan]);
+  }, [open, plan, presetMachineId]);
   const n = (s: string) => (s.trim() === '' ? null : Number(s));
   const ok = !!machineId && !!title.trim() && (n(days) != null || n(hours) != null || n(tonnes) != null);
   return (

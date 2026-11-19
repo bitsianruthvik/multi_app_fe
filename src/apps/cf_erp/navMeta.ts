@@ -232,6 +232,8 @@ export const SECTIONS: NavSection[] = [
     screens: [
       // 2026-10-27: the board, maintenance orders and planned downtime are READ by production view too (the planner's
       // machine calendar; PPC) — the pages show no write buttons without cf_erp_maintenance (a fault: floor / production manage).
+      // §114 (2026-11-20): one page to work from — tickets with owner and target, machines with no cycle, spares, worn tools, health.
+      { key: 'maintenance-today', label: 'Maintenance today', path: 'maintenance-today', permission: MAINTENANCE_READ, keywords: ['today', 'tickets', 'late', 'tat', 'owner', 'no cycle', 'spares', 'worn', 'tool life', 'machine health', 'set up'] },
       { key: 'maintenance', label: 'Machines', path: 'maintenance', permission: MAINTENANCE_READ, keywords: ['maintenance', 'breakdown', 'fault', 'down', 'running', 'machines board', 'raise a fault'] },
       { key: 'maintenance-orders', label: 'Maintenance orders', path: 'maintenance-orders', hasDetail: true, permission: MAINTENANCE_READ, keywords: ['mo', 'repair', 'breakdown', 'fault', 'false alarm', 'waiting for parts', 'spares'] },
       { key: 'maintenance-plans', label: 'Preventive plans', path: 'maintenance-plans', permission: MAINTENANCE, keywords: ['preventive', 'pm', 'service', 'lubrication', 'run hours', 'tonnes', 'every n days'] },

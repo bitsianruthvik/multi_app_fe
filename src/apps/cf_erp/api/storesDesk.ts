@@ -12,7 +12,7 @@ export interface StoreArea { id: number; code: string; name: string; purpose: st
 export interface LedgerGroup { familyId: number; family: string; subfamilyId: number; subfamily: string; items: number }
 
 export interface LedgerRow {
-  item: { id: number; code: string | null; name: string; uom: string; trackedBy: string; returnable: boolean; status: string };
+  item: { id: number; code: string | null; name: string; uom: string; trackedBy: string; returnable: boolean; status: string; issueConditions?: string | null };
   group: { familyId: number | null; family: string | null; subfamilyId: number | null; subfamily: string | null };
   opening: number; in: number; out: number; balance: number; now: number;
   outWith: number; onOrder: number; reserved: number;
@@ -47,7 +47,7 @@ export type GivenType = 'order' | 'department' | 'vendor';
 export interface GiveOutBody {
   givenFor: { type: GivenType; orderId?: number; orderLineId?: number; departmentId?: number; partyId?: number };
   personId?: number | null; machineId?: number | null; notes?: string | null;
-  lines: { itemId: number; quantity: number; areaId?: number; batchId?: number }[];
+  lines: { itemId: number; quantity: number; areaId?: number; batchId?: number; conditionsChecked?: boolean }[];
 }
 export interface OutWithList { rows: Custody[]; counts: { person: number; department: number; vendor: number; overdue: number; all: number; d30: number; d90: number; over: number }; longDays: number; /** Where the age bands end, in days (settings). */ bands?: [number, number] }
 export interface CountLine { item: { id: number; code: string | null; name: string; uom: string }; lot: { id: number; code: string } | null; book: number }

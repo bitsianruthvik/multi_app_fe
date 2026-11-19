@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, Checkbox, FormControlLabel, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { cfApi, qs } from '../../api/client';
 import type { Machine, Party, SalesOrder } from '../../api/types';
 import {
@@ -9,7 +9,7 @@ import {
 import { FormDialog } from '../FormDialog';
 import { OrderPicker, PartyPicker, ServerPicker } from '../ServerPicker';
 
-export interface GiveOutItem { id: number; name: string; uom: string; returnable: boolean; inStock: number }
+export interface GiveOutItem { id: number; name: string; uom: string; returnable: boolean; inStock: number; issueConditions?: string | null }
 
 /** What the storekeeper chose last time, so the usual give-out is a quantity and Enter. Kept in this browser only. */
 const LAST = 'cf_erp.stores.givenFor';
@@ -35,12 +35,14 @@ export function GiveOutDialog({ item, areas, onClose, onDone }: { item: GiveOutI
   const [notes, setNotes] = useState('');
   const [adding, setAdding] = useState<'department' | 'person' | null>(null);
   const [newName, setNewName] = useState('');
+  // §114: what maintenance wants checked before this tool goes out; the storekeeper confirms it.
+  const [checked, setChecked] = useState(false);
   const storage = areas.filter((a) => a.purpose === 'storage');
 
   useEffect(() => {
     if (!item) return;
     const last = readLast();
-    setQty(''); setOrder(null); setVendor(null); setPerson(null); setMachine(null); setNotes(''); setAreaId(''); setAdding(null); setNewName('');
+    setQty(''); setOrder(null); setVendor(null); setPerson(null); setMachine(null); setNotes(''); setAreaId(''); setAdding(null); setNewName(''); setChecked(false);
     setType(last.type ?? 'department');
     void getDepartments().then((d) => { setDepartments(d); setDepartmentId(d.some((x) => x.id === last.departmentId) ? last.departmentId! : ''); }).catch(() => setDepartments([]));
   }, [item]);
@@ -60,14 +62,14 @@ export function GiveOutDialog({ item, areas, onClose, onDone }: { item: GiveOutI
   };
 
   const n = Number(qty);
-  const ready = !!item && Number.isFinite(n) && n > 0
+  const ready = !!item && Number.isFinite(n) && n > 0 && (!item.issueConditions || checked)
     && (type === 'order' ? !!order : type === 'department' ? departmentId !== '' : !!vendor);
   const save = async () => {
     if (!item) return;
     const r = await giveOut({
       givenFor: { type, ...(type === 'order' ? { orderId: order!.id } : type === 'department' ? { departmentId: Number(departmentId) } : { partyId: vendor!.id }) },
       personId: person?.id ?? null, machineId: machine?.id ?? null, notes: notes.trim() || null,
-      lines: [{ itemId: item.id, quantity: n, ...(areaId === '' ? {} : { areaId }) }],
+      lines: [{ itemId: item.id, quantity: n, ...(areaId === '' ? {} : { areaId }), ...(item.issueConditions ? { conditionsChecked: checked } : {}) }],
     });
     keepLast({ type, ...(type === 'department' ? { departmentId: Number(departmentId) } : {}) });
     onDone(`${qtyText(n)} ${item.uom} of ${item.name} given out${r.movement.code ? ` (${r.movement.code})` : ''}${r.outWith ? ' — it is on the Out with list until it comes back' : ''}.`);
@@ -76,6 +78,13 @@ export function GiveOutDialog({ item, areas, onClose, onDone }: { item: GiveOutI
   return (
     <FormDialog open={!!item} title={item ? `Give out · ${item.name}` : 'Give out'} onClose={onClose} onSubmit={save} submitLabel="Give out" busyLabel="Giving out…" submitDisabled={!ready}
       subtitle={item ? `${qtyText(item.inStock)} ${item.uom} in the store${item.returnable ? ' · this item comes back' : ''}` : undefined}>
+      {item?.issueConditions && (
+        <Box data-testid="giveout-conditions" sx={{ p: 1.25, border: '1px solid var(--c-warning-300, var(--c-border))', background: 'var(--c-warning-50, transparent)', borderRadius: 'var(--r-sm)' }}>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Before giving it out (from Maintenance)</Typography>
+          <Typography sx={{ fontSize: 14, whiteSpace: 'pre-line' }}>{item.issueConditions}</Typography>
+          <FormControlLabel control={<Checkbox checked={checked} onChange={(e) => setChecked(e.target.checked)} inputProps={{ 'aria-label': 'Checked with the person collecting' }} />} label="Checked with the person collecting" />
+        </Box>
+      )}
       <TextField label={`Quantity (${item?.uom ?? ''})`} value={qty} onChange={(e) => setQty(e.target.value)} autoFocus inputProps={{ inputMode: 'decimal', 'data-testid': 'giveout-qty' }} />
       <Box>
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>Given for</Typography>
