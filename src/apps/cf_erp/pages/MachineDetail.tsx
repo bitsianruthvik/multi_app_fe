@@ -101,6 +101,7 @@ export default function MachineDetail() {
           {life.data && <Fact label="Place">{life.data.area ? life.data.area.code : '—'}</Fact>}
           <Fact label="Machine type"><Box component={Link} to={to(`machine-types/${m.classificationId}`)} title="Open this machine type" sx={linkSx}>{typeName}</Box></Fact>
           <Fact label="Serial"><Mono muted={!m.serialNumber}>{m.serialNumber ?? '—'}</Mono></Fact>
+          <Fact label="Owner">{m.ownerName ?? '—'}</Fact>
           <Fact label="Can do"><Mono>{can.length ? can.map((o) => o.operation.code).join(', ') : 'nothing yet'}</Mono></Fact>
           {m.catalogItem && <Fact label="Bought as"><Mono><Link to={to(`items/${m.catalogItem.id}`)}>{m.catalogItem.code ?? m.catalogItem.name}</Link></Mono></Fact>}
           <Fact label="Updated"><Mono muted>{new Date(m.updatedAt).toLocaleDateString()}</Mono></Fact>

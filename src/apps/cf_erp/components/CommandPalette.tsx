@@ -18,6 +18,7 @@ import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import { cfApi, qs } from '../api/client';
 import { allScreens } from '../navMeta';
 import { useIsPermitted } from '../hooks/useIsPermitted';
+import { useScreenVisible } from '../hooks/useStoresDesk';
 import { useCompanySlug } from '../hooks/useLoad';
 import { revisionLabel } from '../lib/orders';
 import { CreateClassificationDialog } from './ClassificationPicker';
@@ -112,6 +113,7 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
   const navigate = useNavigate();
   const company = useCompanySlug();
   const isPermitted = useIsPermitted();
+  const visible = useScreenVisible();
   const latest = useRef('');
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -139,7 +141,7 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
     const actions: Item[] = ACTIONS.filter((a) => isPermitted(a.permission))
       .map((a) => ({ a, s: score(a.label, a.hint ?? '', term) })).filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
       .map(({ a }) => ({ kind: 'action' as const, id: a.id, label: a.label, hint: a.hint, slug: a.slug, dialog: a.dialog }));
-    const navs: Item[] = allScreens().filter(({ screen }) => isPermitted(screen.permission))
+    const navs: Item[] = allScreens().filter(({ screen }) => visible(screen))
       .map((e) => ({ e, s: score(e.screen.label, `${e.section.label} ${(e.screen.keywords ?? []).join(' ')}`, term) }))
       .filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
       .map(({ e: { section, screen } }) => ({ kind: 'nav' as const, id: `nav:${section.key}:${screen.path}`, label: screen.label, hint: section.label === screen.label ? undefined : section.label, slug: screen.path, section: section.key }));
@@ -160,7 +162,7 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
       { title: 'Go to', icon: <ArrowForwardRounded />, items: navs },
       { title: 'Records', icon: <SearchRounded />, items: recs },
     ].filter((g) => g.items.length > 0);
-  }, [q, records, isPermitted]);
+  }, [q, records, isPermitted, visible]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   useEffect(() => { setCursor((c) => (flat.length === 0 ? 0 : Math.min(c, flat.length - 1))); }, [flat.length]);

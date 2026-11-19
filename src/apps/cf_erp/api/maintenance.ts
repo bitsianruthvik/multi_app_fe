@@ -31,7 +31,7 @@ export interface Board {
 
 export interface MaintenanceOrder {
   id: number; code: string; status: MoStatus; statusLabel: string; source: MoSource;
-  machine: { id: number; code: string; name: string };
+  machine: { id: number; code: string; name: string; owner?: string | null };
   title: string; note: string | null; reason: string | null; plan: { id: number; title: string } | null;
   raisedAt: string; raisedBy: string | null; startedAt: string | null; doneAt: string | null; cancelledAt: string | null;
   falseAlarm: boolean; workDone: string | null;

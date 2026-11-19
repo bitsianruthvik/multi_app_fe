@@ -11,6 +11,7 @@ import { useAuth } from '@core/contexts/AuthContext';
 import { useThemePreference } from '@core/contexts/ThemeContext';
 import { SECTIONS, appPath } from '../../navMeta';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { useScreenVisible } from '../../hooks/useStoresDesk';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useCommandPalette } from '../commandPaletteContext';
 import { HelpButton } from '../../help/HelpButton';
@@ -46,11 +47,12 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
   const { user, logout } = useAuth();
   const { resolvedMode, setPreference } = useThemePreference();
   const isPermitted = useIsPermitted();
+  const visible = useScreenVisible();
   const palette = useCommandPalette();
   const [createAnchor, setCreateAnchor] = useState<null | HTMLElement>(null);
   const [avatarAnchor, setAvatarAnchor] = useState<null | HTMLElement>(null);
   const go = (slug: string) => { setCreateAnchor(null); setAvatarAnchor(null); navigate(appPath(company, slug)); };
-  const sections = SECTIONS.filter((s) => s.screens.some((sc) => isPermitted(sc.permission)));
+  const sections = SECTIONS.filter((s) => s.screens.some(visible));
   const creatable = QUICK_CREATE.filter((a) => isPermitted(a.permission));
 
   return (
@@ -71,7 +73,7 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
         <Box component="nav" aria-label="Main" sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
           {sections.map((section) => {
             const active = activeSection === section.key;
-            const first = section.screens.find((s) => isPermitted(s.permission));
+            const first = section.screens.find(visible);
             if (!first) return null;
             return (
               <Box key={section.key} component={NavLink} to={appPath(company, first.path)} state={{ navSection: section.key }} aria-current={active ? 'page' : undefined} sx={{

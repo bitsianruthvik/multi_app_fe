@@ -57,6 +57,11 @@ const ProductionOrders = lazy(() => import('./pages/ProductionOrders'));
 const ProductionOrderDetail = lazy(() => import('./pages/ProductionOrderDetail'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
+// The Stores desk (init.sql §111): the ledger, out with, count.
+const StoresStock = lazy(() => import('./pages/StoresStock'));
+const StoresToday = lazy(() => import('./pages/StoresToday'));
+const StoresOutWith = lazy(() => import('./pages/StoresOutWith'));
+const StoresCount = lazy(() => import('./pages/StoresCount'));
 // Purchase flow v3 (§71): MR → PR (vendor columns) → PO → Receive against PO.
 const MaterialRequests = lazy(() => import('./pages/MaterialRequests'));
 // §79: Stores › To reorder (min / max and periodic items, by AI).
@@ -179,6 +184,10 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/production-orders/:id', element: wrap(<ProductionOrderDetail />) },
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
+    { path: '/:company/cf_erp/stores', element: wrap(<StoresStock />) },
+    { path: '/:company/cf_erp/stores-today', element: wrap(<StoresToday />) },
+    { path: '/:company/cf_erp/stores-out', element: wrap(<StoresOutWith />) },
+    { path: '/:company/cf_erp/stores-count', element: wrap(<StoresCount />) },
     { path: '/:company/cf_erp/purchase', element: <ToMaterialRequests /> },
     { path: '/:company/cf_erp/material-requests', element: wrap(<MaterialRequests />) },
     { path: '/:company/cf_erp/material-requests/:id', element: wrap(<MaterialRequestDetail />) },

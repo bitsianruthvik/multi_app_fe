@@ -85,7 +85,7 @@ export default function MaintenanceOrderDetail() {
         )}
         <SectionCard title="What happened">
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 2, p: 2 }}>
-            <Fact label="Machine"><Mono>{o.machine.code}</Mono> {o.machine.name}</Fact>
+            <Fact label="Machine"><Mono>{o.machine.code}</Mono> {o.machine.name}{o.machine.owner ? <span style={{ display: 'block', fontSize: 12.5, color: 'var(--c-text-2)' }}>Owner: {o.machine.owner}</span> : null}</Fact>
             <Fact label="Reason">{o.reason ?? (o.plan ? `Plan: ${o.plan.title}` : '—')}</Fact>
             <Fact label="Note">{o.note ?? '—'}</Fact>
             <Fact label="Machine stopped">{o.stop ? `${whenText(o.stop.startedAt)}${o.stop.endedAt ? ` → ${whenText(o.stop.endedAt)}` : ' — still down'}` : 'Not stopped'}</Fact>

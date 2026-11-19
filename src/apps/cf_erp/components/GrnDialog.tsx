@@ -15,6 +15,7 @@ import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { Link } from 'react-router-dom';
 import { appPath } from '../navMeta';
 import { useFullScreen } from '../hooks/useFullScreen';
+import { useStoresV2 } from '../hooks/useStoresDesk';
 import { NO_RECEIVING_AREA, qtyText } from '../lib/inventory';
 import { rupeeText } from '../lib/money';
 import { gstRateText } from '../lib/gst';
@@ -107,6 +108,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const [missing, setMissing] = useState<Record<number, string | null>>({});
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // §111: on the Stores desk stock is not taken in from a file — the receipt is typed against the PO lines.
+  const desk = useStoresV2();
   const [error, setError] = useState<CfApiError | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
@@ -223,7 +226,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
         </Box>
         <Box sx={{ flex: 1 }} />
         {/* 2026-10-31: the same GRN from a filled (or prepared) Excel sheet — rows matched by item code (grnSheetService). */}
-        <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => setSheetOpen(true)} disabled={busy || !po} data-testid="grn-excel" sx={{ whiteSpace: 'nowrap' }}>Receive from Excel</Button>
+        {!desk && <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => setSheetOpen(true)} disabled={busy || !po} data-testid="grn-excel" sx={{ whiteSpace: 'nowrap' }}>Receive from Excel</Button>}
         <Tooltip title={full.on ? 'Exit full screen' : 'Full screen'}>
           <IconButton size="small" onClick={full.toggle} aria-label={full.on ? 'Exit full screen' : 'Full screen'} data-testid="grn-full-screen">
             {full.on ? <FullscreenExitRounded fontSize="small" /> : <FullscreenRounded fontSize="small" />}

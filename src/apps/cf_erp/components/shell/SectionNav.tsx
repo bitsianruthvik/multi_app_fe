@@ -1,7 +1,7 @@
 import { Box } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { COUNT_TONE, appPath, type BadgeTone, type NavSection } from '../../navMeta';
-import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { useScreenVisible } from '../../hooks/useStoresDesk';
 import { useNavCounts } from '../../hooks/useNavCounts';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { FlashOnChange } from '../../motion';
@@ -24,11 +24,11 @@ const TONE_STYLE: Record<BadgeTone, { bg: string; fg: string }> = {
 export function SectionNav({ section }: { section: NavSection | null }) {
   const company = useCompanySlug();
   const { pathname } = useLocation();
-  const isPermitted = useIsPermitted();
+  const visible = useScreenVisible();
   const { counts } = useNavCounts();
 
   if (!section) return null;
-  const screens = section.screens.filter((s) => isPermitted(s.permission));
+  const screens = section.screens.filter(visible);
   if (screens.length <= 1) return null;
 
   return (

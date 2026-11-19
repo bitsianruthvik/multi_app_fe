@@ -30,7 +30,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
   /** Let the screen behind refresh its own copy of the tree after a type changed. */
   onTypesChanged?: () => void;
 }) {
-  const blank = { code: '', name: '', classificationId: null as number | null, serialNumber: '', notes: '', status: 'active' as Machine['status'], catalogItem: null as MasterRecord | null };
+  const blank = { code: '', name: '', classificationId: null as number | null, serialNumber: '', ownerName: '', notes: '', status: 'active' as Machine['status'], catalogItem: null as MasterRecord | null };
   const [form, setForm] = useState(blank);
   // The machines screen's own permission — the one that gates New machine.
   const canManageTypes = useIsPermitted()('cf_erp_production_manage|cf_erp_maintenance');
@@ -44,7 +44,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
     setFreshTree(null);
     setTypesOpen(false);
     setForm(existing ? {
-      code: existing.code, name: existing.name, classificationId: existing.classificationId, serialNumber: existing.serialNumber ?? '',
+      code: existing.code, name: existing.name, classificationId: existing.classificationId, serialNumber: existing.serialNumber ?? '', ownerName: existing.ownerName ?? '',
       notes: existing.notes ?? '', status: existing.status,
       catalogItem: existing.catalogItem ? ({ id: existing.catalogItem.id, code: existing.catalogItem.code, name: existing.catalogItem.name ?? '' } as MasterRecord) : null,
     } : blank);
@@ -53,7 +53,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
 
   const save = async () => {
     const body = {
-      name: form.name, classificationId: form.classificationId, serialNumber: form.serialNumber || null, notes: form.notes || null,
+      name: form.name, classificationId: form.classificationId, serialNumber: form.serialNumber || null, ownerName: form.ownerName || null, notes: form.notes || null,
       catalogItemId: form.catalogItem?.id ?? null,
       ...(existing ? { code: form.code, status: form.status } : { code: form.code || null }),
     };
@@ -106,6 +106,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
             <TextField label="Code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }}
               helperText={existing ? 'Letters, digits and - _ . /' : 'Leave empty to number it by the coding rule'} />
             <TextField label="Serial number" value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} />
+            <TextField label="Owner" value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} helperText="Who answers for this machine — shown on its maintenance tickets" inputProps={{ maxLength: 120 }} />
             {existing ? (
               <TextField select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Machine['status'] })} helperText="Inactive machines are left out of timing">
                 <MenuItem value="active">Active</MenuItem><MenuItem value="inactive">Inactive</MenuItem>

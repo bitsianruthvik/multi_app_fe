@@ -1,19 +1,19 @@
 import { Box, Drawer } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { SECTIONS, appPath } from '../../navMeta';
-import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { useScreenVisible } from '../../hooks/useStoresDesk';
 import { useCompanySlug } from '../../hooks/useLoad';
 
 /** Phone navigation: both nav rows as one list in a sheet (as in fab_erp). */
 export function MobileNavSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const company = useCompanySlug();
   const { pathname } = useLocation();
-  const isPermitted = useIsPermitted();
+  const visible = useScreenVisible();
   return (
     <Drawer anchor="left" open={open} onClose={onClose} PaperProps={{ sx: { width: 280, background: 'var(--c-surface)', borderRight: '1px solid var(--c-border)' } }}>
       <Box component="nav" aria-label="Main" sx={{ py: 1.5 }}>
         {SECTIONS.map((section) => {
-          const screens = section.screens.filter((s) => isPermitted(s.permission));
+          const screens = section.screens.filter(visible);
           if (!screens.length) return null;
           return (
             <Box key={section.key} sx={{ mb: 1.5 }}>
