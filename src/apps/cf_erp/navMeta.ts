@@ -27,7 +27,7 @@ export interface NavScreen {
   /** Extra words the palette should match. */
   keywords?: string[];
   /**
-   * The Stores menu it belongs to (init.sql §111): v2 = the five-screen desk, v1 = the menu before it. A company shows one
+   * The Stores menu it belongs to (init.sql §111): v2 = the desk, v1 = the menu before it. A company shows one
    * of the two (cf_company_settings.stores_v2, hooks/useStoresDesk); a screen with neither shows in both.
    */
   desk?: 'v1' | 'v2';
@@ -204,6 +204,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'desk-receive', desk: 'v2', label: 'Receive', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
       { key: 'desk-out', desk: 'v2', label: 'Out with', path: 'stores-out', permission: STOCK_READ, keywords: ['who has', 'tools', 'returnable', 'vendor', 'job work', 'lost', 'worn out', 'return', 'overdue'] },
       { key: 'desk-count', desk: 'v2', label: 'Count', path: 'stores-count', permission: STORES_WORK, keywords: ['audit', 'count', 'stock take', 'cycle count', 'difference', 'physical'] },
+      // 2026-11-21 (user): work in progress and offcuts are part of the desk too — the same two read-only pages as before.
+      { key: 'desk-wip', desk: 'v2', label: 'Work in progress', path: 'wip', permission: STORES_WORK, keywords: ['production ledger', 'pieces', 'in process', 'making', 'cut pieces'] },
+      { key: 'desk-offcuts', desk: 'v2', label: 'Offcuts', path: 'offcuts', permission: STORES_WORK, keywords: ['remnant', 'leftover', 'plate', 'drop', 'cut pieces'] },
       { key: 'material-requests', desk: 'v1', label: 'MR inbox', path: 'material-requests', hasDetail: true, permission: STORES_WORK, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock', 'earmark', 'locked', 'new mr', 'for', 'maintenance', 'general', 'stores'] },
       { key: 'to-reorder', desk: 'v1', label: 'To reorder', path: 'to-reorder', permission: STORES_WORK, keywords: ['reorder', 'min max', 'minimum', 'maximum', 'periodic', 'replenish', 'refill', 'stock mr', 'by ai', 'procurement method'] },
       { key: 'stock', desk: 'v1', label: 'Stock', path: 'stock', permission: `${STORES_WORK}|${PURCHASE_WORK}`, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
