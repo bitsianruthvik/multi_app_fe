@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { Link } from 'react-router-dom';
-import { qtyText, type LedgerGroup, type LedgerRow, type StoreArea } from '../api/storesDesk';
-import { useCompanySlug } from '../hooks/useLoad';
+import { getDeskSettings, qtyText, type LedgerGroup, type LedgerRow, type StoreArea } from '../api/storesDesk';
+import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useUrlParam } from '../hooks/useUrlState';
@@ -44,14 +44,18 @@ const td = { p: '9px 12px', borderBottom: '1px solid var(--c-divider)', fontSize
  *   Where / when   store area, and the period the opening / in / out are read over.
  * STORES › STOCK (init.sql §111) — the storekeeper's ledger: every item with what the period opened with, what came in,
  * what went out and what is there, over the store's own areas added up. Nothing here is typed in: In happens on Receive,
- * Out on Give out (the button on the row), and a correction on Audit. A click on a row shows every event behind it.
+ * Out on a material request's "Issue now" (or, where the company allows it, Give out on the row), and a correction on Audit. A click on a row shows every event behind it.
  * The same page is what planning, production and purchase read on a phone: it folds to one card an item.
  */
 export default function StoresStock() {
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
-  const canGive = isPermitted('cf_erp_stores|cf_erp_inventory_manage');
+  const canStore = isPermitted('cf_erp_stores|cf_erp_inventory_manage');
+  // 2026-11-23: stock leaves the store against a material request (Issue now on the request). The loose Give out shows
+  // only on a company that switched it on (Setup › Settings › Stores: the day).
+  const desk = useLoad(() => getDeskSettings(), []);
+  const canGive = canStore && desk.data?.giveOutLoose === true;
   const [period, setPeriod] = useUrlParam('period', 'month');
   const [show, setShow] = useUrlParam('show', 'stock');
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
@@ -85,7 +89,8 @@ export default function StoresStock() {
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {canGive && <Button variant="contained" onClick={() => setBasket(true)} data-testid="give-out-several">Give out</Button>}
-            {canGive && <Button component={Link} to={appPath(company, 'receive')} variant="outlined">Receive against a PO</Button>}
+            {canStore && !canGive && <Button component={Link} to={appPath(company, 'material-requests')} variant="contained" data-testid="go-requests">Give out: open Requests</Button>}
+            {canStore && <Button component={Link} to={appPath(company, 'receive')} variant="outlined">Receive against a PO</Button>}
             <Button component={Link} to={appPath(company, 'stock')} sx={{ color: 'var(--c-text-2)' }}>Every area, by lot and owner</Button>
           </Box>
         )} />

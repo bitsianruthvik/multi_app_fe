@@ -7,6 +7,8 @@ export interface DeskSettings {
   closedThrough: string | null; backdateDays: number; openTime: string; closeTime: string; toolsOutDays: number;
   /** 2026-11-22: whether a give-out may be charged to a department, and whether it names who collected it (both off by default). */
   giveOutDepartments?: boolean; giveOutPerson?: boolean;
+  /** 2026-11-23: may stock be given out without a material request (off by default: only "Issue now" on a request). */
+  giveOutLoose?: boolean;
 }
 export interface Department { id: number; name: string }
 export interface StorePerson { id: number; name: string; department: Department | null }
