@@ -34,8 +34,9 @@ export default function MaterialRequests() {
   const navigate = useNavigate();
   const toast = useToast();
   const permitted = useIsPermitted();
-  // New MR: whoever asks Stores (as POST /requisitions: Stores, inventory manage, maintenance, orders manage).
-  const canRaise = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage') || permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage');
+  // New MR: whoever ASKS Stores (POST /requisitions: maintenance, orders manage). A request comes from someone else —
+  // the storekeeper does not raise one to himself (user, 2026-11-22); his own purchases are "New PR".
+  const canRaise = permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage');
   // New PR: Stores' own purchase (as POST /stores/purchase-requests: Stores or inventory manage).
   const canRaisePr = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage');
   const canPickMaintenance = permitted('cf_erp_maintenance') || permitted('cf_erp_production_view');
