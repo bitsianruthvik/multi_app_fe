@@ -48,7 +48,7 @@ export default function StoresOutWith() {
 
   return (
     <Box sx={{ minWidth: 0 }}>
-      <PageHeader title="Out with" subtitle="What is ours and not in the store: with a person, a department or a vendor. Each one comes back, is worn out, or is lost." />
+      <PageHeader title="Out with" subtitle="Tools that are ours and not in the store: out for a sales order or with a contractor. Each one comes back, is worn out, or is lost." />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search an item or a holder">
         <FacetChip label="All" active={!holder} count={counts?.all} onClick={() => setHolder('')} />
         <FacetChip label="Sales orders" active={holder === 'order'} count={counts?.order} onClick={() => setHolder('order')} />
