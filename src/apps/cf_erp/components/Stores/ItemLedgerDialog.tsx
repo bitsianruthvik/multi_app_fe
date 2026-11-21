@@ -84,7 +84,7 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
                       </Box>
                     )}
                     {!pending && lastAsk && lastAsk.status !== 'withdrawn' && (
-                      <Typography sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-2)' }}>{lastAsk.code}: {lastAsk.status}{lastAsk.decisionNote ? ` — ${lastAsk.decisionNote}` : ''}{lastAsk.status === 'approved' ? ' — give it out now' : ''}</Typography>
+                      <Typography sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-2)' }}>{lastAsk.code}: {lastAsk.status}{lastAsk.decisionNote ? ` — ${lastAsk.decisionNote}` : ''}{lastAsk.status === 'approved' ? ' — issue it on its material request' : ''}</Typography>
                     )}
                     {canAsk && !pending && !asking && <Button size="small" variant="outlined" sx={{ mt: 1 }} onClick={() => setAsking(true)} data-testid="reserved-ask">Ask to use reserved stock</Button>}
                     {asking && (

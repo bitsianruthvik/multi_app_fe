@@ -192,13 +192,13 @@ export interface MrIssueResult {
   usedFor: 'order' | 'general';
   order: { id: number; code: string } | null;
   maintenanceOrderId: number | null;
-  lines: { lineId: number; item: ReqItem; quantity: number; from: { area: string; batch: string | null; quantity: number }[] }[];
+  lines: { lineId: number; item: ReqItem; quantity: number; conditions?: string | null; from: { area: string; batch: string | null; quantity: number }[] }[];
   movement?: { id: number; code: string };
   materialRequest?: MrScreen;
   message?: string;
 }
 /** §95: ISSUE NOW — one issue for what is earmarked for the MR and still in the store (lines: none = all of it). */
-export const issueMaterialRequest = (id: number, body: { lines?: { lineId: number; quantity?: number }[]; movementDate?: string; notes?: string; dryRun?: boolean } = {}) =>
+export const issueMaterialRequest = (id: number, body: { lines?: { lineId: number; quantity?: number }[]; movementDate?: string; notes?: string; dryRun?: boolean; conditionsChecked?: number[] } = {}) =>
   cfApi.post<MrIssueResult>(`/material-requests/${id}/issue`, body);
 
 // ---- the PR ------------------------------------------------------------------------------

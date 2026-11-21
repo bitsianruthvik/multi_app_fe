@@ -50,7 +50,9 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
  */
-const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn|cf_erp_approve_month_plan|cf_erp_approve_stock_count|cf_erp_approve_reserved_planning|cf_erp_approve_reserved_production';
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn|cf_erp_approve_month_plan|cf_erp_approve_stock_count';
+/** The approvals inbox also opens for the two reserved-stock approvers (§115) — who get nothing else of Management's (2026-11-23). */
+const APPROVE_INBOX = `${APPROVE_ANY}|cf_erp_approve_reserved_planning|cf_erp_approve_reserved_production`;
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
 /**
  * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page
@@ -112,7 +114,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'management-overview', label: 'Plan health', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'overview', 'plan health', 'baseline', 'slipping', 'slip', 'late'] },
       // §105: the MD reads each week's plan (orders × operations, tonnes) — told when Planning publishes it.
       { key: 'mgmt-week-plan', label: 'Week plan', path: 'planning-week', permission: 'cf_erp_approve_month_plan', keywords: ['week plan', 'pivot', 'orders and operations', 'output', 'tonnes'] },
-      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_ANY, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
+      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_INBOX, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
       { key: 'mgmt-order-costing', label: 'Order costing', path: 'order-costing', permission: bothOf(ACCOUNTS, APPROVE_ANY), keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
     ],
   },

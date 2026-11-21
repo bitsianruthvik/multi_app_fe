@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, TextField, Typography } from '@mui/material';
+import { Box, Checkbox, FormControlLabel, TextField, Typography } from '@mui/material';
 import { FormDialog } from '../FormDialog';
 import { Mono } from '../ui';
 import { issueMaterialRequest, type MrIssueResult, type MrScreen } from '../../api/purchaseRequests';
@@ -23,8 +23,10 @@ export function IssueNowDialog({ mr, onClose, onDone }: {
   const [qty, setQty] = useState<Record<number, string>>({});
   const [date, setDate] = useState('');
   const [plan, setPlan] = useState<MrIssueResult | null>(null);
+  const [checked, setChecked] = useState<Record<number, boolean>>({});
   useEffect(() => {
     if (!mr) return undefined;
+    setChecked({});
     setQty(Object.fromEntries(mr.lines.filter((l) => (l.toIssue ?? 0) > EPS).map((l) => [l.id, String(l.toIssue)])));
     setDate('');
     setPlan(null);
@@ -40,13 +42,18 @@ export function IssueNowDialog({ mr, onClose, onDone }: {
   };
   const chosen = lines.map((l) => ({ lineId: l.id, quantity: num(qty[l.id] ?? '') })).filter((x) => Number.isFinite(x.quantity) && x.quantity > EPS);
   const bad = lines.some((l) => problemOf(l.id, l.toIssue) != null);
+  // Maintenance's pre-issue check for a tool: each such line must be ticked before the issue.
+  const conditionsOf = (lineId: number) => plan?.lines.find((p) => p.lineId === lineId)?.conditions ?? null;
+  const toCheck = chosen.filter((x) => conditionsOf(x.lineId));
+  const unchecked = toCheck.some((x) => !checked[x.lineId]);
   const usedFor = mr?.issueUsedFor === 'order' && mr.order ? `sales order ${mr.order.code}` : 'General (overhead)';
   return (
     <FormDialog open={!!mr} onClose={onClose} title={`Issue now — ${mr?.code ?? ''}`} submitLabel="Issue" busyLabel="Issuing…" maxWidth="md"
       subtitle={<>One stock issue, used for <b>{usedFor}</b>{mr?.forType === 'maintenance_order' ? ', costed to its maintenance order' : ''}.</>}
-      submitDisabled={bad || !chosen.length}
+      submitDisabled={bad || !chosen.length || unchecked}
       onSubmit={async () => {
-        const r = await issueMaterialRequest(mr!.id, { lines: chosen, ...(date ? { movementDate: date } : {}) });
+        const conditionsChecked = toCheck.map((x) => lines.find((l) => l.id === x.lineId)!.item.id);
+        const r = await issueMaterialRequest(mr!.id, { lines: chosen, ...(conditionsChecked.length ? { conditionsChecked } : {}), ...(date ? { movementDate: date } : {}) });
         if (r.materialRequest) onDone(r.materialRequest, r.message ?? `${r.movement?.code ?? 'The issue'} is posted.`);
       }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 1, alignItems: 'center' }}>
@@ -68,6 +75,13 @@ export function IssueNowDialog({ mr, onClose, onDone }: {
               <TextField size="small" value={qty[l.id] ?? ''} onChange={(e) => setQty((q) => ({ ...q, [l.id]: e.target.value }))}
                 error={!!problem} helperText={problem ?? undefined} sx={{ width: 120 }}
                 inputProps={{ inputMode: 'decimal', 'aria-label': `Issue — ${l.item.code ?? l.item.name}`, 'data-testid': 'mr-issue-qty' }} />
+              {conditionsOf(l.id) && (
+                <Box data-testid="issue-conditions" sx={{ gridColumn: '1 / -1', p: 1, border: '1px solid var(--c-warning-300, var(--c-border))', background: 'var(--c-warning-50, transparent)', borderRadius: 'var(--r-sm)' }}>
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Before giving it out (from Maintenance)</Typography>
+                  <Typography sx={{ fontSize: 13.5, whiteSpace: 'pre-line' }}>{conditionsOf(l.id)}</Typography>
+                  <FormControlLabel control={<Checkbox size="small" checked={!!checked[l.id]} onChange={(e) => setChecked((c) => ({ ...c, [l.id]: e.target.checked }))} inputProps={{ 'aria-label': `Checked with the person collecting ${l.item.name}` }} />} label="Checked with the person collecting" />
+                </Box>
+              )}
             </Box>
           );
         })}
