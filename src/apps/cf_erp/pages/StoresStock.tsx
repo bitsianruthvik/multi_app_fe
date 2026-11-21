@@ -13,6 +13,8 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { GiveOutDialog, type GiveOutItem } from '../components/Stores/GiveOutDialog';
 import { ItemLedgerDialog } from '../components/Stores/ItemLedgerDialog';
 import { useToast } from '../components/toastContext';
+import WorkInProgress from './WorkInProgress';
+import Offcuts from './Offcuts';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -27,13 +29,19 @@ function periodOf(key: string): { from: string; to: string } {
 const PERIODS = [['month', 'This month'], ['week', 'This week'], ['today', 'Today']] as const;
 /** Whose stock: ours, a customer's material kept for their order, or both added up (user, 2026-11-22). */
 const OWNERS = [['', 'All'], ['ours', 'Ours'], ['customer', "Customer's"]] as const;
-const SHOWS = [['stock', 'In stock or moved'], ['all', 'Every item'], ['low', 'Below minimum'], ['out', 'Out with someone']] as const;
+const SHOWS = [['stock', 'In stock or moved'], ['low', 'Below minimum'], ['reserved', 'Reserved for an order'], ['out', 'Out with someone'], ['all', 'Every item']] as const;
 type Meta = { period: { from: string; to: string }; areas: StoreArea[]; groups: LedgerGroup[] };
 const num = { textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' } as const;
 const th = { fontSize: 11.5, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--c-text-3)', textAlign: 'left', p: '8px 12px', borderBottom: '1px solid var(--c-border)', whiteSpace: 'nowrap' } as const;
 const td = { p: '9px 12px', borderBottom: '1px solid var(--c-divider)', fontSize: 13.5, verticalAlign: 'middle' } as const;
 
 /**
+ * THE FILTERS (user, 2026-11-22: "a proper filtering mechanism … to see a bunch of things only"), one question a row:
+ *   What     All · each family of the catalog (Steel, Consumables, Tools, Spares …) · Work in progress · Offcuts, then
+ *            the sub-family inside the chosen family. Work in progress and Offcuts are views of this same screen.
+ *   Whose    All · Ours · Customer's
+ *   State    In stock or moved · Below minimum · Reserved for an order · Out with someone · Every item
+ *   Where / when   store area, and the period the opening / in / out are read over.
  * STORES › STOCK (init.sql §111) — the storekeeper's ledger: every item with what the period opened with, what came in,
  * what went out and what is there, over the store's own areas added up. Nothing here is typed in: In happens on Receive,
  * Out on Give out (the button on the row), and a correction on Audit. A click on a row shows every event behind it.
@@ -49,6 +57,9 @@ export default function StoresStock() {
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
   const [groupParam, setGroupParam] = useUrlParam('group', '');
   const [owner, setOwner] = useUrlParam('owner', '');
+  /** What: '' = everything in the store, a family id, 'wip' or 'offcuts'. */
+  const [what, setWhat] = useUrlParam('what', '');
+  const other = what === 'wip' || what === 'offcuts';
   const [basket, setBasket] = useState(false);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<number | null>(null);
@@ -57,12 +68,15 @@ export default function StoresStock() {
   const { from, to } = useMemo(() => periodOf(period), [period]);
   // A search looks through every item: the storekeeper is looking for something to give out, whether or not it has stock.
   const list = usePagedList<LedgerRow, Meta>('/stores-desk/ledger', {
-    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, subfamilyId: groupParam || undefined, owner: owner || undefined,
+    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, familyId: !other && what ? what : undefined, subfamilyId: groupParam || undefined, owner: owner || undefined,
   });
   const meta = list.counts;
   const areas = meta?.areas ?? [];
-  const groups = meta?.groups ?? [];
-  const filtered = !!term || !!areaParam || !!groupParam || !!owner || show !== 'stock';
+  const groups = useMemo(() => meta?.groups ?? [], [meta]);
+  const families = useMemo(() => { const m = new Map<number, string>(); for (const g of groups) if (g.familyId != null && !m.has(g.familyId)) m.set(g.familyId, g.family ?? ''); return [...m].sort((a, b) => a[1].localeCompare(b[1])); }, [groups]);
+  const subs = groups.filter((g) => !what || String(g.familyId) === what);
+  const pickWhat = (k: string) => { setWhat(k); setGroupParam(''); };
+  const filtered = !!term || !!areaParam || !!groupParam || !!owner || !!what || show !== 'stock';
   const give = (r: LedgerRow) => setGiving({ id: r.item.id, name: r.item.name, uom: r.item.uom, returnable: r.item.returnable, inStock: r.now, issueConditions: r.item.issueConditions ?? null });
 
   return (
@@ -75,16 +89,26 @@ export default function StoresStock() {
             <Button component={Link} to={appPath(company, 'stock')} sx={{ color: 'var(--c-text-2)' }}>Every area, by lot and owner</Button>
           </Box>
         )} />
+      <Box data-testid="ledger-what" role="group" aria-label="What" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mr: 0.5 }}>What</Typography>
+        <FacetChip label="All" active={!what} onClick={() => pickWhat('')} />
+        {families.map(([id, name]) => <FacetChip key={id} label={name} active={what === String(id)} onClick={() => pickWhat(String(id))} />)}
+        <FacetChip label="Work in progress" active={what === 'wip'} onClick={() => pickWhat('wip')} />
+        <FacetChip label="Offcuts" active={what === 'offcuts'} onClick={() => pickWhat('offcuts')} />
+      </Box>
+      {what === 'wip' && <WorkInProgress embedded />}
+      {what === 'offcuts' && <Offcuts embedded />}
+      {!other && <>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search an item by name or code">
         {PERIODS.map(([k, label]) => <FacetChip key={k} label={label} active={period === k} onClick={() => setPeriod(k)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         {SHOWS.map(([k, label]) => <FacetChip key={k} label={label} active={!term && show === k} onClick={() => setShow(k)} />)}
       </FilterBar>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2, minWidth: 0 }}>
-        <TextField select size="small" label="Family › sub-family" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 340, minWidth: 0 }} inputProps={{ 'data-testid': 'ledger-group' }}>
-          <MenuItem value="">Every family</MenuItem>
-          {groups.map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{g.family} › {g.subfamily} ({g.items})</MenuItem>)}
-        </TextField>
+        {subs.length > 1 && <TextField select size="small" label={what ? 'Sub-family' : 'Family › sub-family'} value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 340, minWidth: 0 }} inputProps={{ 'data-testid': 'ledger-group' }}>
+          <MenuItem value="">{what ? 'Every sub-family' : 'Every family'}</MenuItem>
+          {subs.map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{what ? g.subfamily : `${g.family} › ${g.subfamily}`} ({g.items})</MenuItem>)}
+        </TextField>}
         <Box data-testid="ledger-owner" role="group" aria-label="Whose stock" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
           {OWNERS.map(([k, label]) => <FacetChip key={k || 'all'} label={label} active={owner === k} onClick={() => setOwner(k)} />)}
         </Box>
@@ -100,7 +124,7 @@ export default function StoresStock() {
       {list.loaded && list.rows.length === 0 && (
         <EmptyState icon={<WarehouseRounded />} title={filtered ? 'Nothing matches' : 'Nothing in the store yet'}
           hint={filtered ? 'Clear the search, or pick "Every item".' : 'Stock arrives by Receive against a PO. "Every item" lists the catalog.'}
-          action={<Button onClick={() => { setSearch(''); setShow('all'); setGroupParam(''); setAreaParam(''); setOwner(''); }}>Show every item</Button>} />
+          action={<Button onClick={() => { setSearch(''); setShow('all'); setGroupParam(''); setAreaParam(''); setOwner(''); setWhat(''); }}>Show every item</Button>} />
       )}
       {list.rows.length > 0 && (
         <>
@@ -165,6 +189,7 @@ export default function StoresStock() {
           </Box>
         </>
       )}
+      </>}
       <ItemLedgerDialog itemId={open} from={from} to={to} onClose={() => setOpen(null)} />
       <GiveOutDialog item={giving} open={basket} areas={areas} onClose={() => { setGiving(null); setBasket(false); }} onDone={(text) => { toast.success(text); list.reload(); }} />
     </Box>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Dialog, DialogContent, TextField, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
-import { askReservedUse, getItemLedger, getReservedFor, listReservedUse, qtyText, withdrawReservedUse, type LedgerEvent } from '../../api/storesDesk';
+import { takeBack, askReservedUse, getItemLedger, getReservedFor, listReservedUse, qtyText, withdrawReservedUse, type LedgerEvent } from '../../api/storesDesk';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import type { CfApiError } from '../../api/client';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
@@ -40,6 +40,17 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
   const [askErr, setAskErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setAsking(false); setAskQty(''); setAskWhy(''); setAskErr(null); }, [itemId]);
+  // 2026-11-22: take back what was given out and not used — a quantity on the give-out's own line.
+  const [backOf, setBackOf] = useState<number | null>(null);
+  const [backQty, setBackQty] = useState('');
+  const [backErr, setBackErr] = useState<string | null>(null);
+  useEffect(() => { setBackOf(null); setBackQty(''); setBackErr(null); }, [itemId]);
+  const sendBack = async (movementId: number) => {
+    if (!itemId) return;
+    setBusy(true); setBackErr(null);
+    try { await takeBack({ movementId, itemId, quantity: Number(backQty) }); setBackOf(null); setBackQty(''); d.reload(); }
+    catch (e) { setBackErr((e as CfApiError).message); } finally { setBusy(false); }
+  };
   const pending = (asks.data?.rows ?? []).find((r) => r.status === 'pending') ?? null;
   const lastAsk = (asks.data?.rows ?? [])[0] ?? null;
   const sendAsk = async () => {
@@ -119,7 +130,20 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
                     </Box>
                     <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{[eventFor(e), e.area, e.lot, e.by ? `by ${e.by}` : null].filter(Boolean).join(' · ')}</Typography>
                   </Box>
-                  <Mono sx={{ whiteSpace: 'nowrap', color: e.change < 0 ? 'var(--c-danger-700)' : undefined }}>{e.change > 0 ? '+' : ''}{qtyText(e.change)}</Mono>
+                  <Box sx={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <Mono sx={{ color: e.change < 0 ? 'var(--c-danger-700)' : undefined }}>{e.change > 0 ? '+' : ''}{qtyText(e.change)}</Mono>
+                    {canAsk && e.type === 'issue' && e.change < 0 && !e.reversed && !e.reversal && !v.item.returnable && backOf !== e.id && (
+                      <Box><Button size="small" onClick={() => { setBackOf(e.id); setBackQty(''); setBackErr(null); }} data-testid="take-back">Take back</Button></Box>
+                    )}
+                    {backOf === e.id && (
+                      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', justifyContent: 'flex-end', mt: 0.5, flexWrap: 'wrap' }}>
+                        <TextField size="small" label={`Came back (${v.item.uom})`} value={backQty} onChange={(ev) => setBackQty(ev.target.value)} sx={{ width: 130 }} autoFocus inputProps={{ inputMode: 'decimal' }} />
+                        <Button size="small" variant="contained" disabled={busy || !(Number(backQty) > 0)} onClick={() => void sendBack(e.movementId)}>Save</Button>
+                        <Button size="small" onClick={() => setBackOf(null)}>Cancel</Button>
+                        {backErr && <Typography sx={{ flexBasis: '100%', fontSize: 12.5, color: 'var(--c-danger-600)', whiteSpace: 'normal' }}>{backErr}</Typography>}
+                      </Box>
+                    )}
+                  </Box>
                 </Box>
               ))}
             </Block>

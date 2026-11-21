@@ -77,7 +77,7 @@ function OffcutDialog({ offcut, onClose, company }: { offcut: Offcut | null; onC
 }
 
 /** Stores › Offcuts — what is left of cut plates, each with the drawing of its shape. */
-export default function Offcuts() {
+export default function Offcuts({ embedded = false }: { /** Shown inside Stores › Stock: no page title of its own. */ embedded?: boolean } = {}) {
   const company = useCompanySlug();
   const [status, setStatus] = useUrlParam('status', 'available');
   const [kind, setKind] = useUrlParam('kind', 'all');
@@ -114,7 +114,7 @@ export default function Offcuts() {
 
   return (
     <Box>
-      <PageHeader title="Offcuts" subtitle="What is left of a cut plate or a cut bar, kept as stock — so the next nest can use it. A plate shows the drawing of its shape; a bar shows its length." />
+      {!embedded && <PageHeader title="Offcuts" subtitle="What is left of a cut plate or a cut bar, kept as stock — so the next nest can use it. A plate shows the drawing of its shape; a bar shows its length." />}
       <FilterBar search={search} onSearch={setSearch} placeholder="Search offcut no, order or nest">
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v} label={label} active={status === v} count={counts?.[v]} onClick={() => setStatus(v)} />)}
         {KIND_CHIPS.map(([v, label]) => <FacetChip key={`kind-${v}`} label={label} active={kind === v} onClick={() => setKind(v)} />)}

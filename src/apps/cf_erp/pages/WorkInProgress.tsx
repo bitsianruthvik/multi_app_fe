@@ -88,7 +88,7 @@ function OrderLotsTable({ group, company }: { group: WipOrderGroup; company: str
 }
 
 /** Stock › Work in progress — the production ledger: every piece being made, as stock, at the level it has reached. */
-export default function WorkInProgress() {
+export default function WorkInProgress({ embedded = false }: { /** Shown inside Stores › Stock: no page title of its own. */ embedded?: boolean } = {}) {
   const company = useCompanySlug();
   const [orderId, setOrderId] = useUrlParam('orderId', '');
   const [searchParam, setSearchParam] = useUrlParam('search', '');
@@ -119,8 +119,8 @@ export default function WorkInProgress() {
 
   return (
     <Box>
-      <PageHeader title="Work in progress"
-        subtitle="Every piece being made is stock here, at the level it has reached. It moves up when the next step starts and comes back down when it is taken apart." />
+      {!embedded && <PageHeader title="Work in progress"
+        subtitle="Every piece being made is stock here, at the level it has reached. It moves up when the next step starts and comes back down when it is taken apart." />}
       <StatStrip stats={stats} />
       {d && d.offcuts.count > 0 && (
         <Box data-testid="wip-offcuts" sx={{ mt: -1.5, mb: 2, fontSize: 13, color: 'var(--c-text-2)' }}>

@@ -70,6 +70,9 @@ export const addDepartment = (name: string) => cfApi.post<Department>('/stores-d
 export const searchPeople = (search: string) => cfApi.get<StorePerson[]>(`/stores-desk/people${qs({ search: search || undefined })}`);
 export const addPerson = (name: string, departmentId?: number | null) => cfApi.post<{ id: number; name: string }>('/stores-desk/people', { name, departmentId });
 export const getItemLedger = (itemId: number, p: { from?: string; to?: string }) => cfApi.get<ItemLedger>(`/stores-desk/ledger/${itemId}${qs(p)}`);
+/** Some of what was given out comes back unused: the give-out is rewritten for what was really used. */
+export const takeBack = (body: { movementId: number; itemId: number; quantity: number; note?: string | null }) =>
+  cfApi.post<{ takenBack: number; item: { id: number; name: string; uom: string | null }; from: string; instead: string | null }>('/stores-desk/take-back', body);
 export const giveOut = (body: GiveOutBody) => cfApi.post<{ movement: { id: number; code: string | null }; outWith: number }>('/stores-desk/give-out', body);
 export const getOutWith = (p: { holder?: string; overdue?: number; age?: string; search?: string; status?: string }) => cfApi.get<OutWithList>(`/stores-desk/out-with${qs(p)}`);
 export const custodyBack = (id: number, body: { kind: 'returned' | 'worn' | 'lost'; quantity?: number; note?: string }) => cfApi.post<Custody>(`/stores-desk/out-with/${id}/back`, body);
