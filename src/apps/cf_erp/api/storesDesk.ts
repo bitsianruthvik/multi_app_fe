@@ -13,6 +13,8 @@ export interface LedgerGroup { familyId: number; family: string; subfamilyId: nu
 
 export interface LedgerRow {
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: string; returnable: boolean; status: string; issueConditions?: string | null };
+  /** How much of the balance now is a customer's material (0 when the list is filtered to one owner's). */
+  customers: number;
   group: { familyId: number | null; family: string | null; subfamilyId: number | null; subfamily: string | null };
   opening: number; in: number; out: number; balance: number; now: number;
   outWith: number; onOrder: number; reserved: number;

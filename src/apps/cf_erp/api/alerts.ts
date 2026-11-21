@@ -20,7 +20,7 @@ export const KIND_LABEL: Record<AlertKind, string> = {
   reserved_taken: 'Reserved stock given away',
   ticket_late: 'Ticket past its target', machine_no_plan: 'Machine with no cycle', spare_low: 'Spare running low', tool_worn_early: 'Tool worn early',
   machine_down: 'Machine down', repeat_breakdown: 'Repeat breakdown', pm_overdue: 'Preventive job overdue', inquiry_waiting: 'Inquiry waiting',
-  count_skipped: 'Count not done', tool_lost: 'Item lost', out_too_long: 'Out too long', invoice_unpaid: 'Invoice unpaid',
+  count_skipped: 'Audit not done', tool_lost: 'Item lost', out_too_long: 'Out too long', invoice_unpaid: 'Invoice unpaid',
 };
 
 /** The bar beside an alert: danger red, warning amber, info blue. */

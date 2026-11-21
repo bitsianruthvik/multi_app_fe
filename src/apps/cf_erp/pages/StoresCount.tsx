@@ -51,16 +51,16 @@ export default function StoresCount() {
         lines: filled.map((l) => { const k = keyOf(l.item.id, l.lot?.id); return { itemId: l.item.id, lotId: l.lot?.id ?? null, counted: Number(counted[k]), reason: reasons[k]?.trim() || undefined }; }),
       });
       setResult(r);
-      toast.success(r.status === 'matched' ? 'The count matches the book.' : r.status === 'posted' ? 'Saved: the book is corrected.' : 'Saved: the differences wait for approval.');
+      toast.success(r.status === 'matched' ? 'The audit matches the book.' : r.status === 'posted' ? 'Saved: the book is corrected.' : 'Saved: the differences wait for approval.');
       list.reload(); recent.reload();
     } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
 
   return (
     <Box sx={{ minWidth: 0 }}>
-      <PageHeader title="Count" subtitle="Type what is on the shelf. A line that differs from the book asks why; small differences correct the book at once, larger ones wait for Management." />
+      <PageHeader title="Audit" subtitle="Type what is on the shelf. A line that differs from the book asks why; small differences correct the book at once, larger ones wait for Management." />
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
-        <FacetChip label="Today's count" active={!weekly} onClick={() => setKind('daily')} />
+        <FacetChip label="Today's audit" active={!weekly} onClick={() => setKind('daily')} />
         <FacetChip label="Weekly: one group" active={weekly} onClick={() => setKind('weekly')} />
         {(list.data?.areas.length ?? 0) > 1 && (
           <TextField select size="small" label="Store area" value={areaParam || String(list.data?.area.id ?? '')} onChange={(e) => setAreaParam(e.target.value)} sx={{ minWidth: 200 }}>
@@ -68,23 +68,23 @@ export default function StoresCount() {
           </TextField>
         )}
         {weekly && (
-          <TextField select size="small" label="Group to count" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}>
+          <TextField select size="small" label="Group to audit" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}>
             {(groups.data ?? []).map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{g.family} › {g.subfamily}</MenuItem>)}
           </TextField>
         )}
       </Box>
       {result && (
         <Alert severity={result.status === 'pending' ? 'warning' : 'success'} onClose={() => setResult(null)} sx={{ mb: 2 }} data-testid="count-result">
-          {result.code}: {result.differences === 0 ? `${result.lines.length} line${result.lines.length === 1 ? '' : 's'} counted, all as the book says.`
+          {result.code}: {result.differences === 0 ? `${result.lines.length} line${result.lines.length === 1 ? '' : 's'} audited, all as the book says.`
             : `${result.differences} of ${result.lines.length} differ${result.value != null ? ` (${rupeeText(result.value)})` : ''}. ${result.status === 'posted' ? 'The book is corrected.' : 'Waiting for approval — the book stays as it is until then.'}`}
         </Alert>
       )}
       <ErrorNotice error={list.error ?? error} onRetry={list.error ? list.reload : undefined} />
-      {!ready && <EmptyState icon={<FactCheckRounded />} title="Choose the group to count this week" hint="Every item of the group that has stock, or moved in the last 90 days, is listed." />}
+      {!ready && <EmptyState icon={<FactCheckRounded />} title="Choose the group to audit this week" hint="Every item of the group that has stock, or moved in the last 90 days, is listed." />}
       {ready && !list.data && !list.error && <SkeletonRows rows={6} />}
       {list.data && lines.length === 0 && (
-        <EmptyState icon={<FactCheckRounded />} title={weekly ? 'Nothing of this group is in this area' : 'Nothing moved since the last count'}
-          hint={weekly ? 'Pick another group or another area.' : `Last counted ${list.data.lastCount ?? 'never'}. Items show here the day after they are received or given out.`} />
+        <EmptyState icon={<FactCheckRounded />} title={weekly ? 'Nothing of this group is in this area' : 'Nothing moved since the last audit'}
+          hint={weekly ? 'Pick another group or another area.' : `Last audited ${list.data.lastCount ?? 'never'}. Items show here the day after they are received or given out.`} />
       )}
       {lines.length > 0 && (
         <Box data-testid="count-lines" sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', overflow: 'hidden' }}>
@@ -101,7 +101,7 @@ export default function StoresCount() {
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{[l.item.code, l.lot ? `lot ${l.lot.code}` : null].filter(Boolean).join(' · ')}</Typography>
                 </Box>
                 <Box sx={{ flex: '0 0 auto', textAlign: 'right', minWidth: 80 }}><Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Book</Typography><Mono>{qtyText(l.book)} {l.item.uom}</Mono></Box>
-                <TextField size="small" label="Counted" value={counted[k] ?? ''} onChange={(e) => setCounted((c) => ({ ...c, [k]: e.target.value }))} sx={{ width: 120 }} inputProps={{ inputMode: 'decimal', 'data-testid': 'count-input' }} />
+                <TextField size="small" label="On the shelf" value={counted[k] ?? ''} onChange={(e) => setCounted((c) => ({ ...c, [k]: e.target.value }))} sx={{ width: 120 }} inputProps={{ inputMode: 'decimal', 'data-testid': 'count-input' }} />
                 {d && (
                   <TextField size="small" label={`Why ${Number(counted[k]) > l.book ? 'more' : 'less'} by ${qtyText(Math.abs(Number(counted[k]) - l.book))}?`} value={reasons[k] ?? ''} error={!(reasons[k] ?? '').trim()}
                     onChange={(e) => setReasons((r) => ({ ...r, [k]: e.target.value }))} sx={{ flex: '1 1 220px', minWidth: 0 }} />
@@ -110,12 +110,12 @@ export default function StoresCount() {
             );
           })}
           <Box sx={{ p: 1.5, display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid var(--c-border)' }}>
-            <Button variant="contained" onClick={() => void save()} disabled={busy || filled.length === 0 || missingReason} data-testid="count-save">{busy ? 'Saving…' : `Save count (${filled.length})`}</Button>
-            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{missingReason ? 'Say why each differing line differs.' : 'Lines left empty are not counted.'}</Typography>
+            <Button variant="contained" onClick={() => void save()} disabled={busy || filled.length === 0 || missingReason} data-testid="count-save">{busy ? 'Saving…' : `Save audit (${filled.length})`}</Button>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{missingReason ? 'Say why each differing line differs.' : 'Lines left empty are not audited.'}</Typography>
           </Box>
         </Box>
       )}
-      <Typography sx={{ fontSize: 13, fontWeight: 600, mt: 3, mb: 1 }}>Recent counts</Typography>
+      <Typography sx={{ fontSize: 13, fontWeight: 600, mt: 3, mb: 1 }}>Recent audits</Typography>
       <Box sx={{ display: 'grid', gap: 0.75 }}>
         {(recent.data ?? []).slice(0, 12).map((n) => (
           <Box key={n.id} sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', fontSize: 13.5, p: 1.25, border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)' }}>
@@ -124,7 +124,7 @@ export default function StoresCount() {
             <Box sx={{ ml: 'auto' }}><Badge family={STATUS[n.status]?.family ?? 'neutral'} label={STATUS[n.status]?.label ?? n.status} noIcon /></Box>
           </Box>
         ))}
-        {recent.data && recent.data.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No count has been saved yet.</Typography>}
+        {recent.data && recent.data.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No audit has been saved yet.</Typography>}
       </Box>
     </Box>
   );

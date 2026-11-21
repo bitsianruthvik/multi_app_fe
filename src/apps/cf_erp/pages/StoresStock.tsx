@@ -25,6 +25,8 @@ function periodOf(key: string): { from: string; to: string } {
   return { from: `${to.slice(0, 8)}01`, to };
 }
 const PERIODS = [['month', 'This month'], ['week', 'This week'], ['today', 'Today']] as const;
+/** Whose stock: ours, a customer's material kept for their order, or both added up (user, 2026-11-22). */
+const OWNERS = [['', 'All'], ['ours', 'Ours'], ['customer', "Customer's"]] as const;
 const SHOWS = [['stock', 'In stock or moved'], ['all', 'Every item'], ['low', 'Below minimum'], ['out', 'Out with someone']] as const;
 type Meta = { period: { from: string; to: string }; areas: StoreArea[]; groups: LedgerGroup[] };
 const num = { textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' } as const;
@@ -34,7 +36,7 @@ const td = { p: '9px 12px', borderBottom: '1px solid var(--c-divider)', fontSize
 /**
  * STORES › STOCK (init.sql §111) — the storekeeper's ledger: every item with what the period opened with, what came in,
  * what went out and what is there, over the store's own areas added up. Nothing here is typed in: In happens on Receive,
- * Out on Give out (the button on the row), and a correction on Count. A click on a row shows every event behind it.
+ * Out on Give out (the button on the row), and a correction on Audit. A click on a row shows every event behind it.
  * The same page is what planning, production and purchase read on a phone: it folds to one card an item.
  */
 export default function StoresStock() {
@@ -46,6 +48,8 @@ export default function StoresStock() {
   const [show, setShow] = useUrlParam('show', 'stock');
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
   const [groupParam, setGroupParam] = useUrlParam('group', '');
+  const [owner, setOwner] = useUrlParam('owner', '');
+  const [basket, setBasket] = useState(false);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<number | null>(null);
   const [giving, setGiving] = useState<GiveOutItem | null>(null);
@@ -53,12 +57,12 @@ export default function StoresStock() {
   const { from, to } = useMemo(() => periodOf(period), [period]);
   // A search looks through every item: the storekeeper is looking for something to give out, whether or not it has stock.
   const list = usePagedList<LedgerRow, Meta>('/stores-desk/ledger', {
-    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, subfamilyId: groupParam || undefined,
+    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, subfamilyId: groupParam || undefined, owner: owner || undefined,
   });
   const meta = list.counts;
   const areas = meta?.areas ?? [];
   const groups = meta?.groups ?? [];
-  const filtered = !!term || !!areaParam || !!groupParam || show !== 'stock';
+  const filtered = !!term || !!areaParam || !!groupParam || !!owner || show !== 'stock';
   const give = (r: LedgerRow) => setGiving({ id: r.item.id, name: r.item.name, uom: r.item.uom, returnable: r.item.returnable, inStock: r.now, issueConditions: r.item.issueConditions ?? null });
 
   return (
@@ -66,6 +70,7 @@ export default function StoresStock() {
       <PageHeader title="Stock" subtitle="What the store opened with, what came in, what went out and what is there. Click an item to see every entry behind its numbers."
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {canGive && <Button variant="contained" onClick={() => setBasket(true)} data-testid="give-out-several">Give out</Button>}
             {canGive && <Button component={Link} to={appPath(company, 'receive')} variant="outlined">Receive against a PO</Button>}
             <Button component={Link} to={appPath(company, 'stock')} sx={{ color: 'var(--c-text-2)' }}>Every area, by lot and owner</Button>
           </Box>
@@ -76,10 +81,13 @@ export default function StoresStock() {
         {SHOWS.map(([k, label]) => <FacetChip key={k} label={label} active={!term && show === k} onClick={() => setShow(k)} />)}
       </FilterBar>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2, minWidth: 0 }}>
-        <TextField select size="small" label="Group" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 340, minWidth: 0 }} inputProps={{ 'data-testid': 'ledger-group' }}>
-          <MenuItem value="">All groups</MenuItem>
+        <TextField select size="small" label="Family › sub-family" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 340, minWidth: 0 }} inputProps={{ 'data-testid': 'ledger-group' }}>
+          <MenuItem value="">Every family</MenuItem>
           {groups.map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{g.family} › {g.subfamily} ({g.items})</MenuItem>)}
         </TextField>
+        <Box data-testid="ledger-owner" role="group" aria-label="Whose stock" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          {OWNERS.map(([k, label]) => <FacetChip key={k || 'all'} label={label} active={owner === k} onClick={() => setOwner(k)} />)}
+        </Box>
         {areas.length > 1 && (
           <TextField select size="small" label="Store area" value={areaParam} onChange={(e) => setAreaParam(e.target.value)} sx={{ flex: '1 1 200px', maxWidth: 300, minWidth: 0 }}>
             <MenuItem value="">All store areas, added up</MenuItem>
@@ -92,7 +100,7 @@ export default function StoresStock() {
       {list.loaded && list.rows.length === 0 && (
         <EmptyState icon={<WarehouseRounded />} title={filtered ? 'Nothing matches' : 'Nothing in the store yet'}
           hint={filtered ? 'Clear the search, or pick "Every item".' : 'Stock arrives by Receive against a PO. "Every item" lists the catalog.'}
-          action={<Button onClick={() => { setSearch(''); setShow('all'); setGroupParam(''); setAreaParam(''); }}>Show every item</Button>} />
+          action={<Button onClick={() => { setSearch(''); setShow('all'); setGroupParam(''); setAreaParam(''); setOwner(''); }}>Show every item</Button>} />
       )}
       {list.rows.length > 0 && (
         <>
@@ -109,7 +117,7 @@ export default function StoresStock() {
                   <Box component="tr" key={r.item.id} data-testid="ledger-row" onClick={() => setOpen(r.item.id)} sx={{ cursor: 'pointer', '&:hover': { background: 'var(--c-neutral-50)' } }}>
                     <Box component="td" sx={{ ...td, minWidth: 220 }}>
                       <Box sx={{ fontWeight: 500 }}>{r.item.name}</Box>
-                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, r.group.subfamily, r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}</Typography>
+                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, r.group.subfamily, r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}{!owner && r.customers > 0 ? ` · ${qtyText(r.customers)} is a customer's` : ''}</Typography>
                     </Box>
                     <Box component="td" sx={{ ...td, ...num }}><Mono muted>{qtyText(r.opening)}</Mono></Box>
                     <Box component="td" sx={{ ...td, ...num }}><Mono muted={!r.in}>{qtyText(r.in)}</Mono></Box>
@@ -143,6 +151,7 @@ export default function StoresStock() {
                   <span>In {qtyText(r.in)} · Out {qtyText(r.out)}</span>
                   {r.low && <Badge family="danger" label={`Below min ${qtyText(r.min)}`} noIcon />}
                   {r.reserved > 0 && <Badge family="warning" label={`${qtyText(r.reserved)} reserved`} noIcon />}
+                  {!owner && r.customers > 0 && <Badge family="neutral" label={`${qtyText(r.customers)} customer's`} noIcon />}
                   {r.outWith > 0 && <Badge family="info" label={`${qtyText(r.outWith)} out with`} noIcon />}
                   {r.onOrder > 0 && <Badge family="neutral" label={`${qtyText(r.onOrder)} on order`} noIcon />}
                   {canGive && r.now > 0 && <Button size="small" variant="outlined" sx={{ ml: 'auto' }} onClick={(e) => { e.stopPropagation(); give(r); }}>Give out</Button>}
@@ -157,7 +166,7 @@ export default function StoresStock() {
         </>
       )}
       <ItemLedgerDialog itemId={open} from={from} to={to} onClose={() => setOpen(null)} />
-      <GiveOutDialog item={giving} areas={areas} onClose={() => setGiving(null)} onDone={(text) => { toast.success(text); list.reload(); }} />
+      <GiveOutDialog item={giving} open={basket} areas={areas} onClose={() => { setGiving(null); setBasket(false); }} onDone={(text) => { toast.success(text); list.reload(); }} />
     </Box>
   );
 }

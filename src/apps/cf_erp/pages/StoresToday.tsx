@@ -14,7 +14,7 @@ import { useToast } from '../components/toastContext';
 const KIND: Record<LevelSuggestion['kind'], { family: Family; label: string }> = {
   raise: { family: 'danger', label: 'Raise' }, new: { family: 'info', label: 'Set' }, lower: { family: 'warning', label: 'Lower' }, unused: { family: 'neutral', label: 'Not used' },
 };
-const MOVE: Record<string, string> = { receipt: 'Received', issue: 'Given out', transfer: 'Moved', adjustment: 'Count', scrap: 'Scrapped', return: 'Returned' };
+const MOVE: Record<string, string> = { receipt: 'Received', issue: 'Given out', transfer: 'Moved', adjustment: 'Audit', scrap: 'Scrapped', return: 'Returned' };
 const dayText = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
 
 /** One line of the page: a heading with its number, what to do about it, and the few rows behind it. */
@@ -84,7 +84,7 @@ export default function StoresToday() {
       {!d && !page.error && <SkeletonRows rows={6} />}
       {d && (
         <Box sx={{ display: 'grid', gap: 1.5 }} data-testid="stores-today">
-          {nothing && <EmptyState icon={<TaskAltRounded />} title="Nothing is waiting" hint="No purchase order to chase, nothing entered after hours, the counts are done and nothing is out too long." />}
+          {nothing && <EmptyState icon={<TaskAltRounded />} title="Nothing is waiting" hint="No purchase order to chase, nothing entered after hours, the audits are done and nothing is out too long." />}
 
           {po!.rows.length > 0 && (
             <Line testid="today-po" tone={po!.late ? 'danger' : 'warning'} title="Purchase orders to follow up" count={po!.late + po!.dueSoon}
@@ -121,15 +121,15 @@ export default function StoresToday() {
           )}
 
           {countOpen && (
-            <Line testid="today-count" tone={cnt!.rejected ? 'danger' : 'warning'} title="Count"
+            <Line testid="today-count" tone={cnt!.rejected ? 'danger' : 'warning'} title="Audit"
               hint={[
-                cnt!.dailyDue ? `Today's count is not done: ${cnt!.toCount} item${cnt!.toCount === 1 ? '' : 's'} moved since ${cnt!.lastCount ?? 'the start'}` : null,
-                !cnt!.weeklyDone ? "this week's group is not counted yet" : null,
+                cnt!.dailyDue ? `Today's audit is not done: ${cnt!.toCount} item${cnt!.toCount === 1 ? '' : 's'} moved since ${cnt!.lastCount ?? 'the start'}` : null,
+                !cnt!.weeklyDone ? "this week's group is not audited yet" : null,
                 cnt!.pending ? `${cnt!.pending} waiting for approval` : null,
                 cnt!.rejected ? `${cnt!.rejected} sent back` : null,
               ].filter(Boolean).join(' · ')}
               action={canStore ? <>
-                {cnt!.dailyDue && <Button component={Link} to={to('stores-count')} variant="contained" size="small">Count today</Button>}
+                {cnt!.dailyDue && <Button component={Link} to={to('stores-count')} variant="contained" size="small">Audit today</Button>}
                 {!cnt!.weeklyDone && <Button component={Link} to={to('stores-count?kind=weekly')} variant="outlined" size="small">Weekly group</Button>}
               </> : undefined} />
           )}
@@ -190,7 +190,7 @@ export default function StoresToday() {
             action={canClose ? <Button size="small" variant="outlined" onClick={() => { setCloseDate(d.settings.closedThrough ?? ''); setClosing(true); }} data-testid="period-close">Close a period</Button> : undefined} />
         </Box>
       )}
-      <FormDialog open={closing} title="Close the stock book" subtitle="No receipt, give-out, count or transfer can be dated on or before this date. Leave it empty to reopen everything." maxWidth="xs"
+      <FormDialog open={closing} title="Close the stock book" subtitle="No receipt, give-out, audit or transfer can be dated on or before this date. Leave it empty to reopen everything." maxWidth="xs"
         onClose={() => setClosing(false)} submitLabel="Save"
         onSubmit={async () => { await putDeskSettings({ closedThrough: closeDate || null }); toast.success(closeDate ? `Closed up to ${closeDate}.` : 'Nothing is closed.'); page.reload(); }}>
         <TextField label="Closed up to and including" type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)} InputLabelProps={{ shrink: true }} inputProps={{ max: d?.date }} />

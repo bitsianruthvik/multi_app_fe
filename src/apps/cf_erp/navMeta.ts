@@ -203,7 +203,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'desk-requests', desk: 'v2', label: 'Requests', path: 'material-requests', hasDetail: true, permission: STORES_WORK, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock'] },
       { key: 'desk-receive', desk: 'v2', label: 'Receive', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
       { key: 'desk-out', desk: 'v2', label: 'Out with', path: 'stores-out', permission: STOCK_READ, keywords: ['who has', 'tools', 'returnable', 'vendor', 'job work', 'lost', 'worn out', 'return', 'overdue'] },
-      { key: 'desk-count', desk: 'v2', label: 'Count', path: 'stores-count', permission: STORES_WORK, keywords: ['audit', 'count', 'stock take', 'cycle count', 'difference', 'physical'] },
+      { key: 'desk-count', desk: 'v2', label: 'Audit', path: 'stores-count', permission: STORES_WORK, keywords: ['audit', 'count', 'stock take', 'cycle count', 'difference', 'physical'] },
       // 2026-11-21 (user): work in progress and offcuts are part of the desk too — the same two read-only pages as before.
       { key: 'desk-wip', desk: 'v2', label: 'Work in progress', path: 'wip', permission: STORES_WORK, keywords: ['production ledger', 'pieces', 'in process', 'making', 'cut pieces'] },
       { key: 'desk-offcuts', desk: 'v2', label: 'Offcuts', path: 'offcuts', permission: STORES_WORK, keywords: ['remnant', 'leftover', 'plate', 'drop', 'cut pieces'] },

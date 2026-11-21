@@ -9,7 +9,7 @@ import { appPath } from '../../navMeta';
 import { DialogHeader } from '../FormDialog';
 import { Badge, ErrorNotice, Mono, SkeletonRows } from '../ui';
 
-const TYPE_WORD: Record<string, string> = { receipt: 'Received', issue: 'Given out', transfer: 'Moved', adjustment: 'Count', scrap: 'Scrapped', return: 'Returned to customer' };
+const TYPE_WORD: Record<string, string> = { receipt: 'Received', issue: 'Given out', transfer: 'Moved', adjustment: 'Audit', scrap: 'Scrapped', return: 'Returned to customer' };
 const eventWord = (e: LedgerEvent) => (e.returnIn ? 'Came back' : TYPE_WORD[e.type] ?? e.type);
 const eventFor = (e: LedgerEvent) => [e.given?.label, e.person, e.machine, e.reason, e.reference].filter(Boolean).join(' · ');
 
