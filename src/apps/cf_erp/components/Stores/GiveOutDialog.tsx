@@ -9,6 +9,7 @@ import {
 } from '../../api/storesDesk';
 import { FormDialog } from '../FormDialog';
 import { OrderPicker, PartyPicker, ServerPicker } from '../ServerPicker';
+import { BrowseItemsDialog, type BrowsedItem } from './BrowseItemsDialog';
 
 export interface GiveOutItem { id: number; name: string; uom: string; returnable: boolean; inStock: number; issueConditions?: string | null }
 interface Line { item: GiveOutItem; qty: string; checked: boolean }
@@ -48,6 +49,17 @@ export function GiveOutDialog({ open, item, areas, onClose, onDone }: {
   const [adding, setAdding] = useState<'department' | 'person' | null>(null);
   const [newName, setNewName] = useState('');
   const storage = areas.filter((a) => a.purpose === 'storage');
+  const [browsing, setBrowsing] = useState(false);
+  const [browseNote, setBrowseNote] = useState<string | null>(null);
+  /** Items ticked in the list: each is looked up in the store; one with nothing in stock is left out and named. */
+  const addBrowsed = async (items: BrowsedItem[]) => {
+    const none: string[] = [];
+    for (const it of items) {
+      const r = await cfApi.get<{ rows: LedgerRow[] }>(`/stores-desk/ledger${qs({ paged: 1, limit: 20, show: 'all', search: it.code ?? it.name })}`).then((x) => x.rows.find((row) => row.item.id === it.id) ?? null).catch(() => null);
+      if (r && r.now > 0) addItem(r); else none.push(it.name);
+    }
+    setBrowseNote(none.length ? `Not in the store, so not added: ${none.join(', ')}.` : null);
+  };
 
   useEffect(() => {
     if (!shown) return;
@@ -122,6 +134,9 @@ export function GiveOutDialog({ open, item, areas, onClose, onDone }: {
         <ServerPicker<LedgerRow> label={lines.length ? 'Add another item' : 'Item'} noun="item" value={null} onChange={addItem}
           search={(t) => cfApi.get<{ rows: LedgerRow[] }>(`/stores-desk/ledger${qs({ paged: 1, limit: 15, show: t ? 'all' : 'stock', search: t || undefined })}`).then((r) => r.rows.filter((x) => x.now > 0 && !lines.some((l) => l.item.id === x.item.id)))}
           getId={(r) => r.item.id} getLabel={(r) => `${r.item.name} · ${qtyText(r.now)} ${r.item.uom}`} />
+        <Box><Button size="small" onClick={() => setBrowsing(true)} data-testid="giveout-browse">Not sure of the name? Browse the item list</Button></Box>
+        {browseNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-700, var(--c-text-2))' }}>{browseNote}</Typography>}
+        <BrowseItemsDialog open={browsing} onClose={() => setBrowsing(false)} excludeIds={lines.map((l) => l.item.id)} onAdd={(items) => void addBrowsed(items)} />
       </Box>
       <Box>
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>Given for</Typography>

@@ -11,6 +11,7 @@ import { RecordPicker } from '../RecordPicker';
 import { OrderPicker, ServerPicker } from '../ServerPicker';
 import { DialogHeader } from '../FormDialog';
 import { ErrorNotice, Mono } from '../ui';
+import { BrowseItemsDialog } from './BrowseItemsDialog';
 
 /**
  * Stores › NEW MR (§79, user 2026-10-18) and NEW PR (user 2026-10-27). Full screen, keyboard first: pick an item, Tab to
@@ -21,20 +22,23 @@ import { ErrorNotice, Mono } from '../ui';
  *   kind 'pr'  Stores' OWN purchase — straight to a PURCHASE REQUEST for Purchase (nothing taken from stock): For Stock or
  *              General, General optionally charged to a sales order or a maintenance order. onRaised gets the PR.
  */
-export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', kind = 'mr', canPickMaintenance = false }: {
+export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', kind = 'mr', canPickMaintenance = false, presetOrder = null }: {
   open: boolean;
   onClose: () => void;
   /** kind 'mr': the MR; kind 'pr': the PR made (the MR under it is internal). */
   onRaised: (made: { id: number; code: string }) => void;
   defaultFor?: MrFor;
   kind?: 'mr' | 'pr';
+  /** Raised from a sales order's own page (2026-11-22): it is for that order — anything of the catalog, not only what its BOM lists. */
+  presetOrder?: SalesOrder | null;
   /** kind 'pr': may the user search maintenance orders (maintenance or production view) to charge one. */
   canPickMaintenance?: boolean;
 }) {
   const pr = kind === 'pr';
   const t = pr ? 'newpr' : 'newmr';
   const choices = pr ? NEW_PR_FOR : NEW_MR_FOR;
-  const startFor: MrFor = pr && defaultFor !== 'stock' ? 'general' : defaultFor;
+  const startFor: MrFor = presetOrder ? 'sales_order' : pr && defaultFor !== 'stock' ? 'general' : defaultFor;
+  const [browsing, setBrowsing] = useState(false);
   const [forType, setForType] = useState<MrFor>(startFor);
   const [order, setOrder] = useState<SalesOrder | null>(null);
   const [maint, setMaint] = useState<MaintenanceOrder | null>(null);
@@ -45,8 +49,8 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
   const [tried, setTried] = useState(false);
   useEffect(() => {
     if (!open) return;
-    setForType(startFor); setOrder(null); setMaint(null); setNote(''); setRows([{ item: null, qty: '' }]); setError(null); setTried(false); setBusy(false);
-  }, [open, startFor]);
+    setForType(startFor); setOrder(presetOrder ?? null); setMaint(null); setNote(''); setRows([{ item: null, qty: '' }]); setError(null); setTried(false); setBusy(false);
+  }, [open, startFor, presetOrder]);
   const problems = useMemo(() => newMrProblems(forType, forType === 'stock' ? null : order?.id ?? null, rows), [forType, order, rows]);
   const setRow = (k: number, patch: Partial<DraftRow>) => setRows((rs) => withSpareRow(rs.map((r, i) => (i === k ? { ...r, ...patch } : r))));
   const focusPicker = (k: number) => window.setTimeout(() => document.querySelector<HTMLInputElement>(`[data-testid="${t}-item-${k}"] input`)?.focus(), 30);
@@ -77,14 +81,15 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
       <DialogContent>
         <Box sx={{ maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
           <ErrorNotice error={error} />
-          <Box>
+          {presetOrder && <Typography sx={{ fontSize: 14 }} data-testid="newmr-for-order">For sales order <Mono>{presetOrder.code}</Mono> — its cost goes to this order. Ask for anything in the catalog: steel, bought-out parts, consumables, tools.</Typography>}
+          {!presetOrder && <Box>
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mb: 0.75 }}>For — the cost follows it</Typography>
             <ToggleButtonGroup size="small" exclusive value={forType} onChange={(_, v) => { if (v) setForType(v); }} aria-label="For">
               {choices.map((f) => <ToggleButton key={f.value} value={f.value} data-testid={`${t}-for-${f.value}`}>{f.label}</ToggleButton>)}
             </ToggleButtonGroup>
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.75 }}>{choices.find((f) => f.value === forType)?.hint}</Typography>
-          </Box>
-          {forType !== 'stock' && (
+          </Box>}
+          {!presetOrder && forType !== 'stock' && (
             <OrderPicker value={order} onChange={setOrder} label={forType === 'sales_order' ? 'Sales order' : 'Sales order (optional — its cost goes to that order)'} sx={{ maxWidth: 520 }} />
           )}
           {pr && forType === 'general' && canPickMaintenance && (
@@ -119,12 +124,15 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
               </Box>
             ))}
           </Box>
+          <Box><Button size="small" variant="outlined" onClick={() => setBrowsing(true)} data-testid={`${t}-browse`}>Not sure of the name? Browse the item list</Button></Box>
           <TextField size="small" label="Note (what it is for)" value={note} onChange={(e) => setNote(e.target.value)} multiline minRows={1} inputProps={{ maxLength: 500 }} />
           {tried && problems.length > 0 && (
             <Alert severity="warning" data-testid={`${t}-problems`}>{problems.map((p) => <Box key={p}>{p}</Box>)}</Alert>
           )}
         </Box>
       </DialogContent>
+      <BrowseItemsDialog open={browsing} onClose={() => setBrowsing(false)} excludeIds={rows.filter((x) => x.item).map((x) => x.item!.id)}
+        onAdd={(items) => setRows((rs) => withSpareRow([...rs.filter((r) => r.item), ...items.map((it) => ({ item: it, qty: '' }))]))} />
       <DialogActions>
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mr: 'auto', pl: 2 }}>Enter: next row · Ctrl+Enter: raise</Typography>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>

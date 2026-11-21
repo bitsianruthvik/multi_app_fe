@@ -27,6 +27,7 @@ import { saveBlob } from '../../lib/acceptance';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import TableViewRounded from '@mui/icons-material/TableViewRounded';
 import { nudgeIfRefused, useFreshKeys } from '../salesMotion';
+import { NewMrDialog } from '../Stores/NewMrDialog';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const NO_MANAGE = 'Creating the material request needs the orders manage or the inventory manage permission.';
@@ -80,6 +81,9 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const requisitions = data?.requisitions ?? [];
   const freshMrs = useFreshKeys(data ? requisitions.map((r) => String(r.id)) : null);
   const raiseButton = useRef<HTMLElement | null>(null);
+  // 2026-11-22: ask Stores for anything else for this order (consumables, tools, extra material) from the order itself.
+  const canAsk = isPermitted('cf_erp_orders_manage') || isPermitted('cf_erp_maintenance');
+  const [asksMore, setAsksMore] = useState(false);
   const without = data?.linesWithout ?? [];
   const raisable = without.filter((w) => w.canRaise);
   const canRequest = !!req?.canRequest;
@@ -141,6 +145,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           {req && !req.canRequest && <Badge family="warning" noIcon label={req.requestWhy ?? 'Not yet'} />}
           {req && req.items.length > 0 && <Mono muted>{req.items.length} {req.items.length === 1 ? 'item' : 'items'}{shortCount ? ` · ${shortCount} short` : ' · all in store'}</Mono>}
           <Box sx={{ flex: 1 }} />
+          {canAsk && <Button size="small" variant="outlined" onClick={() => setAsksMore(true)} data-testid="order-new-mr">New MR for this order</Button>}
           {requisitions.length > 0 && <>
             <Button size="small" startIcon={<PictureAsPdfRounded />} onClick={() => void share('pdf')} data-testid="mr-share-pdf">MR as PDF</Button>
             <Button size="small" startIcon={<TableViewRounded />} onClick={() => void share('xlsx')} data-testid="mr-share-xlsx">MR as Excel</Button>
@@ -225,6 +230,8 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           </Box>
         )}
       </Box>
+      <NewMrDialog open={asksMore} presetOrder={order} onClose={() => setAsksMore(false)}
+        onRaised={(mr) => { toast.success(`${mr.code} raised for ${order.code}. Stores will take what is in stock; the rest goes on a purchase request.`); mrs.reload(); reqs.reload(); onChanged?.(); }} />
       <PromisedDateDialog open={!!asking} proposed={asking?.proposed ?? null} onClose={() => setAsking(null)}
         onConfirm={async (date) => { const a = asking; setAsking(null); await raiseNow(a?.lineIds, date); }} />
     </SectionCard>
