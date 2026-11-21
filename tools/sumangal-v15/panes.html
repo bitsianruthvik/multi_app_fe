@@ -1,0 +1,59 @@
+<div class="pane hidden" id="pOrd">
+ <div class="card"><h2>Customers</h2><p class="note">As of the selected date. Open = ordered − dispatched on each order line. In WIP = pieces in batch items made for those lines. Ready to dispatch = cleared (up to the order quantity) − dispatched, per order line, so it also works for past dates. <b>Short</b> = open − ready − in WIP: pieces not yet anywhere in the plant. "At vendors" is by part (challans carry only the part). Double-click any figure for the lines behind it.</p><div class="scroll"><table id="ordTab"></table></div></div>
+ <div class="card"><h2>From order to dispatch</h2><div class="row"><label style="font-size:12px;color:var(--mut)">Orders placed from<br><input type="date" id="funFrom"></label><label style="font-size:12px;color:var(--mut)">to<br><input type="date" id="funTo"></label></div>
+  <p class="note">The plant plans more than the order to cover expected losses. Extra planned pieces and rejections are shown as separate bars: they are not the same thing. Double-click a bar for the order lines behind it.</p><div id="funBox"></div></div>
+ <div class="card"><h2>Open order lines</h2><p class="note">Sorted by days late. Double-click a line to trace the order.</p><div class="scroll"><table id="olTab"></table></div></div>
+</div>
+<div class="pane hidden" id="pTrace">
+ <div class="card"><h2>Trace a batch item, an order or a WO</h2><div class="row"><label style="font-size:12px;color:var(--mut)">Batch item, order or WO number<br><input id="trQ" placeholder="e.g. 249/24-25/1/A or 506/25-26" style="width:min(340px,80vw)"></label></div>
+  <p class="note">"Where it is now" uses the As-of date above. Double-click any batch item or order anywhere in the dashboard to land here.</p></div>
+ <div id="trOut"></div>
+</div>
+<div class="pane hidden" id="pWipT">
+ <div class="card"><h2>WIP across stages over time</h2><div class="row">
+  <label style="font-size:12px;color:var(--mut)">From<br><input type="date" id="wtFrom"></label><label style="font-size:12px;color:var(--mut)">To<br><input type="date" id="wtTo"></label>
+  <label style="font-size:12px;color:var(--mut)">Group by<br><select id="wtGran"><option value="w">Week</option><option value="m" selected>Month</option></select></label>
+  <div><span class="cap" style="font-size:11px;color:var(--mut)">Stages</span><details class="ms" id="msWt"></details></div>
+  <label style="font-size:12px;color:var(--mut)">Only pieces aged at least (days)<br><input type="number" id="wtAge" placeholder="any"></label></div>
+  <p class="note">WIP at the end of each period, worked out exactly as on the WIP tab (stage names as on the WIP tab). Weekly view takes a few seconds the first time. Double-click a figure, or click a point on the chart, for the batch items behind it.</p>
+  <div><canvas id="wtChart"></canvas></div><div class="scroll" style="margin-top:12px"><table id="wtTab"></table></div></div>
+</div>
+<div class="pane hidden" id="pTime">
+ <div class="card"><h2>Where time goes: days spent in each WIP stage</h2><div class="row">
+  <label style="font-size:12px;color:var(--mut)">Pieces reaching the next step from<br><input type="date" id="tgFrom"></label><label style="font-size:12px;color:var(--mut)">to<br><input type="date" id="tgTo"></label>
+  <div><span class="cap" style="font-size:11px;color:var(--mut)">Part (SKU)</span><details class="ms" id="msSku"></details></div></div>
+  <p class="note">For each stage on the WIP tab: days from finishing one step to being recorded at the next, matched piece by piece (oldest first). The ERP records completions only, so each figure covers waiting <b>and</b> the work at the next step. "HT Completed – Inspection (QC) Pending" includes fettling, machining and other vendor time. Customer, order type and metal filters apply. Double-click a stage for its batch items.</p>
+  <div class="scroll"><table id="tgTab"></table></div></div>
+ <div class="card"><h2>Trend for one stage</h2><div class="row"><label style="font-size:12px;color:var(--mut)">Stage<br><select id="tgStage"></select></label></div><div><canvas id="tgChart"></canvas></div></div>
+</div>
+<div class="pane hidden" id="pVperf">
+ <div class="card"><h2>Vendor performance: speed and quality</h2><div class="row">
+  <label style="font-size:12px;color:var(--mut)">From<br><input type="date" id="vpFrom"></label><label style="font-size:12px;color:var(--mut)">To<br><input type="date" id="vpTo"></label>
+  <label style="font-size:12px;color:var(--mut)">Charge a rejection to a vendor who returned the part within (days)<br><input type="number" id="vpWin" value="60"></label>
+  <label style="font-size:12px;color:var(--mut)">Pour rate to compare with (kg/day)<br><input type="number" id="vpPour" value="2250" style="width:90px"></label>
+  <label style="font-size:13px;flex-direction:row;display:flex;gap:6px;align-items:center;margin-top:16px"><input type="checkbox" id="vpMc"> Machining reasons only (M/C Rej.)</label></div>
+  <p class="note"><b>Speed:</b> kg received back per working day, and per working day while the vendor was holding our material (shows the vendor's real rate when loaded). Compare with the pour rate: a vendor that a whole process depends on must keep up with it. <b>Quality:</b> receipts never record rejections except the in-house fettling contractors, so a rejection at final or machining inspection is charged to the vendor who returned that part last before it (the latest vendor event). Tick "Machining reasons only" to leave casting defects out.</p>
+  <p class="note" id="vpNote"></p><div><canvas id="vpChart"></canvas></div><p class="note">Each bubble is a vendor and process: right = slower, up = more rejections, size = kg received. Click a bubble for its charged rejections.</p>
+  <div class="scroll"><table id="vpTab"></table></div></div>
+</div>
+<div class="pane hidden" id="pCap">
+ <div class="card"><h2>Capacity: in-house + outsourced, per step</h2><div class="row">
+  <label style="font-size:12px;color:var(--mut)">From<br><input type="date" id="cpFrom"></label><label style="font-size:12px;color:var(--mut)">To<br><input type="date" id="cpTo"></label>
+  <label style="font-size:12px;color:var(--mut)">Target pour rate (kg/day)<br><input type="number" id="cpPour" value="2250" style="width:90px"></label></div>
+  <p class="note" id="cpNote"></p><div><canvas id="cpChart"></canvas></div>
+  <p class="note" style="margin-top:8px">Capacity used = average kg processed per working day at each step: in-house entries plus what came back from vendors. Heat treatment splits its final pass into in-house and at HT vendors. A step running below what is poured each day builds a queue in front of it. Double-click a step for its weekly figures.</p>
+  <div class="scroll"><table id="cpTab"></table></div></div>
+</div>
+<div class="pane hidden" id="pDisp">
+ <div class="card"><h2>Customer dispatch trends</h2><div class="row">
+  <label style="font-size:12px;color:var(--mut)">From<br><input type="date" id="dtFrom"></label><label style="font-size:12px;color:var(--mut)">To<br><input type="date" id="dtTo"></label>
+  <label style="font-size:12px;color:var(--mut)">Group by<br><select id="dtGran"><option value="w">Week</option><option value="m" selected>Month</option></select></label></div>
+  <div><canvas id="dtChart"></canvas></div>
+  <p class="note" style="margin-top:8px">Dispatch by order line. On time = dispatched on or before the line's delivery date. Click a bar segment, or double-click any figure, for the dispatches behind it.</p>
+  <div class="scroll"><table id="dtTab"></table></div></div>
+</div>
+<div class="pane hidden" id="pIns">
+ <div class="card"><h2>Why about 150 kg per batch item?</h2><div id="in1"></div><div class="grid2"><div><canvas id="in1Chart"></canvas></div><div class="scroll"><table id="in1Tab"></table></div></div></div>
+ <div class="card"><h2>Are customers buying the extra pieces?</h2><div id="in2"></div><div class="scroll"><table id="in2Tab"></table></div></div>
+ <div class="card"><h2>What are manual work orders?</h2><div id="in3"></div></div>
+</div>

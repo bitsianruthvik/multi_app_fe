@@ -5,6 +5,7 @@ import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { SumangalShell, SwitchLayout, ToHome } from './components/SumangalShell';
 
 const KeyMetrics = lazy(() => import('./pages/KeyMetrics'));
+const ErpV15 = lazy(() => import('./pages/ErpV15'));
 const FlowCustomer = lazy(() => import('./pages/flow/FlowCustomer'));
 const FlowPlanning = lazy(() => import('./pages/flow/FlowPlanning'));
 const FlowProduction = lazy(() => import('./pages/flow/FlowProduction'));
@@ -65,6 +66,7 @@ export function getSumangalDashboardRoutes(
     </ProtectedRoute>
   );
   const screens: [string, React.ReactNode][] = [
+    ['erp-v15', <ErpV15 />],
     ['key-metrics', <KeyMetrics />],
     ['flow-asis-customer', <FlowCustomer mode="asis" />],
     ['flow-asis-planning', <FlowPlanning mode="asis" />],
@@ -107,6 +109,7 @@ export function getSumangalDashboardRoutes(
     { path: '/:company/sumangal_dashboard/layout-intent', element: <ProtectedRoute><SwitchLayout to="intent" /></ProtectedRoute> },
     { path: '/:company/sumangal_dashboard/layout-topic', element: <ProtectedRoute><SwitchLayout to="topic" /></ProtectedRoute> },
     { path: '/:company/sumangal_dashboard/layout-flow', element: <ProtectedRoute><SwitchLayout to="flow" /></ProtectedRoute> },
+    { path: '/:company/sumangal_dashboard/layout-erp', element: <ProtectedRoute><SwitchLayout to="erp" /></ProtectedRoute> },
     ...landing.map((p) => ({
       path: `/:company/sumangal_dashboard${p ? `/${p}` : ''}`,
       element: <ProtectedRoute><ToHome /></ProtectedRoute>,

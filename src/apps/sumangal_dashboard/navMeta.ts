@@ -67,6 +67,7 @@ export const SECTIONS: NavSection[] = [
   },
   { key: 'customers', label: 'Customers', screens: [{ label: 'Customers', path: 'customers', keywords: ['sales', 'price', 'billing', 'credit'] }] },
   { key: 'layout', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
+  { key: 'layout-erp', label: 'ERP dashboard ⇄', screens: [{ label: 'Open the ERP dashboard (V15)', path: 'layout-erp', keywords: ['switch', 'v15', 'erp dashboard', 'wip', 'historical'] }] },
   { key: 'layout-flow', label: 'By flow ⇄', screens: [{ label: 'Open the by-flow dashboard', path: 'layout-flow', keywords: ['switch', 'as-is', 'historic', 'flow', 'third'] }] },
 ];
 
@@ -83,6 +84,7 @@ export const INTENT_SECTIONS: NavSection[] = [
     screens: SECTIONS.filter((s) => s.key !== 'layout').flatMap((s) => s.screens).filter((s) => !s.path.startsWith('step-')),
   },
   { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
+  { key: 'layout-erp', label: 'ERP dashboard ⇄', screens: [{ label: 'Open the ERP dashboard (V15)', path: 'layout-erp', keywords: ['switch', 'v15', 'erp dashboard', 'wip', 'historical'] }] },
 ];
 
 /** The third layout: As-is (what is open now) and Historic (orders in a range), each with the same four screens. */
@@ -100,4 +102,13 @@ export const FLOW_SECTIONS: NavSection[] = [
   { key: 'flow-historic', label: 'Historic', screens: flowScreens('historic') },
   { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
   { key: 'layout-intent', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
+  { key: 'layout-erp', label: 'ERP dashboard ⇄', screens: [{ label: 'Open the ERP dashboard (V15)', path: 'layout-erp', keywords: ['switch', 'v15', 'erp dashboard', 'wip', 'historical'] }] },
+];
+
+/** The fourth layout: the ERP dashboard (V15), one screen with its own Dashboard / Historical analysis tabs inside. */
+export const ERP_SECTIONS: NavSection[] = [
+  { key: 'erp', label: 'ERP dashboard', screens: [{ label: 'ERP dashboard (V15)', path: 'erp-v15', keywords: ['v15', 'wip', 'ready to dispatch', 'vendors', 'orders', 'trace', 'historical', 'capacity', 'quality', 'scrap', 'insights'] }] },
+  { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
+  { key: 'layout-intent', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
+  { key: 'layout-flow', label: 'By flow ⇄', screens: [{ label: 'Open the by-flow dashboard', path: 'layout-flow', keywords: ['switch', 'as-is', 'historic', 'flow', 'third'] }] },
 ];
