@@ -47,11 +47,13 @@ const COLUMNS: DataColumn<SalesOrder>[] = [
     exportValue: (o) => (showRevision(o) ? `${o.code} ${revisionLabel(o.revision)}` : o.code),
   },
   {
-    key: 'project', header: 'Project', sortValue: (o) => o.title ?? o.customer?.name ?? '',
+    // 2026-11-23 (user): people call an order by its customer — the customer's name leads, the title sits under it.
+    key: 'project', header: 'Customer · project', sortValue: (o) => `${o.customer?.name ?? ''} ${o.title ?? ''}`,
+    exportValue: (o) => `${o.customer?.name ?? 'For stock'} — ${o.title ?? ''}`,
     render: (o) => (
       <Box sx={{ minWidth: 0, py: 0.5 }}>
-        <Box sx={{ fontWeight: 500, whiteSpace: 'normal' }}>{o.title ?? <Box component="span" sx={{ color: 'var(--c-text-3)' }}>Untitled</Box>}</Box>
-        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{o.customer ? `${o.customer.name}${o.customerReference ? ` · ${o.customerReference}` : ''}` : 'For stock'}</Typography>
+        <Box sx={{ fontWeight: 600, fontSize: 14.5, whiteSpace: 'normal' }}>{o.customer?.name ?? 'For stock'}{o.customerReference ? <Box component="span" sx={{ fontWeight: 400, fontSize: 12.5, color: 'var(--c-text-3)' }}> · {o.customerReference}</Box> : null}</Box>
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{o.title ?? 'Untitled'}</Typography>
       </Box>
     ),
   },
