@@ -104,3 +104,16 @@ export const putDeskSettings = (body: Partial<Pick<DeskSettings, 'closedThrough'
 
 /** 12 → "12", 1.5 → "1.5", 0.184019 → "0.184": a quantity as a storekeeper writes it. */
 export const qtyText = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 3 }));
+
+/* §115 — stock reserved for a sales order: who it is for, and asking planning and production to use some of it. */
+export interface ReservedFor { reservationId: number; batchId: number | null; order: { id: number; code: string } | null; quantity: number; hold: boolean }
+export interface ReservedUse {
+  id: number; code: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; item: { id: number; code: string | null; name: string; uom: string | null };
+  quantity: number; reason: string; wantedFor: string | null; requestedBy: string | null; at: string;
+  planning: { by: string | null; at: string } | null; production: { by: string | null; at: string } | null; decisionNote: string | null;
+  released: { order: { id: number; code: string } | null; quantity: number }[];
+}
+export const getReservedFor = (itemId: number) => cfApi.get<ReservedFor[]>(`/stores-desk/reserved-for/${itemId}`);
+export const listReservedUse = (q: { status?: string; itemId?: number } = {}) => cfApi.get<{ rows: ReservedUse[] }>(`/stores-desk/reserved-use${qs(q)}`);
+export const askReservedUse = (body: { itemId: number; quantity: number; reason: string; wantedFor?: string | null }) => cfApi.post<ReservedUse>('/stores-desk/reserved-use', body);
+export const withdrawReservedUse = (id: number) => cfApi.post<ReservedUse>(`/stores-desk/reserved-use/${id}/withdraw`, {});

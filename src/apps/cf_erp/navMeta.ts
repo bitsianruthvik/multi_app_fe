@@ -50,7 +50,7 @@ const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_invent
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
  */
-const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn|cf_erp_approve_month_plan|cf_erp_approve_stock_count';
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline|cf_erp_approve_machine_purchase|cf_erp_approve_machine_condemn|cf_erp_approve_month_plan|cf_erp_approve_stock_count|cf_erp_approve_reserved_planning|cf_erp_approve_reserved_production';
 /** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
 /**
  * A screen another section also lists, shown in the Management menu only to Management (2026-10-24): `tag` (what the page

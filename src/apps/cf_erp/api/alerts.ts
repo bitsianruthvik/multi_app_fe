@@ -8,13 +8,16 @@ export type AlertKind = 'po_date_moved' | 'po_late' | 'start_late' | 'unplanned_
   // §113: maintenance, engineering, stores and accounts
   | 'machine_down' | 'repeat_breakdown' | 'pm_overdue' | 'inquiry_waiting' | 'count_skipped' | 'tool_lost' | 'out_too_long' | 'invoice_unpaid'
   // §114: Maintenance today
-  | 'ticket_late' | 'machine_no_plan' | 'spare_low' | 'tool_worn_early';
+  | 'ticket_late' | 'machine_no_plan' | 'spare_low' | 'tool_worn_early'
+  // §115: reserved stock was given to Stores — the order is short
+  | 'reserved_taken';
 export type Department = 'md' | 'planning' | 'stores' | 'purchase' | 'floor' | 'maintenance' | 'engineering' | 'accounts';
 export const DEPARTMENT_LABEL: Record<Department, string> = {
   md: 'MD', planning: 'Planning', stores: 'Stores', purchase: 'Purchase', floor: 'Shop floor', maintenance: 'Maintenance', engineering: 'Engineering', accounts: 'Accounts',
 };
 export const KIND_LABEL: Record<AlertKind, string> = {
   po_date_moved: 'Delivery date moved', po_late: 'Procurement late', start_late: 'Start late', unplanned_start: 'Unplanned start', finish_late: 'Finish late',
+  reserved_taken: 'Reserved stock given away',
   ticket_late: 'Ticket past its target', machine_no_plan: 'Machine with no cycle', spare_low: 'Spare running low', tool_worn_early: 'Tool worn early',
   machine_down: 'Machine down', repeat_breakdown: 'Repeat breakdown', pm_overdue: 'Preventive job overdue', inquiry_waiting: 'Inquiry waiting',
   count_skipped: 'Count not done', tool_lost: 'Item lost', out_too_long: 'Out too long', invoice_unpaid: 'Invoice unpaid',

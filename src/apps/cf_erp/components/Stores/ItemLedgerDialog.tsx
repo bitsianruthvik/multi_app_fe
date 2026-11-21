@@ -1,6 +1,9 @@
-import { Box, Dialog, DialogContent, Typography, useMediaQuery } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Box, Button, Dialog, DialogContent, TextField, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
-import { getItemLedger, qtyText, type LedgerEvent } from '../../api/storesDesk';
+import { askReservedUse, getItemLedger, getReservedFor, listReservedUse, qtyText, withdrawReservedUse, type LedgerEvent } from '../../api/storesDesk';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
+import type { CfApiError } from '../../api/client';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { DialogHeader } from '../FormDialog';
@@ -26,6 +29,25 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
   const phone = useMediaQuery('(max-width:700px)');
   const d = useLoad(() => (itemId ? getItemLedger(itemId, { from, to }) : Promise.resolve(null)), [itemId, from, to]);
   const v = itemId && d.data?.item.id === itemId ? d.data : null;
+  // §115: who the stock is reserved for, and Stores asking planning and production to use some of it.
+  const can = useIsPermitted();
+  const canAsk = can('cf_erp_stores') || can('cf_erp_inventory_manage');
+  const held = useLoad(() => (itemId ? getReservedFor(itemId) : Promise.resolve([])), [itemId]);
+  const asks = useLoad(() => (itemId ? listReservedUse({ itemId, status: 'all' }) : Promise.resolve({ rows: [] })), [itemId]);
+  const [asking, setAsking] = useState(false);
+  const [askQty, setAskQty] = useState('');
+  const [askWhy, setAskWhy] = useState('');
+  const [askErr, setAskErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setAsking(false); setAskQty(''); setAskWhy(''); setAskErr(null); }, [itemId]);
+  const pending = (asks.data?.rows ?? []).find((r) => r.status === 'pending') ?? null;
+  const lastAsk = (asks.data?.rows ?? [])[0] ?? null;
+  const sendAsk = async () => {
+    if (!itemId) return;
+    setBusy(true); setAskErr(null);
+    try { await askReservedUse({ itemId, quantity: Number(askQty), reason: askWhy.trim() }); setAsking(false); asks.reload(); }
+    catch (e) { setAskErr((e as CfApiError).message); } finally { setBusy(false); }
+  };
   return (
     <Dialog open={!!itemId} onClose={onClose} fullWidth maxWidth="md" fullScreen={phone}>
       <DialogHeader title={v ? v.item.name : 'Item'} onClose={onClose}
@@ -40,6 +62,34 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
                 {v.areas.length === 0 && <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>None in any area.</Typography>}
                 {v.areas.map((a) => <Box key={a.id} sx={line}><span>{a.name}{!a.store && <Box component="span" sx={{ color: 'var(--c-text-3)' }}> · {a.purpose}</Box>}</span><Mono>{qtyText(a.quantity)} {v.item.uom}</Mono></Box>)}
               </Block>
+              {(held.data?.length ?? 0) > 0 && (
+                <Block title="Reserved for">
+                  <Box data-testid="reserved-for">
+                    {held.data!.map((h) => <Box key={h.reservationId} sx={line}><span>{h.order?.code ?? 'An order'}<Box component="span" sx={{ color: 'var(--c-text-3)' }}>{h.hold ? ' · held from a purchase' : ' · released to production'}</Box></span><Mono>{qtyText(h.quantity)} {v.item.uom}</Mono></Box>)}
+                    {pending && (
+                      <Box sx={{ mt: 1, fontSize: 13 }}>
+                        <b>{pending.code}</b> asks for {qtyText(pending.quantity)} {v.item.uom}: planning {pending.planning ? 'approved' : 'waiting'}, production {pending.production ? 'approved' : 'waiting'}.
+                        {canAsk && <Button size="small" sx={{ ml: 1 }} onClick={async () => { await withdrawReservedUse(pending.id); asks.reload(); }}>Take back</Button>}
+                      </Box>
+                    )}
+                    {!pending && lastAsk && lastAsk.status !== 'withdrawn' && (
+                      <Typography sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-2)' }}>{lastAsk.code}: {lastAsk.status}{lastAsk.decisionNote ? ` — ${lastAsk.decisionNote}` : ''}{lastAsk.status === 'approved' ? ' — give it out now' : ''}</Typography>
+                    )}
+                    {canAsk && !pending && !asking && <Button size="small" variant="outlined" sx={{ mt: 1 }} onClick={() => setAsking(true)} data-testid="reserved-ask">Ask to use reserved stock</Button>}
+                    {asking && (
+                      <Box sx={{ mt: 1, display: 'grid', gap: 1 }}>
+                        <TextField size="small" label={`Quantity needed (${v.item.uom})`} value={askQty} onChange={(e) => setAskQty(e.target.value)} inputProps={{ inputMode: 'decimal' }} />
+                        <TextField size="small" label="Why is it needed now?" value={askWhy} onChange={(e) => setAskWhy(e.target.value)} multiline minRows={2} helperText="Planning and production both approve. Purchase is told what the order is then short of." />
+                        {askErr && <Typography sx={{ fontSize: 13, color: 'var(--c-danger-600)' }}>{askErr}</Typography>}
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button size="small" variant="contained" disabled={busy || !(Number(askQty) > 0) || !askWhy.trim()} onClick={() => void sendAsk()}>Send for approval</Button>
+                          <Button size="small" onClick={() => setAsking(false)}>Cancel</Button>
+                        </Box>
+                      </Box>
+                    )}
+                  </Box>
+                </Block>
+              )}
               {v.outWith.length > 0 && (
                 <Block title="Out with">
                   {v.outWith.map((c) => <Box key={c.id} sx={line}><span>{c.holder ?? c.holderType}<Box component="span" sx={{ color: 'var(--c-text-3)' }}> · since {c.issuedOn}</Box></span><Mono>{qtyText(c.left)}</Mono></Box>)}
