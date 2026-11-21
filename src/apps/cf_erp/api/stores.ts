@@ -12,7 +12,7 @@ import type { MrFor, MrScreen, PrSummary } from './purchaseRequests';
  */
 
 export interface NewMrLine { itemId: number; qty: number; uom?: string | null }
-export interface NewMr { forType: MrFor; orderId?: number | null; maintenanceOrderId?: number | null; note?: string | null; lines: NewMrLine[] }
+export interface NewMr { forType: MrFor; orderId?: number | null; maintenanceOrderId?: number | null; note?: string | null; lines: NewMrLine[]; /** §116: the contractor the request is for (needed when a tool is asked for on a sales order). */ contractorId?: number | null }
 
 /** POST /requisitions → { id, code }. The MR goes to Stores' inbox. */
 export const createRequisition = (body: NewMr) => cfApi.post<{ id: number; code: string }>('/requisitions', body);

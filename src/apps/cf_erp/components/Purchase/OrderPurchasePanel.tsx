@@ -82,7 +82,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const freshMrs = useFreshKeys(data ? requisitions.map((r) => String(r.id)) : null);
   const raiseButton = useRef<HTMLElement | null>(null);
   // 2026-11-22: ask Stores for anything else for this order (consumables, tools, extra material) from the order itself.
-  const canAsk = isPermitted('cf_erp_orders_manage') || isPermitted('cf_erp_maintenance');
+  const canAsk = isPermitted('cf_erp_orders_manage') || isPermitted('cf_erp_maintenance') || isPermitted('cf_erp_production_manage');
   const [asksMore, setAsksMore] = useState(false);
   const without = data?.linesWithout ?? [];
   const raisable = without.filter((w) => w.canRaise);

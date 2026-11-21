@@ -3,12 +3,12 @@ import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogCont
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { CfApiError } from '../../api/client';
 import { getOrderItemTotals, type MrFor, type OrderItemTotal } from '../../api/purchaseRequests';
-import type { MasterRecord, SalesOrder } from '../../api/types';
+import type { MasterRecord, Party, SalesOrder } from '../../api/types';
 import { createRequisition, raiseStoresPr } from '../../api/stores';
 import { listOrders as listMaintenanceOrders, type MaintenanceOrder } from '../../api/maintenance';
 import { NEW_MR_FOR, NEW_PR_FOR, newMrBody, newMrProblems, newPrBody, withSpareRow, type DraftRow } from '../../lib/stores';
 import { RecordPicker } from '../RecordPicker';
-import { OrderPicker, ServerPicker } from '../ServerPicker';
+import { OrderPicker, PartyPicker, ServerPicker } from '../ServerPicker';
 import { DialogHeader } from '../FormDialog';
 import { ErrorNotice, Mono } from '../ui';
 import { BrowseItemsDialog } from './BrowseItemsDialog';
@@ -39,6 +39,8 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
   const choices = pr ? NEW_PR_FOR : NEW_MR_FOR;
   const startFor: MrFor = presetOrder ? 'sales_order' : pr && defaultFor !== 'stock' ? 'general' : defaultFor;
   const [browsing, setBrowsing] = useState(false);
+  /** §116: the contractor it is for — a tool asked for on a sales order goes to a contractor. */
+  const [contractor, setContractor] = useState<Party | null>(null);
   // 2026-11-22: with a sales order named, each row says what that order already asked for, ordered and was given.
   const [totals, setTotals] = useState<Map<number, OrderItemTotal>>(new Map());
   const [forType, setForType] = useState<MrFor>(startFor);
@@ -51,7 +53,7 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
   const [tried, setTried] = useState(false);
   useEffect(() => {
     if (!open) return;
-    setForType(startFor); setOrder(presetOrder ?? null); setMaint(null); setNote(''); setRows([{ item: null, qty: '' }]); setError(null); setTried(false); setBusy(false);
+    setForType(startFor); setOrder(presetOrder ?? null); setMaint(null); setContractor(null); setNote(''); setRows([{ item: null, qty: '' }]); setError(null); setTried(false); setBusy(false);
   }, [open, startFor, presetOrder]);
   useEffect(() => {
     if (!open || !order) { setTotals(new Map()); return undefined; }
@@ -78,7 +80,7 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
         const out = await raiseStoresPr(newPrBody(forType === 'stock' ? 'stock' : 'general', order?.id ?? null, maint?.id ?? null, note, rows));
         onRaised(out.purchaseRequest ?? out.requisition);
       } else {
-        onRaised(await createRequisition(newMrBody(forType, order?.id ?? null, note, rows)));
+        onRaised(await createRequisition({ ...newMrBody(forType, order?.id ?? null, note, rows), ...(contractor ? { contractorId: contractor.id } : {}) }));
       }
       onClose();
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e))); } finally { setBusy(false); }
@@ -105,6 +107,12 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
           </Box>}
           {!presetOrder && forType !== 'stock' && (
             <OrderPicker value={order} onChange={setOrder} label={forType === 'sales_order' ? 'Sales order' : 'Sales order (optional — its cost goes to that order)'} sx={{ maxWidth: 520 }} />
+          )}
+          {!pr && forType !== 'stock' && (
+            <Box data-testid="newmr-contractor" sx={{ maxWidth: 520 }}>
+              <PartyPicker role="subcontractor" value={contractor} onChange={setContractor} label="For contractor (needed when a tool is asked for)"
+                helperText="What Stores gives against this request goes out to this contractor; a tool is then out with them until it comes back." />
+            </Box>
           )}
           {pr && forType === 'general' && canPickMaintenance && (
             <Box data-testid="newpr-maintenance" sx={{ maxWidth: 520 }}>

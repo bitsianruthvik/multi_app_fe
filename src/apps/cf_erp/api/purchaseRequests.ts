@@ -85,6 +85,9 @@ export interface MrScreen extends MrForFields {
   lines: MrScreenLine[];
   purchaseRequest: PrSummary | null;
   purchaseOrders: { id: number; code: string; status: string; suppliedByCustomer?: boolean; supplier: { id: number; name: string } | null }[];
+  /** §116: the contractor the request is for, and every give-out Stores made against it. */
+  contractor?: { id: number; name: string } | null;
+  giveOuts?: { id: number; code: string; date: string; by: string | null; undone: boolean; lines: { item: string; uom: string | null; quantity: number }[] }[];
   sentence: string;
   /** On save only. */
   saved?: { held: number; released: number };
@@ -98,7 +101,7 @@ export interface MrRow extends MrForFields {
   status: string; statusLabel: string; materials: number; lockedLines: number; lockedWords: string;
   /** §73: shared with the customer, waiting for the acceptance — nothing to do in Purchase yet. */
   heldForAcceptance?: boolean;
-  purchaseRequest: PrSummary | null; raisedAt: string;
+  purchaseRequest: PrSummary | null; raisedAt: string; contractor?: { id: number; name: string } | null;
 }
 
 export type PrStatus = 'open' | 'partly_ordered' | 'ordered' | 'closed';

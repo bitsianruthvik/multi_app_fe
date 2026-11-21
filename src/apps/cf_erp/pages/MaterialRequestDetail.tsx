@@ -207,6 +207,22 @@ export default function MaterialRequestDetail() {
           <Typography data-testid="mr-issue-reason" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 1 }}>{m.issueReason}</Typography>
         )}
       </SectionCard>
+      {m.contractor && <Typography data-testid="mr-contractor" sx={{ fontSize: 14 }}>For contractor <b>{m.contractor.name}</b> — what is given against this request goes out to them; a tool is then on Out with until it comes back.</Typography>}
+      {(m.giveOuts?.length ?? 0) > 0 && (
+        <SectionCard title={`Given out against this request (${m.giveOuts!.filter((g) => !g.undone).length})`} subtitle="Every stock-out Stores made for this request.">
+          <Box data-testid="mr-giveouts" sx={{ display: 'grid', gap: 0.75, p: 2, pt: 0 }}>
+            {m.giveOuts!.map((g) => (
+              <Box key={g.id} sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 13.5, opacity: g.undone ? 0.5 : 1 }}>
+                <Mono chip><Box component={Link} to={appPath(company, `movements/${g.id}`)} sx={linkSx}>{g.code}</Box></Mono>
+                <span>{g.date}</span>
+                <span>{g.lines.map((l) => `${l.quantity} ${l.uom ?? ''} ${l.item}`.replace('  ', ' ')).join(' · ')}</span>
+                {g.by && <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>by {g.by}</Typography>}
+                {g.undone && <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>undone</Typography>}
+              </Box>
+            ))}
+          </Box>
+        </SectionCard>
+      )}
       {m.purchaseOrders.length > 0 && (
         <SectionCard title="Purchase orders" subtitle="The purchase orders that serve this MR.">
           <Box data-testid="mr-pos" sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>

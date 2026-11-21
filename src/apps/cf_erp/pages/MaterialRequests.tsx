@@ -36,7 +36,7 @@ export default function MaterialRequests() {
   const permitted = useIsPermitted();
   // New MR: whoever ASKS Stores (POST /requisitions: maintenance, orders manage). A request comes from someone else —
   // the storekeeper does not raise one to himself (user, 2026-11-22); his own purchases are "New PR".
-  const canRaise = permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage');
+  const canRaise = permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage') || permitted('cf_erp_production_manage');
   // New PR: Stores' own purchase (as POST /stores/purchase-requests: Stores or inventory manage).
   const canRaisePr = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage');
   const canPickMaintenance = permitted('cf_erp_maintenance') || permitted('cf_erp_production_view');
@@ -61,7 +61,7 @@ export default function MaterialRequests() {
       render: (r) => (
         <Box>
           <Mono>{mrForWords(r)}</Mono>
-          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{r.line ? r.line.name : r.notes ?? '—'}</Typography>
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{r.contractor ? `For contractor ${r.contractor.name} · ` : ''}{r.line ? r.line.name : r.notes ?? '—'}</Typography>
         </Box>
       ),
     },
