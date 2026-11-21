@@ -175,6 +175,9 @@ export interface PendingLine {
 /** §79: Stores' MR inbox — every MR, filtered by its 'For' (and a maintenance order). */
 export const listMaterialRequests = (q: { orderId?: number | null; search?: string; open?: boolean; forType?: MrFor | null; maintenanceOrderId?: number | null } = {}) =>
   cfApi.get<{ rows: MrRow[]; counts?: Record<string, number> }>(`/material-requests${qs({ orderId: q.orderId ?? undefined, search: q.search?.trim() || undefined, open: q.open === false ? 'false' : undefined, for: q.forType || undefined, maintenanceOrderId: q.maintenanceOrderId ?? undefined })}`);
+/** What a sales order has already asked for, has on POs, has received and has been given — an item. */
+export interface OrderItemTotal { itemId: number; requested: number; ordered: number; received: number; given: number }
+export const getOrderItemTotals = (orderId: number) => cfApi.get<{ rows: OrderItemTotal[] }>(`/orders/${orderId}/item-totals`);
 export const getMaterialRequest = (id: number) => cfApi.get<MrScreen>(`/material-requests/${id}`);
 /** Saves "take from stock" per line: earmarks it, and makes / updates the PR (or asks the customer for the rest). */
 export const saveMaterialRequest = (id: number, body: { lines: { lineId: number; takeFromStock: number }[]; customerDate?: string }) =>

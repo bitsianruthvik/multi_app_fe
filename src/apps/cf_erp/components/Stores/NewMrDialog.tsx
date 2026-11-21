@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, IconButton, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { CfApiError } from '../../api/client';
-import type { MrFor } from '../../api/purchaseRequests';
+import { getOrderItemTotals, type MrFor, type OrderItemTotal } from '../../api/purchaseRequests';
 import type { MasterRecord, SalesOrder } from '../../api/types';
 import { createRequisition, raiseStoresPr } from '../../api/stores';
 import { listOrders as listMaintenanceOrders, type MaintenanceOrder } from '../../api/maintenance';
@@ -39,6 +39,8 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
   const choices = pr ? NEW_PR_FOR : NEW_MR_FOR;
   const startFor: MrFor = presetOrder ? 'sales_order' : pr && defaultFor !== 'stock' ? 'general' : defaultFor;
   const [browsing, setBrowsing] = useState(false);
+  // 2026-11-22: with a sales order named, each row says what that order already asked for, ordered and was given.
+  const [totals, setTotals] = useState<Map<number, OrderItemTotal>>(new Map());
   const [forType, setForType] = useState<MrFor>(startFor);
   const [order, setOrder] = useState<SalesOrder | null>(null);
   const [maint, setMaint] = useState<MaintenanceOrder | null>(null);
@@ -51,6 +53,18 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
     if (!open) return;
     setForType(startFor); setOrder(presetOrder ?? null); setMaint(null); setNote(''); setRows([{ item: null, qty: '' }]); setError(null); setTried(false); setBusy(false);
   }, [open, startFor, presetOrder]);
+  useEffect(() => {
+    if (!open || !order) { setTotals(new Map()); return undefined; }
+    let alive = true;
+    getOrderItemTotals(order.id).then((r) => { if (alive) setTotals(new Map(r.rows.map((x) => [x.itemId, x]))); }).catch(() => { if (alive) setTotals(new Map()); });
+    return () => { alive = false; };
+  }, [open, order]);
+  const already = (itemId: number | undefined, uom: string | null | undefined) => {
+    if (!order || itemId == null) return null;
+    const x = totals.get(itemId);
+    if (!x || (!x.requested && !x.ordered && !x.given)) return `Nothing asked for ${order.code} yet`;
+    return `${order.code} already: asked ${x.requested} ${uom ?? ''} · on purchase orders ${x.ordered}${x.received ? ` (received ${x.received})` : ''} · given ${x.given}`.replace('  ', ' ');
+  };
   const problems = useMemo(() => newMrProblems(forType, forType === 'stock' ? null : order?.id ?? null, rows), [forType, order, rows]);
   const setRow = (k: number, patch: Partial<DraftRow>) => setRows((rs) => withSpareRow(rs.map((r, i) => (i === k ? { ...r, ...patch } : r))));
   const focusPicker = (k: number) => window.setTimeout(() => document.querySelector<HTMLInputElement>(`[data-testid="${t}-item-${k}"] input`)?.focus(), 30);
@@ -121,6 +135,7 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
                 <Tooltip title="Remove the row">
                   <span><IconButton size="small" aria-label="Remove the row" disabled={rows.length === 1} onClick={() => setRows((rs) => withSpareRow(rs.filter((_, i) => i !== k)))}><DeleteOutlineRounded fontSize="small" /></IconButton></span>
                 </Tooltip>
+                {r.item && order && <Typography data-testid={`${t}-already-${k}`} sx={{ gridColumn: '1 / -1', fontSize: 12.5, color: 'var(--c-text-2)', mt: -0.5, mb: 0.5 }}>{already(r.item.id, r.item.uom)}</Typography>}
               </Box>
             ))}
           </Box>
