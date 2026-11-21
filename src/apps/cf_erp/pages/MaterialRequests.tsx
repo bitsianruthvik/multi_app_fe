@@ -53,6 +53,7 @@ export default function MaterialRequests() {
   const rows = load.data?.rows ?? [];
 
   const columns: DataColumn<MrRow>[] = [
+    { key: 'raised', header: 'Raised', sortValue: (r) => String(r.raisedAt ?? ''), render: (r) => (r.raisedAt ? String(r.raisedAt).slice(0, 10) : '—') },
     { key: 'code', header: 'MR', alwaysVisible: true, sortValue: (r) => r.code, render: (r) => <Mono chip><Box component={Link} to={appPath(company, `material-requests/${r.id}`)} sx={linkSx}>{r.code}</Box></Mono> },
     { key: 'for', header: 'For', sortValue: (r) => r.forType, render: (r) => <Badge family={r.forType === 'sales_order' ? 'info' : r.forType === 'stock' ? 'success' : 'neutral'} noIcon label={r.forLabel ?? MR_FOR_LABEL[r.forType]} /> },
     {
@@ -83,15 +84,15 @@ export default function MaterialRequests() {
       <FilterBar search={search} onSearch={setSearch} placeholder="Search MR, order, customer or note">
         {FOR_CHIPS.map((f) => <FacetChip key={f} label={f === 'all' ? 'All' : MR_FOR_LABEL[f]} active={forType === f} onClick={() => setForType(f)} />)}
         <Box sx={{ width: 12 }} />
-        <FacetChip label="Open" active={scope !== 'all'} onClick={() => setScope('open')} />
-        <FacetChip label="Closed too" active={scope === 'all'} onClick={() => setScope('all')} />
+        <FacetChip label="Still open" active={scope !== 'all'} onClick={() => setScope('open')} />
+        <FacetChip label="Finished too" active={scope === 'all'} onClick={() => setScope('all')} />
       </FilterBar>
       <ErrorNotice error={load.error} onRetry={load.reload} />
       {!load.data && !load.error && <SkeletonBlock h={240} r={8} />}
       {/* Motion: the inbox rises in once when it first arrives (not on every re-read). */}
       {load.data && (
         <FadeIn variant="rise">
-        <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} storageKey="material-requests" exportName="material-requests"
+        <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} storageKey="material-requests-2" exportName="material-requests" defaultSortKey="raised" defaultSortDir="desc"
           onRowClick={(r) => navigate(appPath(company, `material-requests/${r.id}`))}
           empty={<EmptyState icon={<PlaylistAddCheckRounded />} title={term ? 'No MR matches' : 'No material requests here'}
             hint={term ? 'Clear the search.' : 'A sales order raises its MR in its Material request step, a maintenance order from its own screen; "New MR" asks Stores for anything else.'} />} />

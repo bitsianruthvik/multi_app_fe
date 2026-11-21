@@ -5,6 +5,8 @@ export interface DeskSettings {
   storesV2: boolean; countAutoLimit: number;
   /** §112: the stock book is closed up to this date; how far back an entry may be dated; the store's hours; days before a thing is out too long. */
   closedThrough: string | null; backdateDays: number; openTime: string; closeTime: string; toolsOutDays: number;
+  /** 2026-11-22: whether a give-out may be charged to a department, and whether it names who collected it (both off by default). */
+  giveOutDepartments?: boolean; giveOutPerson?: boolean;
 }
 export interface Department { id: number; name: string }
 export interface StorePerson { id: number; name: string; department: Department | null }
@@ -51,9 +53,9 @@ export interface GiveOutBody {
   personId?: number | null; machineId?: number | null; notes?: string | null;
   lines: { itemId: number; quantity: number; areaId?: number; batchId?: number; conditionsChecked?: boolean }[];
 }
-export interface OutWithList { rows: Custody[]; counts: { person: number; department: number; vendor: number; overdue: number; all: number; d30: number; d90: number; over: number }; longDays: number; /** Where the age bands end, in days (settings). */ bands?: [number, number] }
-export interface CountLine { item: { id: number; code: string | null; name: string; uom: string }; lot: { id: number; code: string } | null; book: number }
-export interface CountList { area: StoreArea; areas: StoreArea[]; kind: 'daily' | 'weekly'; since: string; lines: CountLine[]; lastCount: string | null }
+export interface OutWithList { rows: Custody[]; counts: { person: number; department: number; vendor: number; order?: number; overdue: number; all: number; d30: number; d90: number; over: number }; longDays: number; /** Where the age bands end, in days (settings). */ bands?: [number, number] }
+export interface CountLine { item: { id: number; code: string | null; name: string; uom: string }; lot: { id: number; code: string } | null; book: number; /** monthly: already audited this month */ audited?: boolean }
+export interface CountList { area: StoreArea; areas: StoreArea[]; kind: 'daily' | 'weekly' | 'monthly'; since: string; lines: CountLine[]; lastCount: string | null; month?: { from: string; total: number; audited: number; done: boolean } }
 export interface StockCount {
   id: number; code: string; kind: string; area: { id: number; name: string }; date: string; status: 'matched' | 'posted' | 'pending' | 'rejected';
   lines: number; differences: number; value: number | null; note: string | null; movementId: number | null; approvalId: number | null; by: string | null;
@@ -94,7 +96,7 @@ export interface StoresToday {
   date: string; settings: DeskSettings;
   purchaseOrders: { late: number; dueSoon: number; followDays?: number; rows: TodayPo[] };
   afterHours: { entries: AfterHoursEntry[]; lastCheckedAt: string | null; hours: { open: string; close: string } };
-  count: { toCount: number; countedToday: boolean; dailyDue: boolean; weeklyDone: boolean; pending: number; rejected: number; lastCount: string | null };
+  count: { toCount: number; countedToday: boolean; dailyDue: boolean; weeklyDone: boolean; pending: number; rejected: number; lastCount: string | null; month?: { from: string | null; total: number; audited: number; done: boolean } };
   outTooLong: { count: number; longDays: number; rows: Custody[] };
   belowMinimum: { count: number; lowAll: number; rows: { item: LedgerRow['item']; balance: number; min: number | null }[] };
   levels: LevelSuggestions;

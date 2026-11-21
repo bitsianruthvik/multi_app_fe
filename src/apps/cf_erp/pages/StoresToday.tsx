@@ -123,14 +123,12 @@ export default function StoresToday() {
           {countOpen && (
             <Line testid="today-count" tone={cnt!.rejected ? 'danger' : 'warning'} title="Audit"
               hint={[
-                cnt!.dailyDue ? `Today's audit is not done: ${cnt!.toCount} item${cnt!.toCount === 1 ? '' : 's'} moved since ${cnt!.lastCount ?? 'the start'}` : null,
-                !cnt!.weeklyDone ? "this week's group is not audited yet" : null,
+                cnt!.month && !cnt!.month.done ? `This month's audit: ${cnt!.month.audited} of ${cnt!.month.total} lines done, ${cnt!.toCount} left` : null,
                 cnt!.pending ? `${cnt!.pending} waiting for approval` : null,
                 cnt!.rejected ? `${cnt!.rejected} sent back` : null,
               ].filter(Boolean).join(' · ')}
               action={canStore ? <>
-                {cnt!.dailyDue && <Button component={Link} to={to('stores-count')} variant="contained" size="small">Audit today</Button>}
-                {!cnt!.weeklyDone && <Button component={Link} to={to('stores-count?kind=weekly')} variant="outlined" size="small">Weekly group</Button>}
+                {cnt!.month && !cnt!.month.done && <Button component={Link} to={to('stores-count')} variant="contained" size="small">Go to the audit</Button>}
               </> : undefined} />
           )}
 

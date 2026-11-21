@@ -51,9 +51,10 @@ export default function StoresOutWith() {
       <PageHeader title="Out with" subtitle="What is ours and not in the store: with a person, a department or a vendor. Each one comes back, is worn out, or is lost." />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search an item or a holder">
         <FacetChip label="All" active={!holder} count={counts?.all} onClick={() => setHolder('')} />
-        <FacetChip label="People" active={holder === 'person'} count={counts?.person} onClick={() => setHolder('person')} />
-        <FacetChip label="Departments" active={holder === 'department'} count={counts?.department} onClick={() => setHolder('department')} />
-        <FacetChip label="Vendors" active={holder === 'vendor'} count={counts?.vendor} onClick={() => setHolder('vendor')} />
+        <FacetChip label="Sales orders" active={holder === 'order'} count={counts?.order} onClick={() => setHolder('order')} />
+        <FacetChip label="Contractors" active={holder === 'vendor'} count={counts?.vendor} onClick={() => setHolder('vendor')} />
+        {(counts?.person ?? 0) > 0 && <FacetChip label="People" active={holder === 'person'} count={counts?.person} onClick={() => setHolder('person')} />}
+        {(counts?.department ?? 0) > 0 && <FacetChip label="Departments" active={holder === 'department'} count={counts?.department} onClick={() => setHolder('department')} />}
         <FacetChip label="Out too long" active={overdue} count={counts?.overdue} onClick={() => setHolder('overdue')} />
       </FilterBar>
       {/* How long it has been out, whoever holds it. */}

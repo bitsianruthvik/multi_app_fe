@@ -17,13 +17,15 @@ const STATUS: Record<string, { family: Family; label: string }> = {
 const keyOf = (itemId: number, lotId: number | null | undefined) => `${itemId}:${lotId ?? 0}`;
 
 /**
- * STORES › COUNT (init.sql §111) — is the book right? Daily: what moved since the last count of the area. Weekly: one
- * whole group. The storekeeper types what is on the shelf; a line that differs asks why. Small differences correct the
+ * STORES › AUDIT (init.sql §111) — is the book right? ONE audit a month, of EVERYTHING in the store area (user,
+ * 2026-11-22: no daily audit; not one group but all). It is done in parts: pick a family to work through a shelf, save,
+ * carry on — the bar says how much of the month's audit is done. The storekeeper types what is on the shelf; a line that differs asks why. Small differences correct the
  * book at once; larger ones wait for Management, and the book does not move until they decide.
  */
 export default function StoresCount() {
   const toast = useToast();
-  const [kind, setKind] = useUrlParam('kind', 'daily');
+  const kind = 'monthly';
+  const [left, setLeft] = useUrlParam('left', '1');
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
   const [groupParam, setGroupParam] = useUrlParam('group', '');
   const [counted, setCounted] = useState<Record<string, string>>({});
@@ -31,13 +33,15 @@ export default function StoresCount() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const [result, setResult] = useState<StockCountDetail | null>(null);
-  const weekly = kind === 'weekly';
   const groups = useLoad(() => cfApi.get<{ counts: { groups: LedgerGroup[] } }>(`/stores-desk/ledger${qs({ paged: 1, limit: 1 })}`).then((a) => a.counts.groups), []);
-  const ready = !weekly || !!groupParam;
+  const ready = true;
   const list = useLoad(() => (ready ? getCountList({ areaId: Number(areaParam) || undefined, kind, subfamilyId: Number(groupParam) || undefined }) : Promise.resolve(null)), [kind, areaParam, groupParam]);
   const recent = useLoad(() => getCounts(), []);
   useEffect(() => { setCounted({}); setReasons({}); setError(null); }, [list.data]);
-  const lines = useMemo(() => list.data?.lines ?? [], [list.data]);
+  const allLines = useMemo(() => list.data?.lines ?? [], [list.data]);
+  const lines = useMemo(() => (left === '1' ? allLines.filter((l) => !l.audited) : allLines).slice(0, 200), [allLines, left]);
+  const shownOf = left === '1' ? allLines.filter((l) => !l.audited).length : allLines.length;
+  const month = list.data?.month;
   const filled = lines.filter((l) => (counted[keyOf(l.item.id, l.lot?.id)] ?? '').trim() !== '');
   const differs = (l: (typeof lines)[number]) => { const v = counted[keyOf(l.item.id, l.lot?.id)]; return v != null && v.trim() !== '' && Number.isFinite(Number(v)) && Math.abs(Number(v) - l.book) > 1e-9; };
   const missingReason = lines.some((l) => differs(l) && !(reasons[keyOf(l.item.id, l.lot?.id)] ?? '').trim());
@@ -60,17 +64,22 @@ export default function StoresCount() {
     <Box sx={{ minWidth: 0 }}>
       <PageHeader title="Audit" subtitle="Type what is on the shelf. A line that differs from the book asks why; small differences correct the book at once, larger ones wait for Management." />
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
-        <FacetChip label="Today's audit" active={!weekly} onClick={() => setKind('daily')} />
-        <FacetChip label="Weekly: one group" active={weekly} onClick={() => setKind('weekly')} />
+        <FacetChip label="Still to audit" active={left === '1'} onClick={() => setLeft('1')} />
+        <FacetChip label="Everything" active={left !== '1'} onClick={() => setLeft('0')} />
         {(list.data?.areas.length ?? 0) > 1 && (
           <TextField select size="small" label="Store area" value={areaParam || String(list.data?.area.id ?? '')} onChange={(e) => setAreaParam(e.target.value)} sx={{ minWidth: 200 }}>
             {list.data!.areas.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.name}</MenuItem>)}
           </TextField>
         )}
-        {weekly && (
-          <TextField select size="small" label="Group to audit" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}>
-            {(groups.data ?? []).map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{g.family} › {g.subfamily}</MenuItem>)}
-          </TextField>
+        <TextField select size="small" label="Family › sub-family" value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}>
+          <MenuItem value="">Every family</MenuItem>
+          {(groups.data ?? []).map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{g.family} › {g.subfamily}</MenuItem>)}
+        </TextField>
+        {month && (
+          <Box data-testid="audit-progress" sx={{ flex: '1 1 260px', minWidth: 0 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>This month: {month.audited} of {month.total} lines audited{month.done ? ' — done' : ''}</Typography>
+            <Box sx={{ height: 6, borderRadius: 3, background: 'var(--c-neutral-100, #eee)', overflow: 'hidden', mt: 0.5 }}><Box sx={{ height: '100%', width: `${month.total ? Math.round((month.audited / month.total) * 100) : 0}%`, background: month.done ? 'var(--c-success-500)' : 'var(--c-primary-500)' }} /></Box>
+          </Box>
         )}
       </Box>
       {result && (
@@ -80,16 +89,15 @@ export default function StoresCount() {
         </Alert>
       )}
       <ErrorNotice error={list.error ?? error} onRetry={list.error ? list.reload : undefined} />
-      {!ready && <EmptyState icon={<FactCheckRounded />} title="Choose the group to audit this week" hint="Every item of the group that has stock, or moved in the last 90 days, is listed." />}
       {ready && !list.data && !list.error && <SkeletonRows rows={6} />}
       {list.data && lines.length === 0 && (
-        <EmptyState icon={<FactCheckRounded />} title={weekly ? 'Nothing of this group is in this area' : 'Nothing moved since the last audit'}
-          hint={weekly ? 'Pick another group or another area.' : `Last audited ${list.data.lastCount ?? 'never'}. Items show here the day after they are received or given out.`} />
+        <EmptyState icon={<FactCheckRounded />} title={allLines.length === 0 ? 'Nothing is in this area' : "Everything shown is audited for this month"}
+          hint={allLines.length === 0 ? 'Pick another family or another area.' : 'Press "Everything" to see the lines again, or pick another family.'} />
       )}
       {lines.length > 0 && (
         <Box data-testid="count-lines" sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', overflow: 'hidden' }}>
           <Box sx={{ p: 1.5, borderBottom: '1px solid var(--c-border)', fontSize: 13, color: 'var(--c-text-2)' }}>
-            {list.data!.area.name} · {lines.length} line{lines.length === 1 ? '' : 's'}{!weekly ? ` · moved since ${list.data!.since}` : ''}
+            {list.data!.area.name} · showing {lines.length} of {shownOf} line{shownOf === 1 ? '' : 's'}{shownOf > lines.length ? ' — save these and the next ones follow' : ''}
           </Box>
           {lines.map((l) => {
             const k = keyOf(l.item.id, l.lot?.id);
@@ -98,7 +106,7 @@ export default function StoresCount() {
               <Box key={k} sx={{ p: 1.5, borderBottom: '1px solid var(--c-divider)', display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', '&:last-child': { borderBottom: 0 } }}>
                 <Box sx={{ flex: '2 1 220px', minWidth: 0 }}>
                   <Box sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{l.item.name}</Box>
-                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{[l.item.code, l.lot ? `lot ${l.lot.code}` : null].filter(Boolean).join(' · ')}</Typography>
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{[l.item.code, l.lot ? `lot ${l.lot.code}` : null, l.audited ? 'audited this month' : null].filter(Boolean).join(' · ')}</Typography>
                 </Box>
                 <Box sx={{ flex: '0 0 auto', textAlign: 'right', minWidth: 80 }}><Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Book</Typography><Mono>{qtyText(l.book)} {l.item.uom}</Mono></Box>
                 <TextField size="small" label="On the shelf" value={counted[k] ?? ''} onChange={(e) => setCounted((c) => ({ ...c, [k]: e.target.value }))} sx={{ width: 120 }} inputProps={{ inputMode: 'decimal', 'data-testid': 'count-input' }} />
