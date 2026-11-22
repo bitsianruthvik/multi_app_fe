@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, TextField, Typography } from '@mui/material';
+import ShoppingCartCheckoutRounded from '@mui/icons-material/ShoppingCartCheckoutRounded';
 import { Link, useParams } from 'react-router-dom';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import OutputRounded from '@mui/icons-material/OutputRounded';
 import { CfApiError } from '../api/client';
-import { getMaterialRequest, saveMaterialRequest, type MrScreen, type MrScreenLine } from '../api/purchaseRequests';
+import { getMaterialRequest, giveOutMr, raisePrFromMr, saveMaterialRequest, type MrScreen, type MrScreenLine } from '../api/purchaseRequests';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -59,6 +60,11 @@ export default function MaterialRequestDetail() {
   const [asking, setAsking] = useState(false);
   // §95: the "Issue now" dialog.
   const [issuing, setIssuing] = useState(false);
+  // §118 (user 2026-11-23): an MR raised by hand is worked line by line — a quantity a line, then Give out or Raise PR.
+  const [picks, setPicks] = useState<Record<number, string>>({});
+  const [acting, setActing] = useState<'give' | 'pr' | null>(null);
+  const [checks, setChecks] = useState<string[] | null>(null);   // Maintenance's checks the give-out waits on
+  const [checked, setChecked] = useState(false);
   // Motion: a tick beside Save once it saved; a nudge on Save when the server refuses (the reason shows above the lines).
   const [savedTick, markSaved] = useSavedCheck();
   const saveRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +87,44 @@ export default function MaterialRequestDetail() {
   if (!m) return <DetailSkeleton />;
   const customer = m.supply === 'customer';
   const editable = canManage && m.canEdit;
+  const pick = !!m.pickMode;
+  const picked = m.lines.map((l) => ({ l, q: num(picks[l.id] ?? '') })).filter((x) => Number.isFinite(x.q) && x.q > EPS);
+  const giveMax = (l: MrScreenLine) => Math.max(0, (l.toIssue ?? 0) + Math.min(l.left ?? 0, l.inStock));
+  const pickProblem = (l: MrScreenLine, kind: 'give' | 'pr') => {
+    const q = num(picks[l.id] ?? '');
+    if ((picks[l.id] ?? '').trim() === '') return null;
+    if (!Number.isFinite(q) || q < 0) return 'A number';
+    if (kind === 'give' && q > giveMax(l) + EPS) return `At most ${qtyText(giveMax(l))} can go out now`;
+    if (kind === 'pr' && q > (l.left ?? 0) + EPS) return `Only ${qtyText(l.left ?? 0)} left`;
+    return null;
+  };
+  const giveBlocked = !picked.length ? 'Type a quantity on the lines to give out.' : picked.some(({ l }) => pickProblem(l, 'give')) ? 'Some quantities are more than can go out now.' : null;
+  const prBlocked = !picked.length ? 'Type a quantity on the lines to buy.' : picked.some(({ l }) => pickProblem(l, 'pr')) ? 'Some quantities are more than is left.' : null;
+  const act = async (kind: 'give' | 'pr', conditionsChecked?: number[]) => {
+    setActing(kind); setRefusal(null);
+    try {
+      const lines = picked.map(({ l, q }) => ({ lineId: l.id, quantity: q }));
+      if (kind === 'give') {
+        const out = await giveOutMr(m.id, { lines, ...(conditionsChecked ? { conditionsChecked } : {}) });
+        setChecks(null); setChecked(false);
+        if (out.materialRequest) mr.setData(out.materialRequest); else reload();
+        toast.success(`${out.movement?.code ?? 'Stock out'} — given out against ${m.code}.`);
+      } else {
+        const out = await raisePrFromMr(m.id, { lines });
+        mr.setData(out);
+        toast.success(`${out.raised?.code ?? 'The PR'} raised for Purchase.`);
+      }
+      setPicks({}); invalidateNavCounts();
+    } catch (e) {
+      const err = e as CfApiError;
+      const waits = [err.message, ...err.problems].filter((p) => /check before giving it out/.test(p));
+      if (kind === 'give' && waits.length && !conditionsChecked) { setChecks(waits); setChecked(false); } else setRefusal(err);
+    } finally { setActing(null); }
+  };
+  const fill = (kind: 'give' | 'pr') => setPicks(Object.fromEntries(m.lines.map((l) => {
+    const v = kind === 'give' ? giveMax(l) : (l.left ?? 0);
+    return [l.id, v > EPS ? String(Number(v.toFixed(3))) : ''];
+  })));
   // §79: an MR for stock refills stock — nothing is taken from it; saving puts it all on the PR.
   const forStock = m.manual && m.forType === 'stock';
   const takeEditable = editable && !forStock;
@@ -110,6 +154,37 @@ export default function MaterialRequestDetail() {
       if (err.code === 'CUSTOMER_DATE') setAsking(true); else { setRefusal(err); nudge(saveRef.current); }
     } finally { setBusy(false); }
   };
+
+  const pickColumns: DataColumn<MrScreenLine>[] = [
+    {
+      key: 'item', header: 'Material', alwaysVisible: true, sortValue: (l) => l.item.code ?? l.item.name,
+      render: (l) => (
+        <Box sx={{ py: 0.5 }}>
+          <Mono><Box component={Link} to={appPath(company, `items/${l.item.id}`)} sx={linkSx}>{l.item.code ?? '—'}</Box></Mono>
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{l.item.name}</Typography>
+        </Box>
+      ),
+    },
+    { key: 'required', header: 'Required', numeric: true, alwaysVisible: true, sortValue: (l) => l.required, render: (l) => <span><Mono>{qtyText(l.required)}</Mono> <Mono muted>{l.item.uom}</Mono></span> },
+    { key: 'issued', header: 'Given out', numeric: true, alwaysVisible: true, sortValue: (l) => l.issued ?? 0, render: (l) => <span data-testid="mr-issued"><FlashOnChange value={l.issued ?? 0}><Mono muted={!l.issued}>{qtyText(l.issued ?? 0)}</Mono></FlashOnChange></span> },
+    { key: 'toIssue', header: 'In store for it', numeric: true, sortValue: (l) => l.toIssue ?? 0, render: (l) => <span title="Earmarked for this request and in the store: received on its POs, or taken before — given out first"><Mono muted={!l.toIssue}>{qtyText(l.toIssue ?? 0)}</Mono></span> },
+    { key: 'onPr', header: 'On PRs', numeric: true, alwaysVisible: true, sortValue: (l) => l.onPr ?? 0, render: (l) => <span title={`Received on their POs: ${qtyText(l.received)}`}><Mono muted={!l.onPr}>{qtyText(l.onPr ?? 0)}</Mono></span> },
+    { key: 'left', header: 'Left', numeric: true, alwaysVisible: true, sortValue: (l) => l.left ?? 0, render: (l) => <span data-testid="mr-left"><FlashOnChange value={l.left ?? 0}><Mono>{qtyText(l.left ?? 0)}</Mono></FlashOnChange></span> },
+    { key: 'stock', header: 'In stock (free)', numeric: true, alwaysVisible: true, sortValue: (l) => l.inStock, render: (l) => <Mono muted={!l.inStock}>{qtyText(l.inStock)}</Mono> },
+    ...(editable ? [{
+      key: 'qty', header: 'Quantity', alwaysVisible: true,
+      render: (l: MrScreenLine) => {
+        const bad = pickProblem(l, 'give') && pickProblem(l, 'pr');
+        return (
+          <TextField size="small" value={picks[l.id] ?? ''} onChange={(e) => setPicks((p) => ({ ...p, [l.id]: e.target.value }))}
+            error={!!bad} helperText={bad ?? undefined}
+            inputProps={{ inputMode: 'decimal', 'aria-label': `Quantity — ${l.item.code ?? l.item.name}`, 'data-testid': 'mr-pick' }}
+            InputProps={{ endAdornment: <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.5 }}>{l.item.uom}</Typography> }}
+            sx={{ width: 130 }} />
+        );
+      },
+    }] : []),
+  ];
 
   const columns: DataColumn<MrScreenLine>[] = [
     {
@@ -168,7 +243,10 @@ export default function MaterialRequestDetail() {
           code={m.code}
           title={mrForWords(m)}
           badges={<><Badge family={m.forType === 'sales_order' ? 'info' : m.forType === 'stock' ? 'success' : 'neutral'} noIcon label={`For: ${m.forLabel}`} />{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}{m.internal && <Badge family="neutral" noIcon label="Stores' own purchase" title="Raised by Stores straight to a purchase request (To reorder › Raise PR or New PR). Not a request to Stores — it is not in the MR inbox." />}</>}
-          actions={<>{issuable && (
+          actions={pick ? <>{editable && <>
+            <Button variant="contained" startIcon={<OutputRounded />} disabled={!!acting || !!giveBlocked} title={giveBlocked ?? 'Give out these quantities against this request — what is in store for it first, then free stock. One stock-out.'} onClick={() => void act('give')} data-testid="mr-give-out">Give out</Button>
+            <Button variant="outlined" startIcon={<ShoppingCartCheckoutRounded />} disabled={!!acting || !!prBlocked} title={prBlocked ?? 'A new purchase request for these quantities, for Purchase.'} onClick={() => void act('pr')} data-testid="mr-raise-pr">Raise PR</Button>
+          </>}<FullScreenToggle on={full.on} onToggle={full.toggle} /></> : <>{issuable && (
             <Button variant="outlined" startIcon={<OutputRounded />} disabled={busy || dirty} onClick={() => setIssuing(true)} data-testid="mr-issue-now"
               title={dirty ? 'Save the MR first — then issue what is earmarked.' : 'Issue what is earmarked for this MR and still in the store — one stock issue.'}>
               Issue now
@@ -180,11 +258,11 @@ export default function MaterialRequestDetail() {
             {m.order?.customer && <Fact label="Customer">{m.order.customer.name}</Fact>}
             {m.manual && m.notes && <Fact label="Note">{m.notes}</Fact>}
             {m.manual && m.raisedBy?.name && <Fact label="Raised by">{m.raisedBy.name}</Fact>}
-            <Fact label="Purchase request">
+            {pick ? <Fact label="Purchase requests"><Mono>{m.purchaseRequests?.length ?? 0}</Mono></Fact> : <Fact label="Purchase request">
               {m.purchaseRequest
                 ? <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${m.purchaseRequest.id}`)} sx={linkSx}>{m.purchaseRequest.code}</Box></Mono><PrStatusBadge status={m.purchaseRequest.status} /></Box>
                 : <Typography component="span" sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>{customer ? 'None — the customer sends it' : 'Made when you save'}</Typography>}
-            </Fact>
+            </Fact>}
           </>}
         />
       }
@@ -199,10 +277,20 @@ export default function MaterialRequestDetail() {
           {refusal.problems.filter((p) => p !== refusal.message).map((p) => <Box key={p} sx={{ fontSize: 12.5 }}>{p}</Box>)}
         </Alert>
       )}
-      <SectionCard title="Lines" subtitle={customer
+      <SectionCard title="Lines" subtitle={pick
+        ? 'Type a quantity on the lines, then Give out (what is in store for it first, then free stock) or Raise PR (at most what is left). Do it as often as needed: every stock-out and every PR is listed below.'
+        : customer
         ? "Take the customer's own stock that is here; the rest is asked of them. Locked = earmarked for this order — nobody else can use it."
         : 'Take what you can from stock; the rest goes on the purchase request. Locked = earmarked for this order — nobody else can use it.'}>
-        <DataTable rows={m.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="mr-lines" exportName={`${m.code}-lines`} />
+        {pick && editable && (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', px: 2, pb: 1 }}>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Fill the quantities with</Typography>
+            <Button size="small" onClick={() => fill('give')} data-testid="mr-fill-give">what can go out now</Button>
+            <Button size="small" onClick={() => fill('pr')} data-testid="mr-fill-left">everything left</Button>
+            {picked.length > 0 && <Button size="small" color="inherit" onClick={() => setPicks({})}>Clear</Button>}
+          </Box>
+        )}
+        <DataTable rows={m.lines} columns={pick ? pickColumns : columns} getRowId={(l) => l.id} bare storageKey={pick ? 'mr-pick-lines' : 'mr-lines'} exportName={`${m.code}-lines`} />
         {m.issueReason && !m.heldForAcceptance && !forStock && (
           <Typography data-testid="mr-issue-reason" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 1 }}>{m.issueReason}</Typography>
         )}
@@ -223,6 +311,21 @@ export default function MaterialRequestDetail() {
           </Box>
         </SectionCard>
       )}
+      {pick && (
+        <SectionCard title={`Purchase requests (${m.purchaseRequests?.length ?? 0})`} subtitle="Every PR raised from this request, newest first.">
+          <Box data-testid="mr-prs" sx={{ display: 'grid', gap: 0.75, p: 2, pt: 0 }}>
+            {(m.purchaseRequests ?? []).length === 0 && <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>None yet. Type quantities on the lines and press Raise PR.</Typography>}
+            {(m.purchaseRequests ?? []).map((p) => (
+              <Box key={p.id} sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 13.5 }}>
+                <Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${p.id}`)} sx={linkSx}>{p.code}</Box></Mono>
+                <PrStatusBadge status={p.status} />
+                {p.createdAt && <span>{String(p.createdAt).slice(0, 10)}</span>}
+                <span>{p.lines.map((x) => `${qtyText(x.quantity)} ${x.item.uom ?? ''} ${x.item.code ?? x.item.name}${x.poRaised > EPS ? ` (on PO ${qtyText(x.poRaised)})` : ''}`.replace('  ', ' ')).join(' · ')}</span>
+              </Box>
+            ))}
+          </Box>
+        </SectionCard>
+      )}
       {m.purchaseOrders.length > 0 && (
         <SectionCard title="Purchase orders" subtitle="The purchase orders that serve this MR.">
           <Box data-testid="mr-pos" sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
@@ -237,6 +340,17 @@ export default function MaterialRequestDetail() {
         </SectionCard>
       )}
       {customer && m.order && <CustomerMaterialStatus orderId={m.order.id} />}
+      <Dialog open={!!checks} onClose={() => setChecks(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Check before giving it out</DialogTitle>
+        <DialogContent>
+          {(checks ?? []).map((t) => <Typography key={t} sx={{ fontSize: 14, mb: 1 }}>{t}</Typography>)}
+          <FormControlLabel control={<Checkbox checked={checked} onChange={(e) => setChecked(e.target.checked)} />} label="Checked — Maintenance's conditions are met" />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setChecks(null)}>Cancel</Button>
+          <Button variant="contained" disabled={!checked || !!acting} onClick={() => void act('give', picked.map(({ l }) => Number(l.item.id)))}>Give out</Button>
+        </DialogActions>
+      </Dialog>
       <IssueNowDialog mr={issuing ? m : null} onClose={() => setIssuing(false)} onDone={afterIssue} />
       <PromisedDateDialog open={asking} proposed={null} submitLabel="Save" onClose={() => setAsking(false)} onConfirm={async (date) => { setAsking(false); await save(date); }} />
     </DetailLayout>

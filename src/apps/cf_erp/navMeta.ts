@@ -98,6 +98,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS_WORK, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
       // §73: every customer order in its lane (inquiry → pending approval → material → production → dispatched → post-production → closed).
       { key: 'orders-board', label: 'Orders board', path: 'orders-board', permission: ORDERS_WORK, keywords: ['board', 'kanban', 'lanes', 'pipeline', 'post-production', 'inspection', 'erection', 'handover', 'checklist'] },
+      // Standard drawings (init.sql §69): a drawing number with its BOM and values, copied onto order lines.
+      { key: 'standard-drawings', label: 'Standard drawings', path: 'standard-drawings', hasDetail: true, permission: `${ORDERS_WORK}|${CATALOG_WORK}`, keywords: ['standard', 'rdso', 'drawing number', 'girder', 'bom', 'library', 'template drawing'] },
       { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS_WORK, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
     ],
   },
@@ -143,16 +145,6 @@ export const SECTIONS: NavSection[] = [
       ...(PLATE_CHANGE_GATE ? [{ key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] }] : []),
       // Who we buy from — the parties screen pinned to suppliers (RFQs and POs pick from them).
       { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: PURCHASE_WORK, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
-    ],
-  },
-  {
-    key: 'catalog',
-    label: 'Catalog',
-    screens: [
-      { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: CATALOG_WORK, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
-      { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: CATALOG_WORK, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
-      // Standard drawings (init.sql §69): a drawing number with its BOM and values, copied onto order lines.
-      { key: 'standard-drawings', label: 'Standard drawings', path: 'standard-drawings', hasDetail: true, permission: `${ORDERS_WORK}|${CATALOG_WORK}`, keywords: ['standard', 'rdso', 'drawing number', 'girder', 'bom', 'library', 'template drawing'] },
     ],
   },
   {
@@ -202,6 +194,10 @@ export const SECTIONS: NavSection[] = [
       // §111 (user 2026-11-19): the Stores desk — five screens, one a job. Stock is read by everyone who plans against it.
       { key: 'desk-today', desk: 'v2', label: 'Today', path: 'stores-today', permission: STOCK_READ, keywords: ['dashboard', 'to do', 'follow up', 'late', 'due', 'night', 'after hours', 'alerts', 'minimum', 'maximum', 'reorder level', 'close period'] },
       { key: 'desk-stock', desk: 'v2', label: 'Stock', path: 'stores', permission: STOCK_READ, countKey: 'stockLines', keywords: ['ledger', 'opening', 'balance', 'on hand', 'inventory', 'give out', 'issue', 'consumables', 'spares', 'steel'] },
+      // 2026-11-23 (user): the catalog moved into Stores — Stores or Procurement set up items, categories (family › sub-family
+      // › variant, made from the item screen) and definitions (both standard roles hold catalog manage).
+      { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: CATALOG_WORK, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
+      { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: CATALOG_WORK, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
       { key: 'desk-requests', desk: 'v2', label: 'Requests', path: 'material-requests', hasDetail: true, permission: `${STORES_WORK}|cf_erp_maintenance|cf_erp_orders_manage|cf_erp_production_manage`, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock'] },
       { key: 'desk-receive', desk: 'v2', label: 'Receive', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
       { key: 'desk-out', desk: 'v2', label: 'Out with', path: 'stores-out', permission: STOCK_READ, keywords: ['who has', 'tools', 'returnable', 'vendor', 'job work', 'lost', 'worn out', 'return', 'overdue'] },

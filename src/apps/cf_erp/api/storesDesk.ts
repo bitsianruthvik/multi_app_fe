@@ -15,13 +15,14 @@ export interface DeskSettings {
 export interface Department { id: number; name: string }
 export interface StorePerson { id: number; name: string; department: Department | null }
 export interface StoreArea { id: number; code: string; name: string; purpose: string }
-export interface LedgerGroup { familyId: number; family: string; subfamilyId: number; subfamily: string; items: number }
+/** One a variant (2026-11-23): family › sub-family › variant, with its items. */
+export interface LedgerGroup { familyId: number; family: string; subfamilyId: number; subfamily: string; variantId?: number; variant?: string; items: number }
 
 export interface LedgerRow {
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: string; returnable: boolean; status: string; issueConditions?: string | null };
   /** How much of the balance now is a customer's material (0 when the list is filtered to one owner's). */
   customers: number;
-  group: { familyId: number | null; family: string | null; subfamilyId: number | null; subfamily: string | null };
+  group: { familyId: number | null; family: string | null; subfamilyId: number | null; subfamily: string | null; variantId?: number | null; variant?: string | null };
   opening: number; in: number; out: number; balance: number; now: number;
   outWith: number; onOrder: number; reserved: number;
   min: number | null; max: number | null; method: string | null; low: boolean;

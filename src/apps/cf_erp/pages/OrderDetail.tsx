@@ -8,6 +8,8 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import { NewMrDialog } from '../components/Stores/NewMrDialog';
 import { cfApi, CfApiError, LONG_WRITE_MS, prefetchGet, qs } from '../api/client';
 import { lineReadPaths } from '../api/linePrefetch';
 import { openGroupsAtStart, readOpenGroups } from '../lib/orderStructure';
@@ -55,6 +57,8 @@ import { nudgeIfRefused } from '../components/salesMotion';
 import { FlashOnChange } from '../motion';
 
 const DELETABLE: OrderStatus[] = ['inquiry', 'lost', 'cancelled'];
+/** An MR is raised for an open order (the server's OPEN_ORDER_STATUSES). */
+const MR_OPEN: OrderStatus[] = ['inquiry', 'confirmed'];
 
 /**
  * Where a customer order can be revised from. Only the latest revision is ever
@@ -170,6 +174,10 @@ export default function OrderDetail() {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_orders_manage');
+  // 2026-11-23 (user): an MR is raised from the sales order itself (or a machine's maintenance order) — a button on the
+  // order's header, for anything of the catalog; a contractor may be named (tools then go out with them).
+  const canRaiseMr = canManage || isPermitted('cf_erp_production_manage') || isPermitted('cf_erp_maintenance');
+  const [raisingMr, setRaisingMr] = useState(false);
   // Deleting an order is the MD's (cf_erp_orders_delete, 2026-10-27) — status changes stay on orders manage.
   const canDelete = isPermitted('cf_erp_orders_delete');
   const canStock = isPermitted('cf_erp_inventory_view');
@@ -350,8 +358,10 @@ export default function OrderDetail() {
   const header = (
     <DetailHeader code={o.code} title={o.title ?? 'Untitled'} subtitle={o.customer ? `${o.customer.name}${o.customerReference ? ` · their reference ${o.customerReference}` : ''}` : 'Made for stock'}
       badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.acceptance?.state === 'pending' && <Badge family="warning" label="Customer accepted · waiting for the MD" />}{o.acceptance?.state === 'sent_back' && <Badge family="danger" label="Sent back by the MD" title={o.acceptance.sentBackNote ?? undefined} />}{o.overdue && <DangerBadge label="Past committed date" />}{noProcessChip}</>}
-      actions={canManage && (
+      actions={(canManage || canRaiseMr) && (
         <>
+          {canRaiseMr && MR_OPEN.includes(o.status) && <Button variant="outlined" startIcon={<Inventory2Rounded />} onClick={() => setRaisingMr(true)} data-testid="order-new-mr">New MR</Button>}
+          {canManage && <>
           {o.allowedTransitions.map((next) => (
             <Button key={next} variant={next === NEXT_STAGE[o.status] ? 'contained' : 'outlined'} color={next === 'cancelled' ? 'error' : 'primary'} disabled={!!busy}
               startIcon={busy === next ? <CircularProgress size={14} color="inherit" /> : undefined}
@@ -371,6 +381,7 @@ export default function OrderDetail() {
             : canDelete && DELETABLE.includes(o.status) && (
               <Tooltip title="Delete — only inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
             )}
+          </>}
         </>
       )}
       facts={(
@@ -387,6 +398,8 @@ export default function OrderDetail() {
         </>
       )}>
       <ErrorNotice error={actionError} sx={{ mt: 2, mb: 0 }} />
+      <NewMrDialog open={raisingMr} presetOrder={o} onClose={() => setRaisingMr(false)}
+        onRaised={(mr) => { toast.success(`${mr.code} sent to Stores.`); invalidateNavCounts(); navigate(appPath(company, `material-requests/${mr.id}`)); }} />
     </DetailHeader>
   );
   const crossLinks = (

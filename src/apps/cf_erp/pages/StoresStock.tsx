@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import PrintRounded from '@mui/icons-material/PrintRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { Link } from 'react-router-dom';
 import { getDeskSettings, qtyText, type LedgerGroup, type LedgerRow, type StoreArea } from '../api/storesDesk';
@@ -12,6 +13,7 @@ import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, SkeletonRows } from '
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { GiveOutDialog, type GiveOutItem } from '../components/Stores/GiveOutDialog';
 import { ItemLedgerDialog } from '../components/Stores/ItemLedgerDialog';
+import { StockPrintDialog } from '../components/Stores/StockPrintDialog';
 import { useToast } from '../components/toastContext';
 import WorkInProgress from './WorkInProgress';
 import Offcuts from './Offcuts';
@@ -59,9 +61,13 @@ export default function StoresStock() {
   const [period, setPeriod] = useUrlParam('period', 'month');
   const [show, setShow] = useUrlParam('show', 'stock');
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
-  const [groupParam, setGroupParam] = useUrlParam('group', '');
+  // 2026-11-23 (user): several families, sub-families and variants at once — each list narrowed by the one above.
+  const [famParam, setFamParam] = useUrlParam('fam', '');
+  const [subParam, setSubParam] = useUrlParam('sub', '');
+  const [varParam, setVarParam] = useUrlParam('var', '');
+  const [printing, setPrinting] = useState(false);
   const [owner, setOwner] = useUrlParam('owner', '');
-  /** What: '' = everything in the store, a family id, 'wip' or 'offcuts'. */
+  /** What: '' = the store's stock, 'wip' or 'offcuts'. */
   const [what, setWhat] = useUrlParam('what', '');
   const other = what === 'wip' || what === 'offcuts';
   const [basket, setBasket] = useState(false);
@@ -72,15 +78,29 @@ export default function StoresStock() {
   const { from, to } = useMemo(() => periodOf(period), [period]);
   // A search looks through every item: the storekeeper is looking for something to give out, whether or not it has stock.
   const list = usePagedList<LedgerRow, Meta>('/stores-desk/ledger', {
-    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, familyId: !other && what ? what : undefined, subfamilyId: groupParam || undefined, owner: owner || undefined,
+    from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, familyIds: famParam || undefined, subfamilyIds: subParam || undefined, variantIds: varParam || undefined, owner: owner || undefined,
   });
   const meta = list.counts;
   const areas = meta?.areas ?? [];
   const groups = useMemo(() => meta?.groups ?? [], [meta]);
   const families = useMemo(() => { const m = new Map<number, string>(); for (const g of groups) if (g.familyId != null && !m.has(g.familyId)) m.set(g.familyId, g.family ?? ''); return [...m].sort((a, b) => a[1].localeCompare(b[1])); }, [groups]);
-  const subs = groups.filter((g) => !what || String(g.familyId) === what);
-  const pickWhat = (k: string) => { setWhat(k); setGroupParam(''); };
-  const filtered = !!term || !!areaParam || !!groupParam || !!owner || !!what || show !== 'stock';
+  const famSet = new Set(famParam.split(',').filter(Boolean).map(Number));
+  const subSet = new Set(subParam.split(',').filter(Boolean).map(Number));
+  const varSet = new Set(varParam.split(',').filter(Boolean).map(Number));
+  const subOpts = useMemo(() => { const m = new Map<number, { id: number; label: string; familyId: number }>(); for (const g of groups) if (g.subfamilyId != null && (!famSet.size || famSet.has(g.familyId)) && !m.has(g.subfamilyId)) m.set(g.subfamilyId, { id: g.subfamilyId, label: famSet.size === 1 ? g.subfamily : `${g.family} › ${g.subfamily}`, familyId: g.familyId }); return [...m.values()]; }, [groups, famParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const varOpts = useMemo(() => groups.filter((g) => g.variantId != null && (!famSet.size || famSet.has(g.familyId)) && (!subSet.size || subSet.has(g.subfamilyId)))
+    .map((g) => ({ id: g.variantId as number, label: `${subSet.size === 1 ? '' : `${g.subfamily} › `}${g.variant}`, items: g.items })), [groups, famParam, subParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const famOpts = families.map(([id, name]) => ({ id, label: name }));
+  const setIds = (setter: (v: string) => void) => (_: unknown, v: { id: number }[]) => setter(v.map((x) => x.id).join(','));
+  const pickWhat = (k: string) => { setWhat(k); };
+  const filtered = !!term || !!areaParam || !!famParam || !!subParam || !!varParam || !!owner || !!what || show !== 'stock';
+  const filterWords = [
+    famSet.size ? famOpts.filter((o) => famSet.has(o.id)).map((o) => o.label).join(', ') : 'every family',
+    subSet.size ? subOpts.filter((o) => subSet.has(o.id)).map((o) => o.label).join(', ') : null,
+    varSet.size ? varOpts.filter((o) => varSet.has(o.id)).map((o) => o.label).join(', ') : null,
+    SHOWS.find(([k]) => k === (term ? 'all' : show))?.[1], owner ? OWNERS.find(([k]) => k === owner)?.[1] : null,
+    areaParam ? areas.find((a) => String(a.id) === areaParam)?.name : 'all store areas', term ? `"${term}"` : null, `${from} to ${to}`,
+  ].filter(Boolean).join(' · ');
   const give = (r: LedgerRow) => setGiving({ id: r.item.id, name: r.item.name, uom: r.item.uom, returnable: r.item.returnable, inStock: r.now, issueConditions: r.item.issueConditions ?? null });
 
   return (
@@ -91,13 +111,13 @@ export default function StoresStock() {
             {canGive && <Button variant="contained" onClick={() => setBasket(true)} data-testid="give-out-several">Give out</Button>}
             {canStore && !canGive && <Button component={Link} to={appPath(company, 'material-requests')} variant="contained" data-testid="go-requests">Give out: open Requests</Button>}
             {canStore && <Button component={Link} to={appPath(company, 'receive')} variant="outlined">Receive against a PO</Button>}
+            {!other && <Button variant="outlined" startIcon={<PrintRounded />} onClick={() => setPrinting(true)} data-testid="stock-print-open">Print / download</Button>}
             <Button component={Link} to={appPath(company, 'stock')} sx={{ color: 'var(--c-text-2)' }}>Every area, by lot and owner</Button>
           </Box>
         )} />
       <Box data-testid="ledger-what" role="group" aria-label="What" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mr: 0.5 }}>What</Typography>
-        <FacetChip label="All" active={!what} onClick={() => pickWhat('')} />
-        {families.map(([id, name]) => <FacetChip key={id} label={name} active={what === String(id)} onClick={() => pickWhat(String(id))} />)}
+        <FacetChip label="Stock" active={!what} onClick={() => pickWhat('')} />
         <FacetChip label="Work in progress" active={what === 'wip'} onClick={() => pickWhat('wip')} />
         <FacetChip label="Offcuts" active={what === 'offcuts'} onClick={() => pickWhat('offcuts')} />
       </Box>
@@ -110,10 +130,12 @@ export default function StoresStock() {
         {SHOWS.map(([k, label]) => <FacetChip key={k} label={label} active={!term && show === k} onClick={() => setShow(k)} />)}
       </FilterBar>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2, minWidth: 0 }}>
-        {subs.length > 1 && <TextField select size="small" label={what ? 'Sub-family' : 'Family › sub-family'} value={groupParam} onChange={(e) => setGroupParam(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 340, minWidth: 0 }} inputProps={{ 'data-testid': 'ledger-group' }}>
-          <MenuItem value="">{what ? 'Every sub-family' : 'Every family'}</MenuItem>
-          {subs.map((g) => <MenuItem key={g.subfamilyId} value={String(g.subfamilyId)}>{what ? g.subfamily : `${g.family} › ${g.subfamily}`} ({g.items})</MenuItem>)}
-        </TextField>}
+        <Autocomplete multiple size="small" options={famOpts} value={famOpts.filter((o) => famSet.has(o.id))} onChange={setIds(setFamParam)} getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+          renderInput={(p) => <TextField {...p} label="Family" placeholder={famSet.size ? '' : 'Every family'} />} sx={{ flex: '1 1 220px', maxWidth: 360, minWidth: 0 }} data-testid="ledger-families" />
+        <Autocomplete multiple size="small" options={subOpts} value={subOpts.filter((o) => subSet.has(o.id))} onChange={setIds(setSubParam)} getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+          renderInput={(p) => <TextField {...p} label="Sub-family" placeholder={subSet.size ? '' : 'Every sub-family'} />} sx={{ flex: '1 1 240px', maxWidth: 380, minWidth: 0 }} data-testid="ledger-subfamilies" />
+        <Autocomplete multiple size="small" options={varOpts} value={varOpts.filter((o) => varSet.has(o.id))} onChange={setIds(setVarParam)} getOptionLabel={(o) => o.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+          renderInput={(p) => <TextField {...p} label="Variant" placeholder={varSet.size ? '' : 'Every variant'} />} sx={{ flex: '1 1 240px', maxWidth: 380, minWidth: 0 }} data-testid="ledger-variants" />
         <Box data-testid="ledger-owner" role="group" aria-label="Whose stock" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
           {OWNERS.map(([k, label]) => <FacetChip key={k || 'all'} label={label} active={owner === k} onClick={() => setOwner(k)} />)}
         </Box>
@@ -129,7 +151,7 @@ export default function StoresStock() {
       {list.loaded && list.rows.length === 0 && (
         <EmptyState icon={<WarehouseRounded />} title={filtered ? 'Nothing matches' : 'Nothing in the store yet'}
           hint={filtered ? 'Clear the search, or pick "Every item".' : 'Stock arrives by Receive against a PO. "Every item" lists the catalog.'}
-          action={<Button onClick={() => { setSearch(''); setShow('all'); setGroupParam(''); setAreaParam(''); setOwner(''); setWhat(''); }}>Show every item</Button>} />
+          action={<Button onClick={() => { setSearch(''); setShow('all'); setFamParam(''); setSubParam(''); setVarParam(''); setAreaParam(''); setOwner(''); setWhat(''); }}>Show every item</Button>} />
       )}
       {list.rows.length > 0 && (
         <>
@@ -146,7 +168,7 @@ export default function StoresStock() {
                   <Box component="tr" key={r.item.id} data-testid="ledger-row" onClick={() => setOpen(r.item.id)} sx={{ cursor: 'pointer', '&:hover': { background: 'var(--c-neutral-50)' } }}>
                     <Box component="td" sx={{ ...td, minWidth: 220 }}>
                       <Box sx={{ fontWeight: 500 }}>{r.item.name}</Box>
-                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, r.group.subfamily, r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}{!owner && r.customers > 0 ? ` · ${qtyText(r.customers)} is a customer's` : ''}</Typography>
+                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, [r.group.subfamily, r.group.variant].filter(Boolean).join(' › '), r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}{!owner && r.customers > 0 ? ` · ${qtyText(r.customers)} is a customer's` : ''}</Typography>
                     </Box>
                     <Box component="td" sx={{ ...td, ...num }}><Mono muted>{qtyText(r.opening)}</Mono></Box>
                     <Box component="td" sx={{ ...td, ...num }}><Mono muted={!r.in}>{qtyText(r.in)}</Mono></Box>
@@ -195,6 +217,8 @@ export default function StoresStock() {
         </>
       )}
       </>}
+      <StockPrintDialog open={printing} onClose={() => setPrinting(false)} title={`Stock — ${from === to ? to : `${from} to ${to}`}`} filterWords={filterWords}
+        query={{ from, to, search: term || undefined, show: term ? 'all' : show, areaId: areaParam || undefined, familyIds: famParam || undefined, subfamilyIds: subParam || undefined, variantIds: varParam || undefined, owner: owner || undefined }} />
       <ItemLedgerDialog itemId={open} from={from} to={to} onClose={() => setOpen(null)} />
       <GiveOutDialog item={giving} open={basket} areas={areas} onClose={() => { setGiving(null); setBasket(false); }} onDone={(text) => { toast.success(text); list.reload(); }} />
     </Box>

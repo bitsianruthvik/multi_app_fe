@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
-import AddRounded from '@mui/icons-material/AddRounded';
 import ShoppingCartCheckoutRounded from '@mui/icons-material/ShoppingCartCheckoutRounded';
 import { listMaterialRequests, MR_FOR_LABEL, type MrFor, type MrRow } from '../api/purchaseRequests';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -34,9 +33,8 @@ export default function MaterialRequests() {
   const navigate = useNavigate();
   const toast = useToast();
   const permitted = useIsPermitted();
-  // New MR: whoever ASKS Stores (POST /requisitions: maintenance, orders manage). A request comes from someone else —
-  // the storekeeper does not raise one to himself (user, 2026-11-22); his own purchases are "New PR".
-  const canRaise = permitted('cf_erp_maintenance') || permitted('cf_erp_orders_manage') || permitted('cf_erp_production_manage');
+  // 2026-11-23 (user): no New MR here — an MR is raised on its sales order (the order's New MR) or a machine's maintenance
+  // order, never on its own. Stores' own purchases are "New PR".
   // New PR: Stores' own purchase (as POST /stores/purchase-requests: Stores or inventory manage).
   const canRaisePr = permitted('cf_erp_stores') || permitted('cf_erp_inventory_manage');
   const canPickMaintenance = permitted('cf_erp_maintenance') || permitted('cf_erp_production_view');
@@ -44,7 +42,6 @@ export default function MaterialRequests() {
   const [forType, setForType] = useUrlParam('for', 'all');
   const [orderParam] = useUrlParam('order', '');
   const [search, setSearch] = useState('');
-  const [raising, setRaising] = useState(false);
   const [raisingPr, setRaisingPr] = useState(false);
   const term = useDebounced(search.trim());
   const load = useLoad(() => listMaterialRequests({
@@ -77,10 +74,7 @@ export default function MaterialRequests() {
     <Box>
       <PageHeader title="MR inbox"
         subtitle="Requests to Stores — from sales orders, maintenance orders and departments. Open one, take what is in stock, and the rest goes on its purchase request for Purchase. Stores' own purchases go straight to a PR with New PR."
-        actions={(canRaise || canRaisePr) && <>
-          {canRaisePr && <Button variant="outlined" startIcon={<ShoppingCartCheckoutRounded />} onClick={() => setRaisingPr(true)} data-testid="new-pr">New PR</Button>}
-          {canRaise && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRaising(true)} data-testid="new-mr">New MR</Button>}
-        </>} />
+        actions={canRaisePr && <Button variant="outlined" startIcon={<ShoppingCartCheckoutRounded />} onClick={() => setRaisingPr(true)} data-testid="new-pr">New PR</Button>} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search MR, order, customer or note">
         {FOR_CHIPS.map((f) => <FacetChip key={f} label={f === 'all' ? 'All' : MR_FOR_LABEL[f]} active={forType === f} onClick={() => setForType(f)} />)}
         <Box sx={{ width: 12 }} />
@@ -95,10 +89,9 @@ export default function MaterialRequests() {
         <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} storageKey="material-requests-2" exportName="material-requests" defaultSortKey="raised" defaultSortDir="desc"
           onRowClick={(r) => navigate(appPath(company, `material-requests/${r.id}`))}
           empty={<EmptyState icon={<PlaylistAddCheckRounded />} title={term ? 'No MR matches' : 'No material requests here'}
-            hint={term ? 'Clear the search.' : 'A sales order raises its MR in its Material request step, a maintenance order from its own screen; "New MR" asks Stores for anything else.'} />} />
+            hint={term ? 'Clear the search.' : 'A sales order raises its MR with New MR on the order; a machine from its maintenance order.'} />} />
         </FadeIn>
       )}
-      <NewMrDialog open={raising} onClose={() => setRaising(false)} onRaised={(mr) => navigate(appPath(company, `material-requests/${mr.id}`))} />
       <NewMrDialog kind="pr" defaultFor="stock" canPickMaintenance={canPickMaintenance} open={raisingPr} onClose={() => setRaisingPr(false)}
         onRaised={(p) => { toast.success(`${p.code} raised for Purchase.`); navigate(appPath(company, `purchase-requests/${p.id}`)); }} />
     </Box>

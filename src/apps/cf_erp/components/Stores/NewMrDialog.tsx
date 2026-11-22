@@ -92,7 +92,7 @@ export function NewMrDialog({ open, onClose, onRaised, defaultFor = 'general', k
       <DialogHeader title={pr ? 'New purchase request' : 'New material request'}
         subtitle={pr
           ? "Stores' own purchase: it goes straight to Purchase as a purchase request. Nothing is taken from stock."
-          : 'A request to Stores — for stock, general use or a sales order. Stores take what is in stock; the rest goes on its purchase request.'}
+          : presetOrder ? 'A request to Stores for this sales order. Stores give out what is in stock and raise purchase requests for the rest.' : 'A request to Stores. Stores give out what is in stock and raise purchase requests for the rest.'}
         onClose={onClose} busy={busy} />
       <DialogContent>
         <Box sx={{ maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>

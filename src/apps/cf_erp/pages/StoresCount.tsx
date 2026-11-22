@@ -33,7 +33,7 @@ export default function StoresCount() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const [result, setResult] = useState<StockCountDetail | null>(null);
-  const groups = useLoad(() => cfApi.get<{ counts: { groups: LedgerGroup[] } }>(`/stores-desk/ledger${qs({ paged: 1, limit: 1 })}`).then((a) => a.counts.groups), []);
+  const groups = useLoad(() => cfApi.get<{ counts: { groups: LedgerGroup[] } }>(`/stores-desk/ledger${qs({ paged: 1, limit: 1 })}`).then((a) => a.counts.groups.filter((g, i, all) => all.findIndex((x) => x.subfamilyId === g.subfamilyId) === i)), []);   // one a sub-family (the list now comes a variant a row)
   const ready = true;
   const list = useLoad(() => (ready ? getCountList({ areaId: Number(areaParam) || undefined, kind, subfamilyId: Number(groupParam) || undefined }) : Promise.resolve(null)), [kind, areaParam, groupParam]);
   const recent = useLoad(() => getCounts(), []);

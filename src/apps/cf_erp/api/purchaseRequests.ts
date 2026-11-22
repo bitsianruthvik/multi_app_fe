@@ -41,10 +41,14 @@ export interface MrScreenLine {
   issued: number;
   /** §95: earmarked for the MR and still in the store (held from stock or received on its POs) — what "Issue now" takes. */
   toIssue: number;
+  /** §118: on the MR's purchase requests, and what is LEFT to cover (not given out, not earmarked, not still coming on a PR). */
+  onPr?: number;
+  left?: number;
   purchase: ReqPurchase[];
 }
 
 export interface PrSummary { id: number; code: string; status: PrStatus; statusLabel: string }
+export interface MrPr extends PrSummary { createdAt?: string; picked?: boolean; lines: { mrLineId: number; item: ReqItem; quantity: number; poRaised: number; received: number }[] }
 
 /** §79: what an MR is for — the cost follows it. */
 export type MrFor = 'sales_order' | 'maintenance_order' | 'stock' | 'general' | 'machine';
@@ -84,6 +88,10 @@ export interface MrScreen extends MrForFields {
   issueUsedFor?: 'order' | 'general';
   lines: MrScreenLine[];
   purchaseRequest: PrSummary | null;
+  /** §118: every PR of the MR, newest first, with its lines (an MR raised by hand may have several). */
+  purchaseRequests?: MrPr[];
+  /** §118: an MR raised by hand — worked line by line: Give out, Raise PR. */
+  pickMode?: boolean;
   purchaseOrders: { id: number; code: string; status: string; suppliedByCustomer?: boolean; supplier: { id: number; name: string } | null }[];
   /** §116: the contractor the request is for, and every give-out Stores made against it. */
   contractor?: { id: number; name: string } | null;
@@ -238,3 +246,10 @@ export const setPoExpectedDate = (id: number, expectedDate: string | null, dateN
 export const sendForApproval = (id: number, supplierId?: number | null) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/order`, supplierId ? { supplierId } : {});
 export const getPendingLines = (q: { search?: string; supplierId?: number | null } = {}) =>
   cfApi.get<{ rows: PendingLine[] }>(`/purchase-orders/pending-lines${qs({ search: q.search?.trim() || undefined, supplierId: q.supplierId ?? undefined })}`);
+
+/** §118: Give out against an MR raised by hand — from its earmark, then free stock. Returns what Issue now returns. */
+export const giveOutMr = (id: number, body: { lines: { lineId: number; quantity: number }[]; notes?: string; conditionsChecked?: number[] }) =>
+  cfApi.post<MrIssueResult>(`/material-requests/${id}/give-out`, body);
+/** §118: a new PR from an MR raised by hand, for chosen lines (each at most what is left). Returns the MR screen. */
+export const raisePrFromMr = (id: number, body: { lines: { lineId: number; quantity: number }[]; notes?: string }) =>
+  cfApi.post<MrScreen & { raised: MrPr }>(`/material-requests/${id}/purchase-requests`, body);
