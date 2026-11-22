@@ -44,7 +44,6 @@ import { ClassificationPicker } from '../components/ClassificationPicker';
 import { CreateRecordDialog } from '../components/CreateRecordDialog';
 import { FlowPicker } from '../components/FlowPicker';
 import { FlowTag } from '../components/FlowTag';
-import { ItemStockPanel } from '../components/ItemStockPanel';
 import { ItemMoneyFacts } from '../components/ItemMoneyFacts';
 import { ProcurementCard } from '../components/Stores/ProcurementCard';
 import { useItemMoney } from '../hooks/useItemMoney';
@@ -477,14 +476,14 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       {r.owner && <CrossLink icon={<ReceiptLongRounded />} label={`Order ${r.owner.orderCode}`} to={to(`orders/${r.owner.orderId}`)} />}
       {r.placement && <CrossLink icon={<AccountTreeRounded />} label={`Part of ${r.placement.parentCode ?? r.placement.parentName}`} to={to(`items/${r.placement.parentId}`)} />}
       {r.sourceDefinition && <CrossLink icon={<CallSplitRounded />} label={`Created from ${r.sourceDefinition.shortName || r.sourceDefinition.name}`} to={to(`definitions/${r.sourceDefinition.id}`)} />}
-      {r.recordKind === 'item' && <CrossLink icon={<WarehouseRounded />} label="Stock" onClick={() => setTab('stock')} />}
+      {/* 2026-11-23 (user): stock has one place, Stores › Stock — the item's line there, its lots opened */}
+      {r.recordKind === 'item' && r.item?.itemType === 'catalog' && <CrossLink icon={<WarehouseRounded />} label="Stock (Stores)" to={to(`stores?item=${id}`)} />}
     </>
   );
   const tabs = [
     { value: 'specs', label: 'Specifications', count: specs.data?.specs.length },
     ...(isSelection ? [{ value: 'selection', label: 'Selection' }] : []),
     { value: 'bom', label: isSelection ? 'Where used' : 'BOM', count: isSelection ? undefined : r.bom?.lineCount },
-    ...(r.recordKind === 'item' ? [{ value: 'stock', label: 'Stock' }] : []),
     { value: 'history', label: 'History' },
     { value: 'details', label: 'Details' },
   ];
@@ -550,7 +549,6 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       )}
       {tab === 'selection' && isSelection && <SelectionPanel record={r} canManage={editable} onChanged={rec.reload} />}
       {tab === 'bom' && <BomPanel key={id} source={{ kind: 'record', recordId: id }} ownsBom showWhereUsed onChanged={() => { rec.reload(); specs.reload(); }} />}
-      {tab === 'stock' && r.recordKind === 'item' && <ItemStockPanel record={r} />}
       {tab === 'history' && <ValueHistory path={`/records/${id}/history`} version={version} subtitle="Every change to a value on this record — who, when, from what to what. Calculated changes appear too." />}
       {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onTreeChanged={tree.reload}
         onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}

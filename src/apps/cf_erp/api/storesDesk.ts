@@ -11,6 +11,8 @@ export interface DeskSettings {
   giveOutLoose?: boolean;
   /** §117: a GRN line names its brand (company setting grn_brand_required, default on). */
   brandRequired?: boolean;
+  /** 2026-11-23: the stock entry week (setting stock_entry_until) — Stores › Stock entry shows while it is open. */
+  stockEntryUntil?: string | null; stockEntryOpen?: boolean;
 }
 export interface Department { id: number; name: string }
 export interface StorePerson { id: number; name: string; department: Department | null }
@@ -48,7 +50,8 @@ export interface ItemLedger {
   period: { from: string; to: string };
   areas: { id: number; code: string; name: string; purpose: string; quantity: number; store: boolean }[];
   lots: { id: number; code: string; status: string; supplierRef: string | null; area: { id: number; name: string }; quantity: number;
-    /** §117 */ receivedOn?: string | null; unitCost?: number | null; brand?: { id: number; name: string; unbranded: boolean } | null; vendor?: { id: number; name: string } | null }[];
+    /** §117 */ receivedOn?: string | null; unitCost?: number | null; brand?: { id: number; name: string; unbranded: boolean } | null; vendor?: { id: number; name: string } | null;
+    /** 2026-11-23 */ owner?: { id: number; name: string } | null; held?: number }[];
   events: LedgerEvent[];
   outWith: Custody[];
   onOrder: { id: number; code: string | null; status: string; supplier: string | null; expected: string | null; quantity: number }[];
@@ -130,3 +133,31 @@ export const getReservedFor = (itemId: number) => cfApi.get<ReservedFor[]>(`/sto
 export const listReservedUse = (q: { status?: string; itemId?: number } = {}) => cfApi.get<{ rows: ReservedUse[] }>(`/stores-desk/reserved-use${qs(q)}`);
 export const askReservedUse = (body: { itemId: number; quantity: number; reason: string; wantedFor?: string | null }) => cfApi.post<ReservedUse>('/stores-desk/reserved-use', body);
 export const withdrawReservedUse = (id: number) => cfApi.post<ReservedUse>(`/stores-desk/reserved-use/${id}/withdraw`, {});
+
+/** 2026-11-23 (user): the Stores dashboard — GET /stores-desk/dashboard (the Today page's parts plus these). */
+export type DashTone = 'danger' | 'warning' | 'info';
+export interface DashAction { key: string; tone: DashTone; count: number; title: string; detail: string; link: string | null; rows?: Record<string, unknown>[] }
+export interface DashPr { id: number; code: string | null; statusLabel: string; order: { id: number; code: string } | null; lines: number; toOrder: number; vendors: number; purchaseOrders: number; age: number }
+export interface DashMr { id: number; code: string; forLabel: string; order: { id: number; code: string } | null; statusLabel: string; contractor: { id: number; name: string } | null; purchaseRequest: { id: number; code: string } | null; age: number; raisedAt: string | null }
+export interface DashMachine { id: number; machine: { id: number; code: string | null; name: string; kind: string }; to: { kind: string; kindLabel: string; name: string | null; code: string | null } | null; takenBy: string | null; outAt: string | null; dueOn: string | null; overdue: boolean }
+export interface StoresDashboard extends StoresToday {
+  tiles: { mrsOpen: number; prsToOrder: number; posLate: number; outWith: number; outLong: number; machinesOut: number; machinesLate: number; auditLeft: number; auditTotal: number; belowMin: number };
+  actions: DashAction[];
+  audit: { from: string | null; total: number; audited: number; done: boolean; left: number; daysLeft: number; monthEnd: string; late: boolean; pending: number; rejected: number; lastCount: string | null };
+  prs: { rows: DashPr[]; stale: number; noVendor: number; staleDays: number };
+  mrs: { rows: DashMr[]; stale: number; staleDays: number };
+  out: { counts: Record<string, number>; longDays: number; rows: Custody[]; machines: DashMachine[]; machinesLate: number };
+  entry: { until: string | null; open: boolean };
+}
+export const getDashboard = () => cfApi.get<StoresDashboard>('/stores-desk/dashboard');
+
+/** 2026-11-23 (user): the stock entry week — every item as it is on the shelf, split by lot / brand / vendor. */
+export interface EntryLot {
+  lotId: number | null; code: string | null; quantity: number; status: string | null; receivedOn: string | null; supplierRef: string | null;
+  brand: { id: number; name: string; unbranded: boolean } | null; vendor: { id: number; name: string } | null; owner: { id: number; name: string } | null;
+}
+export interface EntryRow { item: LedgerRow['item']; group: LedgerRow['group']; book: number; lots: EntryLot[]; entered: boolean }
+export interface EntryMeta { areas: StoreArea[]; area: StoreArea; groups: LedgerGroup[]; window: { until: string | null; open: boolean }; entered: number }
+export interface EntryLotIn { lotId?: number | null; loose?: boolean; quantity: number; brandId?: number | null; vendorId?: number | null; supplierRef?: string | null; receivedOn?: string | null }
+export const saveStockEntry = (body: { areaId: number; itemId: number; note?: string | null; lots: EntryLotIn[] }) =>
+  cfApi.post<{ itemId: number; book: number; lots: EntryLot[]; entered: boolean; changed: number; movementId: number | null }>('/stores-desk/stock-entry', body);

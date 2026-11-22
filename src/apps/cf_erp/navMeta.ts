@@ -31,6 +31,8 @@ export interface NavScreen {
    * of the two (cf_company_settings.stores_v2, hooks/useStoresDesk); a screen with neither shows in both.
    */
   desk?: 'v1' | 'v2';
+  /** Shown only while something is switched on for the company: 'stockEntry' = the stock entry week (stock_entry_until). */
+  when?: 'stockEntry';
 }
 
 export interface NavSection {
@@ -191,37 +193,30 @@ export const SECTIONS: NavSection[] = [
     key: 'inventory',
     label: 'Stores',
     screens: [
-      // §111 (user 2026-11-19): the Stores desk — five screens, one a job. Stock is read by everyone who plans against it.
-      { key: 'desk-today', desk: 'v2', label: 'Today', path: 'stores-today', permission: STOCK_READ, keywords: ['dashboard', 'to do', 'follow up', 'late', 'due', 'night', 'after hours', 'alerts', 'minimum', 'maximum', 'reorder level', 'close period'] },
-      { key: 'desk-stock', desk: 'v2', label: 'Stock', path: 'stores', permission: STOCK_READ, countKey: 'stockLines', keywords: ['ledger', 'opening', 'balance', 'on hand', 'inventory', 'give out', 'issue', 'consumables', 'spares', 'steel'] },
-      // 2026-11-23 (user): the catalog moved into Stores — Stores or Procurement set up items, categories (family › sub-family
-      // › variant, made from the item screen) and definitions (both standard roles hold catalog manage).
+      // 2026-11-23 (user): ONE Stores menu. The menu before the desk (MR inbox, To reorder, the old Stock, Movements,
+      // Batches, Work in progress, Offcuts …) is gone: a company's menu no longer waits on its stores_v2 switch — when that
+      // answer was slow or failed the old screens showed ("not sure why the old features are even there"). Their pages
+      // still open from links (a movement code, a batch) — they are just not in the menu.
+      // Dashboard replaces Today: alerts, notifications and what to do (PRs, things out, machines, the month's audit).
+      { key: 'desk-today', label: 'Dashboard', path: 'stores-today', permission: STOCK_READ, keywords: ['dashboard', 'today', 'to do', 'alerts', 'notifications', 'follow up', 'late', 'due', 'night', 'after hours', 'minimum', 'maximum', 'reorder level', 'close period', 'purchase requests', 'out', 'audit'] },
+      { key: 'desk-stock', label: 'Stock', path: 'stores', permission: STOCK_READ, countKey: 'stockLines', keywords: ['ledger', 'opening', 'balance', 'on hand', 'inventory', 'lots', 'batches', 'brand', 'vendor', 'consumables', 'spares', 'steel', 'work in progress', 'offcuts', 'print'] },
+      // 2026-11-23 (user): temporary — "active for next one week to ensure we get the data in correctly" (setting stock_entry_until).
+      { key: 'stock-entry', label: 'Stock entry (this week)', path: 'stock-entry', permission: STORES_WORK, when: 'stockEntry', keywords: ['stock entry', 'opening', 'stock take', 'enter stock', 'lots', 'brands', 'audit', 'data entry'] },
+      { key: 'desk-requests', label: 'Requests', path: 'material-requests', hasDetail: true, permission: `${STORES_WORK}|cf_erp_maintenance|cf_erp_orders_manage|cf_erp_production_manage`, keywords: ['material request', 'mr', 'requisition', 'inbox', 'give out', 'issue', 'stock out', 'raise pr'] },
+      { key: 'desk-receive', label: 'Receive', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
+      { key: 'desk-out', label: 'Out with', path: 'stores-out', permission: STOCK_READ, keywords: ['who has', 'tools', 'returnable', 'vendor', 'job work', 'lost', 'worn out', 'return', 'overdue'] },
+      // §104: machines and tools checked out to people, contractors, orders and areas; what arrived, to register.
+      { key: 'machine-custody', label: 'Check-in / out', path: 'machine-custody', permission: STORES_WORK, keywords: ['check out', 'check in', 'machines', 'issue tool', 'return tool', 'who has', 'register machine', 'serial', 'overdue', 'custody'] },
+      { key: 'desk-count', label: 'Audit', path: 'stores-count', permission: STORES_WORK, keywords: ['audit', 'count', 'stock take', 'cycle count', 'difference', 'physical', 'monthly'] },
+      // The catalog lives in Stores (user, 2026-11-23): items, their family › sub-family › variant (made from the item
+      // screen), definitions and the brand list — one place each. An item's stock is Stores › Stock (its page links there).
       { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: CATALOG_WORK, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
       { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: CATALOG_WORK, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
-      { key: 'desk-requests', desk: 'v2', label: 'Requests', path: 'material-requests', hasDetail: true, permission: `${STORES_WORK}|cf_erp_maintenance|cf_erp_orders_manage|cf_erp_production_manage`, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock'] },
-      { key: 'desk-receive', desk: 'v2', label: 'Receive', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
-      { key: 'desk-out', desk: 'v2', label: 'Out with', path: 'stores-out', permission: STOCK_READ, keywords: ['who has', 'tools', 'returnable', 'vendor', 'job work', 'lost', 'worn out', 'return', 'overdue'] },
-      { key: 'desk-count', desk: 'v2', label: 'Audit', path: 'stores-count', permission: STORES_WORK, keywords: ['audit', 'count', 'stock take', 'cycle count', 'difference', 'physical'] },
-      // 2026-11-21 (user): work in progress and offcuts are part of the desk too — the same two read-only pages as before.
-      // 2026-11-22 (later): they are views of Stock itself now (Stores › Stock › What: Work in progress / Offcuts).
-      { key: 'material-requests', desk: 'v1', label: 'MR inbox', path: 'material-requests', hasDetail: true, permission: STORES_WORK, keywords: ['material request', 'mr', 'requisition', 'inbox', 'take from stock', 'earmark', 'locked', 'new mr', 'for', 'maintenance', 'general', 'stores'] },
-      { key: 'to-reorder', desk: 'v1', label: 'To reorder', path: 'to-reorder', permission: STORES_WORK, keywords: ['reorder', 'min max', 'minimum', 'maximum', 'periodic', 'replenish', 'refill', 'stock mr', 'by ai', 'procurement method'] },
-      { key: 'stock', desk: 'v1', label: 'Stock', path: 'stock', permission: `${STORES_WORK}|${PURCHASE_WORK}`, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
-      // §71: GRNs against purchase orders waiting for goods — several per PO; what arrives is locked for its order.
-      { key: 'receive', desk: 'v1', label: 'Receive against PO', path: 'receive', permission: STORES_WORK, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
-      { key: 'wip', desk: 'v1', label: 'Work in progress', path: 'wip', permission: STORES_WORK, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
-      { key: 'offcuts', desk: 'v1', label: 'Offcuts', path: 'offcuts', permission: STORES_WORK, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
-      // §81: tools are stock items; their life, per piece issued.
-      { key: 'tools', desk: 'v1', label: 'Tools', path: 'tools', permission: STORES_WORK, keywords: ['tool life', 'worn out', 'die', 'jig', 'gauge', 'cutter', 'spares', 'consumables'] },
+      // §117 (user 2026-11-22): one brand list across families; a GRN picks each new lot's brand from it.
+      { key: 'brands', label: 'Brands', path: 'brands', permission: STOCK_READ, keywords: ['brand', 'make', 'manufacturer', 'unbranded', 'paint', 'vendor', 'lot', 'batch', 'grn'] },
       // Customer material not needed or not accepted (§68) — worked out on the read; a return movement clears it.
-      { key: 'customer-returns', desk: 'v1', label: 'To return to customers', path: 'customer-returns', permission: STORES_WORK, keywords: ['customer material', 'return', 'extra', 'substitute', 'send back', 'free issue'] },
-      { key: 'movements', desk: 'v1', label: 'Movements', path: 'movements', hasDetail: true, permission: STORES_WORK, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
-      { key: 'batches', desk: 'v1', label: 'Batches', path: 'batches', hasDetail: true, permission: STORES_WORK, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
-      { key: 'stocking-areas', desk: 'v1', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: STORES_WORK, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
-      // 2026-11-12: every machine, to look at (Maintenance keeps the register).
-      { key: 'store-machines', desk: 'v1', label: 'Machines', path: 'machines', hasDetail: true, permission: STORES_WORK, keywords: ['machines', 'equipment', 'assets', 'register'] },
-      // §104 (2026-11-12): machines and tools out to people, contractors, orders and areas; what arrived, to register.
-      { key: 'machine-custody', desk: 'v1', label: 'Check-in / out', path: 'machine-custody', permission: STORES_WORK, keywords: ['check out', 'check in', 'issue tool', 'return tool', 'who has', 'register machine', 'serial', 'overdue', 'custody'] },
+      { key: 'customer-returns', label: 'To return to customers', path: 'customer-returns', permission: STORES_WORK, keywords: ['customer material', 'return', 'extra', 'substitute', 'send back', 'free issue'] },
+      { key: 'stocking-areas', label: 'Store areas', path: 'stocking-areas', hasDetail: true, permission: STORES_WORK, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip', 'stocking areas'] },
     ],
   },
   {
@@ -258,8 +253,6 @@ export const SECTIONS: NavSection[] = [
       { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: `${ORDERS_WORK}|${ACCOUNTS_MANAGE}`, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
       { key: 'cutting', label: 'Cutting', path: 'cutting', permission: CATALOG_WORK, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
-      // §117 (user 2026-11-22): one brand list across families; a GRN picks each new lot's brand from it.
-      { key: 'brands', label: 'Brands', path: 'brands', permission: STOCK_READ, keywords: ['brand', 'make', 'manufacturer', 'unbranded', 'paint', 'vendor', 'lot', 'batch', 'grn'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,
       // which is how a girder is made and lives under Production.

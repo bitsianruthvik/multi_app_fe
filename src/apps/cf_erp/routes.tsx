@@ -63,6 +63,8 @@ const Stock = lazy(() => import('./pages/Stock'));
 // The Stores desk (init.sql §111): the ledger, out with, count.
 const StoresStock = lazy(() => import('./pages/StoresStock'));
 const StoresToday = lazy(() => import('./pages/StoresToday'));
+// 2026-11-23 (user): the temporary stock entry screen (open while stock_entry_until has not passed).
+const StockEntry = lazy(() => import('./pages/StockEntry'));
 const StoresOutWith = lazy(() => import('./pages/StoresOutWith'));
 const StoresCount = lazy(() => import('./pages/StoresCount'));
 // Purchase flow v3 (§71): MR → PR (vendor columns) → PO → Receive against PO.
@@ -192,6 +194,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
     { path: '/:company/cf_erp/stores', element: wrap(<StoresStock />) },
     { path: '/:company/cf_erp/stores-today', element: wrap(<StoresToday />) },
+    { path: '/:company/cf_erp/stock-entry', element: wrap(<StockEntry />) },
     { path: '/:company/cf_erp/stores-out', element: wrap(<StoresOutWith />) },
     { path: '/:company/cf_erp/stores-count', element: wrap(<StoresCount />) },
     { path: '/:company/cf_erp/purchase', element: <ToMaterialRequests /> },
