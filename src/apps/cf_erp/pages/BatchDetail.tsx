@@ -83,6 +83,7 @@ export default function BatchDetail() {
           {b.owner && <Fact label="Owner"><OwnerTag name={ownerLabel(b.owner)} />{b.owner.order && <Mono muted> · for {b.owner.order.code}</Mono>}</Fact>}
           {!b.owner && <Fact label="Unit cost"><Money value={b.unitCost} digits={2} /></Fact>}
           <Fact label="Received"><Mono>{b.receivedOn ?? '—'}</Mono></Fact>
+          <Fact label="Brand">{b.brand?.name ?? <Mono muted>not recorded</Mono>}</Fact>
           <Fact label="Supplier">{b.supplier?.name ?? '—'}</Fact>
           <Fact label="Supplier’s lot"><Mono muted={!b.supplierRef}>{b.supplierRef ?? '—'}</Mono></Fact>
         </>

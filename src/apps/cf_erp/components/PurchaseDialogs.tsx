@@ -3,7 +3,8 @@ import { Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextFiel
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, qs } from '../api/client';
-import type { Batch, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, SalesOrder, StockingArea } from '../api/types';
+import type { Batch, BrandRef, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, SalesOrder, StockingArea } from '../api/types';
+import { BrandPicker } from './BrandPicker';
 import { setLineOrders, type HeldReceipt } from '../api/procurement';
 
 /** §68: what a receipt on a customer's PO says beside the holds — the extra kept to go back, a substitute sent to the MD. */
@@ -134,6 +135,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived, custom
   const [quantity, setQuantity] = useState('');
   const [areaId, setAreaId] = useState('');
   const [supplierRef, setSupplierRef] = useState('');
+  const [brand, setBrand] = useState<BrandRef | null>(null);   // §117: a new lot from the supplier names its brand
   const [reference, setReference] = useState('');
   const [unitCost, setUnitCost] = useState('');
   const [mode, setMode] = useState<'new' | 'existing'>('new');
@@ -178,6 +180,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived, custom
           : waitingForTemplate ? 'Checking what this item records per batch…'
             : newBatch && template.error ? 'What this item records per batch could not be loaded — try again.'
               : byBatch && mode === 'existing' && !batchId && !other ? 'Choose the batch it is being added to.'
+                : byBatch && mode === 'new' && !other && !customer && !brand ? 'Pick its brand (or Unbranded).'
                 : missing.length ? `${missing.map((s) => s.spec.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a new batch.`
                   : null;
 
@@ -185,7 +188,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived, custom
     if (!line) return;
     const batch = mode === 'existing'
       ? undefined
-      : { supplierRef: supplierRef || null, values: Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
+      : { supplierRef: supplierRef || null, brandId: brand?.id ?? null, values: Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
     const r = await cfApi.post<{ order: PurchaseOrder; held?: HeldReceipt[]; extra?: { quantity: number; text: string }; substitute?: { message: string } }>(`/purchase-lines/${line.id}/receive`, {
       quantity, stockingAreaId: areaId, reference: reference || null,
       // Prefilled from the line's price; typed over if the invoice says otherwise. Empty = the line's price, or not costed.
@@ -244,6 +247,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived, custom
             </TextField>
           ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
+              <BrandPicker value={brand} onChange={setBrand} required={!customer} minWidth={0} />
               <TextField label="Supplier lot number" value={supplierRef} onChange={(e) => setSupplierRef(e.target.value)} />
               {waitingForTemplate && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', alignSelf: 'center' }}>Loading what this batch must record…</Typography>}
               {fields.map((s) => (

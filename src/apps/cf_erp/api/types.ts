@@ -964,10 +964,16 @@ export interface Batch {
   receivedOn: string | null;
   supplier: { id: number; code: string; name: string } | null;
   supplierRef: string | null;
+  /** §117: the lot's brand (null = not recorded: stock from before brands were asked for). */
+  brand?: BrandRef | null;
   notes: string | null;
   onHand?: number;
   createdAt: string;
 }
+
+/** §117: a brand on the company's one brand list; `unbranded` is the "Unbranded" row. */
+export interface BrandRef { id: number; name: string; unbranded: boolean }
+export interface Brand extends BrandRef { lots?: number; items?: number; lotsInStock?: number }
 
 export interface BatchDetail extends Batch {
   specs: Resolution;

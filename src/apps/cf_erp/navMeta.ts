@@ -262,6 +262,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: `${ORDERS_WORK}|${ACCOUNTS_MANAGE}`, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
       { key: 'cutting', label: 'Cutting', path: 'cutting', permission: CATALOG_WORK, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
+      // §117 (user 2026-11-22): one brand list across families; a GRN picks each new lot's brand from it.
+      { key: 'brands', label: 'Brands', path: 'brands', permission: STOCK_READ, keywords: ['brand', 'make', 'manufacturer', 'unbranded', 'paint', 'vendor', 'lot', 'batch', 'grn'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,
       // which is how a girder is made and lives under Production.

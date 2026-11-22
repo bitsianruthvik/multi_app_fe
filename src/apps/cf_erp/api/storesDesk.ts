@@ -9,6 +9,8 @@ export interface DeskSettings {
   giveOutDepartments?: boolean; giveOutPerson?: boolean;
   /** 2026-11-23: may stock be given out without a material request (off by default: only "Issue now" on a request). */
   giveOutLoose?: boolean;
+  /** §117: a GRN line names its brand (company setting grn_brand_required, default on). */
+  brandRequired?: boolean;
 }
 export interface Department { id: number; name: string }
 export interface StorePerson { id: number; name: string; department: Department | null }
@@ -44,7 +46,8 @@ export interface ItemLedger {
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: string; returnable: boolean; dueDays: number | null; method: string | null; min: number | null; max: number | null };
   period: { from: string; to: string };
   areas: { id: number; code: string; name: string; purpose: string; quantity: number; store: boolean }[];
-  lots: { id: number; code: string; status: string; supplierRef: string | null; area: { id: number; name: string }; quantity: number }[];
+  lots: { id: number; code: string; status: string; supplierRef: string | null; area: { id: number; name: string }; quantity: number;
+    /** §117 */ receivedOn?: string | null; unitCost?: number | null; brand?: { id: number; name: string; unbranded: boolean } | null; vendor?: { id: number; name: string } | null }[];
   events: LedgerEvent[];
   outWith: Custody[];
   onOrder: { id: number; code: string | null; status: string; supplier: string | null; expected: string | null; quantity: number }[];

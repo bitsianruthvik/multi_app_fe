@@ -8,7 +8,9 @@ import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import TableViewRounded from '@mui/icons-material/TableViewRounded';
 import { cfApi, CfApiError } from '../api/client';
-import type { Batch, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
+import type { Batch, BrandRef, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
+import { getDeskSettings } from '../api/storesDesk';
+import { BrandPicker } from './BrandPicker';
 import { bookGrn, getGrnContext, type GrnBody, type GrnContext, type GrnResult } from '../api/grn';
 import { getStates, type StateRow } from '../api/gst';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -39,12 +41,12 @@ const money = (n: number) => rupeeText(n, 2);
 const mono = { fontFamily: 'var(--font-mono)' };
 const cell = { px: 0.5, py: 0.5, verticalAlign: 'top' as const };
 
-interface BatchState { mode: 'new' | 'existing'; supplierRef: string; values: Record<number, string>; batchId: string }
+interface BatchState { mode: 'new' | 'existing'; supplierRef: string; values: Record<number, string>; batchId: string; brand: BrandRef | null; brandTouched?: boolean }
 interface RowState extends GrnLineIn { included: boolean; hsn: string; batch: BatchState }
 
 /** The batch a batch-kept item arrives in — the same fields the older receipt dialog asked for. */
-function BatchEntry({ itemId, label, state, onChange, onMissing }: {
-  itemId: number; label: string; state: BatchState; onChange: (b: BatchState) => void; onMissing: (m: string | null) => void;
+function BatchEntry({ itemId, label, state, onChange, onMissing, brandRequired }: {
+  itemId: number; label: string; state: BatchState; onChange: (b: BatchState) => void; onMissing: (m: string | null) => void; brandRequired: boolean;
 }) {
   const template = useLoad(() => cfApi.get<Resolution>(`/items/${itemId}/batch-template`), [itemId]);
   const batches = useLoad(() => cfApi.get<Batch[]>(`/batches?itemId=${itemId}`), [itemId]);
@@ -52,9 +54,13 @@ function BatchEntry({ itemId, label, state, onChange, onMissing }: {
   const needed = new Set((template.data?.missingRequired ?? []).map((m) => m.code));
   const open = (batches.data ?? []).filter((b) => b.status !== 'rejected');
   const missing = state.mode === 'new' ? fields.filter((s) => needed.has(s.spec.code) && !String(state.values[s.spec.id] ?? '').trim()) : [];
+  // §117: a new lot names its brand; the item's last lot's brand is filled in to keep or change
+  const lastBrand = (batches.data ?? []).find((b) => b.brand)?.brand ?? null;
+  useEffect(() => { if (lastBrand && !state.brand && !state.brandTouched) onChange({ ...state, brand: lastBrand }); }, [lastBrand?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const text = template.loading && !template.data ? `${label}: checking what the batch must record…`
     : state.mode === 'existing' && !state.batchId ? `${label}: choose the batch it is added to.`
-      : missing.length ? `${label}: ${missing.map((s) => s.spec.name).join(', ')} required for a new batch.` : null;
+      : missing.length ? `${label}: ${missing.map((s) => s.spec.name).join(', ')} required for a new batch.`
+        : state.mode === 'new' && brandRequired && !state.brand ? `${label}: pick its brand (or Unbranded).` : null;
   useEffect(() => { onMissing(text); return () => onMissing(null); }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Box sx={{ pl: 1.5, borderLeft: '2px solid var(--c-primary-200)', display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-start', py: 0.5 }} data-testid="grn-batch">
@@ -65,10 +71,11 @@ function BatchEntry({ itemId, label, state, onChange, onMissing }: {
       </ToggleButtonGroup>
       {state.mode === 'existing' ? (
         <TextField select size="small" label="Batch" value={state.batchId} onChange={(e) => onChange({ ...state, batchId: e.target.value })} sx={{ minWidth: 220 }}>
-          {open.map((b) => <MenuItem key={b.id} value={String(b.id)}>{b.code}{b.supplierRef ? ` · ${b.supplierRef}` : ''} · {qtyText(b.onHand)} on hand</MenuItem>)}
+          {open.map((b) => <MenuItem key={b.id} value={String(b.id)}>{b.code}{b.brand ? ` · ${b.brand.name}` : ''}{b.supplierRef ? ` · ${b.supplierRef}` : ''} · {qtyText(b.onHand)} on hand</MenuItem>)}
         </TextField>
       ) : (
         <>
+          <BrandPicker value={state.brand} required={brandRequired} testId="grn-brand" onChange={(b) => onChange({ ...state, brand: b, brandTouched: true })} />
           <TextField size="small" label="Supplier lot number" value={state.supplierRef} onChange={(e) => onChange({ ...state, supplierRef: e.target.value })} />
           {fields.map((s) => (
             <SpecValueInput key={s.spec.id} dataType={s.spec.dataType} unit={s.spec.unit} options={s.options}
@@ -110,6 +117,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const [sheetOpen, setSheetOpen] = useState(false);
   // §111: on the Stores desk stock is not taken in from a file — the receipt is typed against the PO lines.
   const desk = useStoresV2();
+  const deskSettings = useLoad(() => getDeskSettings().catch(() => null), []);
+  const brandRequired = deskSettings.data?.brandRequired !== false;
   const [error, setError] = useState<CfApiError | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
@@ -125,7 +134,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
       next[l.id] = {
         included: l.id === lineId, quantity: String(l.outstanding), unitPrice: l.unitPrice == null ? (c?.unitPrice == null ? '' : String(c.unitPrice)) : String(l.unitPrice),
         mrp: '', discountMode: 'pct', discountValue: '', gstRate: c?.gstRate == null ? '' : String(c.gstRate), hsn: c?.hsnCode ?? '',
-        batch: { mode: 'new', supplierRef: '', values: {}, batchId: '' },
+        batch: { mode: 'new', supplierRef: '', values: {}, batchId: '', brand: null },
       };
     }
     setRows(next); setReference(''); setInvoiceNo(''); setInvoiceDate(''); setToFollow(false);
@@ -180,7 +189,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
             ...(r.discountValue.trim() ? { discountMode: r.discountMode, discountValue: r.discountValue } : {}),
             hsnCode: r.hsn || undefined, gstRate: r.gstRate === '' ? '0' : r.gstRate,
             ...(byBatch && r.batch.mode === 'existing' ? { batchId: Number(r.batch.batchId) } : {}),
-            ...(byBatch && r.batch.mode === 'new' ? { batch: { supplierRef: r.batch.supplierRef || null, values: Object.entries(r.batch.values).filter(([, v]) => v !== '').map(([id, value]) => ({ specificationId: Number(id), value })) } } : {}),
+            ...(byBatch && r.batch.mode === 'new' ? { batch: { supplierRef: r.batch.supplierRef || null, brandId: r.batch.brand?.id ?? null, values: Object.entries(r.batch.values).filter(([, v]) => v !== '').map(([id, value]) => ({ specificationId: Number(id), value })) } } : {}),
           };
         }),
       };
@@ -311,7 +320,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
                       </Box>,
                       r.included && l.item.trackedBy === 'batch' ? (
                         <tr key={`${l.id}-b`}><td /><td colSpan={10}>
-                          <BatchEntry itemId={l.item.id} label={l.item.code ?? l.item.name} state={r.batch} onChange={(b) => patch(l.id, { batch: b })} onMissing={(m) => setMissing((x) => (x[l.id] === m ? x : { ...x, [l.id]: m }))} />
+                          <BatchEntry itemId={l.item.id} label={l.item.code ?? l.item.name} state={r.batch} brandRequired={brandRequired} onChange={(b) => patch(l.id, { batch: b })} onMissing={(m) => setMissing((x) => (x[l.id] === m ? x : { ...x, [l.id]: m }))} />
                         </td></tr>
                       ) : null,
                     ];

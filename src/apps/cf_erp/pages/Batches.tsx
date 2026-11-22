@@ -37,6 +37,7 @@ const COLUMNS: DataColumn<Batch>[] = [
     render: (b) => <Box sx={{ py: 0.5 }}><Mono>{b.item.code}</Mono><Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{b.item.name}</Typography></Box>,
   },
   { key: 'received', header: 'Received', render: (b) => <Mono muted>{b.receivedOn ?? '—'}</Mono>, sortValue: (b) => b.receivedOn },
+  { key: 'brand', header: 'Brand', sortValue: (b) => b.brand?.name, exportValue: (b) => b.brand?.name ?? '', render: (b) => (b.brand ? <span>{b.brand.name}</span> : <Mono muted>—</Mono>) },
   {
     key: 'supplier', header: 'Supplier', sortValue: (b) => b.supplier?.name, exportValue: (b) => [b.supplier?.name, b.supplierRef].filter(Boolean).join(' · lot '),
     render: (b) => <Box sx={{ py: 0.5 }}>{b.supplier?.name ?? '—'}{b.supplierRef && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>lot {b.supplierRef}</Typography>}</Box>,

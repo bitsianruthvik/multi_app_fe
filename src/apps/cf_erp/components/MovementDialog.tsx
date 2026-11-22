@@ -6,7 +6,8 @@ import {
 import AddRounded from '@mui/icons-material/AddRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
-import type { Batch, MasterRecord, MovementDetail, MovementType, Party, Resolution, SalesOrder, StockRow, StockingArea } from '../api/types';
+import type { Batch, BrandRef, MasterRecord, MovementDetail, MovementType, Party, Resolution, SalesOrder, StockRow, StockingArea } from '../api/types';
+import { BrandPicker } from './BrandPicker';
 import { useLoad } from '../hooks/useLoad';
 import { canReceiveInto, NO_RECEIVING_AREA, qtyText } from '../lib/inventory';
 import { RecordPicker } from './RecordPicker';
@@ -21,6 +22,7 @@ interface LineState {
   batchMode: 'new' | 'existing';
   batchCode: string;
   supplierRef: string;
+  brand: BrandRef | null;
   values: Record<number, string>;
   batchId: number | null;
   stockKey: string;
@@ -29,7 +31,7 @@ interface LineState {
 }
 type UsedFor = 'order' | 'general';
 let nextKey = 1;
-const blankLine = (): LineState => ({ key: nextKey++, item: null, batchMode: 'new', batchCode: '', supplierRef: '', values: {}, batchId: null, stockKey: '', other: false, quantity: '' });
+const blankLine = (): LineState => ({ key: nextKey++, item: null, batchMode: 'new', batchCode: '', supplierRef: '', brand: null, values: {}, batchId: null, stockKey: '', other: false, quantity: '' });
 
 const TITLE: Record<MovementType, string> = { receipt: 'Receive stock', issue: 'Issue stock', transfer: 'Transfer stock', scrap: 'Scrap stock', adjustment: 'Count stock' };
 const HELP: Record<MovementType, string> = {
@@ -74,6 +76,7 @@ function ReceiptLine({ line, onChange }: { line: LineState; onChange: (l: LineSt
               <ErrorNotice error={template.error} onRetry={template.reload} sx={{ mb: 0 }} />
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
                 <TextField label="Batch code (optional)" value={line.batchCode} onChange={(e) => onChange({ ...line, batchCode: e.target.value })} helperText="Empty: numbered by the coding rule" inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+                <BrandPicker value={line.brand} onChange={(b) => onChange({ ...line, brand: b })} minWidth={0} />
                 <TextField label="Supplier’s lot number" value={line.supplierRef} onChange={(e) => onChange({ ...line, supplierRef: e.target.value })} />
                 {template.loading && !template.data && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', alignSelf: 'center' }}>Loading what this batch must record…</Typography>}
                 {fields.map((s) => (
@@ -190,7 +193,7 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
         const base: Record<string, unknown> = { itemId: l.item?.id ?? null, quantity: l.quantity };
         if (l.item?.item?.trackedBy === 'batch') {
           if (l.batchMode === 'existing') base.batchId = l.batchId;
-          else base.batch = { code: l.batchCode || null, supplierRef: l.supplierRef || null, values: Object.entries(l.values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
+          else base.batch = { code: l.batchCode || null, supplierRef: l.supplierRef || null, brandId: l.brand?.id ?? null, values: Object.entries(l.values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
         }
         return base;
       }

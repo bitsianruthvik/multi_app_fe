@@ -113,7 +113,7 @@ export function ItemLedgerDialog({ itemId, from, to, onClose }: { itemId: number
               )}
               {v.lots.length > 0 && (
                 <Block title="Lots in the store">
-                  {v.lots.slice(0, 12).map((b) => <Box key={`${b.id}-${b.area.id}`} sx={line}><span><Mono>{b.code}</Mono>{b.supplierRef ? ` · ${b.supplierRef}` : ''}<Box component="span" sx={{ color: 'var(--c-text-3)' }}> · {b.area.name}</Box></span><Mono>{qtyText(b.quantity)}</Mono></Box>)}
+                  {v.lots.slice(0, 12).map((b) => <Box key={`${b.id}-${b.area.id}`} sx={line}><span><Mono>{b.code}</Mono>{b.brand ? ` · ${b.brand.name}` : ''}{b.vendor ? ` · from ${b.vendor.name}` : ''}{b.supplierRef ? ` · ${b.supplierRef}` : ''}<Box component="span" sx={{ color: 'var(--c-text-3)' }}>{b.receivedOn ? ` · in ${b.receivedOn}` : ''} · {b.area.name}</Box></span><Mono>{qtyText(b.quantity)}</Mono></Box>)}
                   {v.lots.length > 12 && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>and {v.lots.length - 12} more</Typography>}
                 </Block>
               )}

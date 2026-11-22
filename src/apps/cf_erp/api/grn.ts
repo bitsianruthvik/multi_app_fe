@@ -16,7 +16,7 @@ export interface GrnContext {
 
 export interface GrnLineBody {
   lineId: number; quantity: string; unitPrice: string; mrp?: string; discountMode?: 'pct' | 'amt'; discountValue?: string;
-  hsnCode?: string; gstRate: string; batchId?: number; batch?: { supplierRef: string | null; values: { specificationId: number; value: string }[] };
+  hsnCode?: string; gstRate: string; batchId?: number; batch?: { supplierRef: string | null; brandId?: number | null; values: { specificationId: number; value: string }[] };
 }
 export interface GrnBody {
   stockingAreaId: string; movementDate?: string; reference?: string | null; notes?: string | null;
