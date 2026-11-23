@@ -28,6 +28,7 @@ import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import TableViewRounded from '@mui/icons-material/TableViewRounded';
 import { nudgeIfRefused, useFreshKeys } from '../salesMotion';
 import { NewMrDialog } from '../Stores/NewMrDialog';
+import { mrForWords } from '../../lib/stores';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const NO_MANAGE = 'Creating the material request needs the orders manage or the inventory manage permission.';
@@ -88,6 +89,8 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const raisable = without.filter((w) => w.canRaise);
   const canRequest = !!req?.canRequest;
   const prOf = new Map((mrs.data?.rows ?? []).map((m) => [m.id, m.purchaseRequest]));
+  const byHand = (mrs.data?.rows ?? []).filter((m) => !m.line);
+  const freshHand = useFreshKeys(mrs.data ? byHand.map((m) => String(m.id)) : null);
   const orderSupply: MaterialSupply = data?.order.materialSupply ?? order.materialSupply ?? 'we_buy';
   const reload = () => { reqs.reload(); mrs.reload(); need.reload(); invalidateNavCounts(); onChanged?.(); };
   const share = async (format: 'pdf' | 'xlsx') => {
@@ -222,6 +225,23 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                 </Box>
               );
             })}
+          </Box>
+        )}
+        {/* 2026-11-23: MRs asked by hand for this order (New MR for this order, Stores, or maintenance charged to it) —
+            they have no line, so the list above never showed them and the order gave no sign one was raised. */}
+        {byHand.length > 0 && (
+          <Box data-testid="mr-by-hand" sx={{ display: 'grid', gap: 0.75 }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Raised by hand</Typography>
+            {byHand.map((m) => (
+              <Box key={m.id} data-testid="mr-by-hand-row" data-mr={m.id} className={freshHand.has(String(m.id)) ? 'cfm-rise-in' : undefined} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+                <Mono chip><Box component={Link} to={appPath(company, `material-requests/${m.id}`)} sx={linkSx}>{m.code}</Box></Mono>
+                {m.forType !== 'sales_order' && <Typography component="span" sx={{ fontSize: 13 }}>{mrForWords(m)}</Typography>}
+                <Badge family={m.done ? 'success' : 'warning'} noIcon label={m.statusLabel} />
+                <Mono muted>{m.materials} {m.materials === 1 ? 'item' : 'items'}</Mono>
+                {m.purchaseRequest && <><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${m.purchaseRequest.id}`)} sx={linkSx}>{m.purchaseRequest.code}</Box></Mono><PrStatusBadge status={m.purchaseRequest.status} /></>}
+                {m.notes && <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }} title={m.notes}>{m.notes}</Typography>}
+              </Box>
+            ))}
           </Box>
         )}
         {data && without.length > 0 && (

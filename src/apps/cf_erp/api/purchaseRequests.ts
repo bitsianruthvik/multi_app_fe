@@ -112,6 +112,7 @@ export interface MrRow extends MrForFields {
   /** §73: shared with the customer, waiting for the acceptance — nothing to do in Purchase yet. */
   heldForAcceptance?: boolean;
   purchaseRequest: PrSummary | null; raisedAt: string; contractor?: { id: number; name: string } | null;
+  done?: boolean;
 }
 
 export type PrStatus = 'open' | 'partly_ordered' | 'ordered' | 'closed';
