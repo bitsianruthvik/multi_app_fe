@@ -37,8 +37,11 @@ const COPY = {
   item: {
     title: 'Items',
     subtitle: 'Real things that transact — bought, made, stored, issued. What an order makes for itself lives on the order, in its structure.',
-    // Catalog items are the shop's standing list; temporary ones are made for one order line.
-    kinds: [['', 'All'], ['catalog', 'Catalog'], ['temporary', 'Temporary (one order)']] as const,
+    // Catalog items are the shop's standing list; temporary ones are the rows of one structure (an order line or a
+    // standard drawing — a definition with that structure's sizes). 2026-11-23 (user: "30K odd items in one off"): the
+    // list opens on the catalog; the one-off rows are a chip away.
+    kinds: [['catalog', 'Catalog'], ['temporary', 'One-off (rows of a structure)'], ['all', 'All']] as const,
+    defaultKind: 'catalog',
     create: 'New item',
     path: 'items',
     icon: <Inventory2Rounded />,
@@ -46,7 +49,8 @@ const COPY = {
   definition: {
     title: 'Definitions',
     subtitle: 'Blueprints used while designing an order. A template creates order-specific items; a selection picks an existing catalog item.',
-    kinds: [['', 'All'], ['template', 'Templates'], ['selection', 'Selections']] as const,
+    kinds: [['all', 'All'], ['template', 'Templates'], ['selection', 'Selections']] as const,
+    defaultKind: 'all',
     create: 'New definition',
     path: 'definitions',
     icon: <AccountTreeRounded />,
@@ -149,7 +153,8 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_catalog_manage');
   const [params, setParams] = useSearchParams();
-  const [kind, setKind] = useUrlParam('kind', '');
+  const [kind, setKind] = useUrlParam('kind', copy.defaultKind);
+  const kindAsked = kind === 'all' ? '' : kind;   // 'all' = every kind of this screen
   const [status, setStatus] = useUrlParam('status', '');
   const [search, setSearch] = useState('');
   const debounced = useDebounced(search.trim());
@@ -178,12 +183,12 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   // what had loaded (2026-10-02). The chips and tiles read `counts`, which the
   // server computes over all matches in the same request.
   const list = usePagedList<MasterRecord, RecordCounts>('/records', {
-    recordKind, classificationId, search: debounced, status, ...kindQuery(recordKind, kind),
+    recordKind, classificationId, search: debounced, status, ...kindQuery(recordKind, kindAsked),
   });
   const rows = list.rows;
   const columns = useMemo(() => columnsFor(recordKind), [recordKind]);
   const rc = list.counts;
-  const filtered = !!debounced || !!kind || !!status || !!classificationId;
+  const filtered = !!debounced || kind !== copy.defaultKind || !!status || !!classificationId;
   // Tiles are the server's figures. Matching = what the filters match; Active /
   // Draft count over every filter except the status chip (so they stay clickable
   // choices, like the chips); "of N" = every record on this screen.
@@ -200,7 +205,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
     setParams(next, { replace: true });
   };
   const open = (r: MasterRecord) => navigate(appPath(company, `${copy.path}/${r.id}`));
-  const clear = () => { setSearch(''); setKind(''); setStatus(''); setClassification(null); };
+  const clear = () => { setSearch(''); setKind(copy.defaultKind); setStatus(''); setClassification(null); };
   return (
     <Box>
       <PageHeader title={copy.title} subtitle={copy.subtitle}
@@ -212,7 +217,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
         )} />
       <FadeIn variant="rise"><StatStrip stats={stats} /></FadeIn>
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
-        {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={kindCount(recordKind, v, rc?.kind)} onClick={() => setKind(v)} />)}
+        {copy.kinds.map(([v, label]) => <FacetChip key={v} label={label} active={kind === v} count={kindCount(recordKind, v === 'all' ? '' : v, rc?.kind)} onClick={() => setKind(v)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'any'} label={label} active={status === v} count={v ? rc?.status[v] : rc?.status.all} onClick={() => setStatus(v)} />)}
         {/* One filter per level, each narrowing the others. They stand for a
