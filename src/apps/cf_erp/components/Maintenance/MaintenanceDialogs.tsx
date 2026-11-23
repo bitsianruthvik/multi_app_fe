@@ -166,7 +166,8 @@ export function MrFromOrderDialog({ order, onClose, onDone }: { order: Maintenan
           </Box>
         ))}
       </Box>
-      <ServerPicker<ResourceItem> label="Add an item" noun="item" value={adding} onChange={add}
+      {/* key: a fresh, empty box after each item is added (2026-11-23: it kept the last item's name, so the next search typed into it) */}
+      <ServerPicker<ResourceItem> key={`add-${rows.length}`} label="Add an item" noun="item" value={adding} onChange={add}
         search={(t) => searchResourceItems(t, { all: true })} getId={(it) => it.id} getLabel={(it) => `${it.code} · ${it.name}`} />
       <OrderPicker value={salesOrder} onChange={setSalesOrder} label="For sales order (optional)" helperText="When the spares are for a project, its cost sheet carries them." />
       <TextField size="small" label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={order ? `${order.code}: ${order.title}` : ''} />

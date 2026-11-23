@@ -253,6 +253,7 @@ export default function MaterialRequestDetail() {
             </Button>
           )}{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<BuyingSheetButtons kind="mr" id={m.id} code={m.code} canUpload={takeEditable} disabled={busy || dirty} disabledWhy="Save or undo what you typed first — then upload." onApplied={() => { reload(); invalidateNavCounts(); }} /><FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
+            {m.maintenanceOrder && <Fact label="Maintenance order"><Mono chip><Box component={Link} to={appPath(company, `maintenance-orders/${m.maintenanceOrder.id}`)} sx={linkSx}>{m.maintenanceOrder.label ?? m.maintenanceOrder.code ?? 'Open'}</Box></Mono></Fact>}
             {m.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
             {m.line && <Fact label="Line">{m.line.name}</Fact>}
             {m.order?.customer && <Fact label="Customer">{m.order.customer.name}</Fact>}

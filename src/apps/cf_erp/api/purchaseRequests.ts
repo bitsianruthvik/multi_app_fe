@@ -56,6 +56,8 @@ export const MR_FOR_LABEL: Record<MrFor, string> = { sales_order: 'Sales order',
 /** §79: the 'For' of an MR, and whether it was raised by hand (no order line; may have no order). */
 export interface MrForFields {
   forType: MrFor; forLabel: string; manual: boolean; maintenanceOrderId: number | null; notes: string | null;
+  /** 2026-11-23: the maintenance order by its code, and its machine ("MO-000199 · PLASMA-01"). */
+  maintenanceOrder?: { id: number; code: string | null; label: string | null } | null;
   /** §93 (user 2026-10-27): the MR under Stores' own PR (To reorder › Raise PR, New PR) — not a request to Stores, not in the MR inbox. */
   internal?: boolean;
 }

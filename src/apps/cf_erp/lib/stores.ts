@@ -128,9 +128,11 @@ export function procurementBody(f: ProcurementForm): ProcurementInput {
 }
 
 /** "SO260014 · line 2", "For stock", "General · SO260014" — what an MR is for, in short. */
-export function mrForWords(m: { forType: MrFor; forLabel?: string; order: { code: string } | null; line: { lineNo: number; name?: string } | null; maintenanceOrderId?: number | null }): string {
+export function mrForWords(m: { forType: MrFor; forLabel?: string; order: { code: string } | null; line: { lineNo: number; name?: string } | null; maintenanceOrderId?: number | null; maintenanceOrder?: { label: string | null; code: string | null } | null }): string {
   if (m.line && m.order) return `${m.order.code} · line ${m.line.lineNo}`;
   if (m.forType === 'stock') return 'For stock';
-  const what = m.forType === 'maintenance_order' ? `Maintenance order${m.maintenanceOrderId ? ` #${m.maintenanceOrderId}` : ''}` : (m.forLabel ?? m.forType);
+  // 2026-11-23: the maintenance order by its code and machine ("MO-000199 · PLASMA-01"), never its row id
+  const mo = m.maintenanceOrder?.label ?? m.maintenanceOrder?.code ?? null;
+  const what = m.forType === 'maintenance_order' ? (mo ?? 'Maintenance order') : (m.forLabel ?? m.forType);
   return m.order ? `${what} · ${m.order.code}` : what;
 }
