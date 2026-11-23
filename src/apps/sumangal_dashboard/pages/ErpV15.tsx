@@ -9,6 +9,7 @@ import { apiFetch } from '@core/api/client';
  * figure out in the browser, exactly as the reviewed HTML did.
  */
 type Payload = { D: unknown; S: unknown; H: unknown };
+type Status = { data: { loadedAt?: string; end?: string; source?: string } | null };
 let cached: Promise<Payload> | null = null;
 function loadData(): Promise<Payload> {
   const company = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
@@ -21,7 +22,11 @@ function loadData(): Promise<Payload> {
   return cached;
 }
 
+const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const fmtDay = (d?: string) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
+
 export default function ErpV15() {
+  const [status, setStatus] = useState<Status['data']>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -35,7 +40,11 @@ export default function ErpV15() {
       setState('error');
     }
   }, []);
-  useEffect(() => { loadData().catch(() => undefined); }, []);
+  useEffect(() => {
+    loadData().catch(() => undefined);
+    const company = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
+    apiFetch<Status>(`/api/${company}/sumangal_dashboard/agent/runs`, { method: 'GET' }).then((r) => setStatus(r.data)).catch(() => undefined);
+  }, []);
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)', minHeight: 480 }}>
       {state === 'loading' && (
@@ -43,6 +52,11 @@ export default function ErpV15() {
           <LinearProgress />
           <Typography variant="caption" color="text.secondary">Loading the ERP dashboard data (about 2 MB)…</Typography>
         </Box>
+      )}
+      {status?.end && (
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+          ERP entries up to {fmtDay(status.end)} · loaded {fmt(status.loadedAt)}{status.source?.startsWith('agent') ? ' by the nightly agent' : ''}
+        </Typography>
       )}
       {state === 'error' && <Alert severity="error" sx={{ mb: 1 }}>The ERP dashboard could not load its data: {error}</Alert>}
       <Box
