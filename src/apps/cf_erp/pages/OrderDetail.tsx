@@ -33,8 +33,7 @@ import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../compon
 import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
 import { ProductionStep } from '../components/ProductionOrders/ProductionStep';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { MovementsTable } from '../components/StockTables';
-import { MovementButtons } from '../components/MovementButtons';
+import { OrderStockPanel } from '../components/Stores/OrderStockPanel';
 import { MaterialSupplyField } from '../components/Purchase/MaterialSupplyField';
 import type { MaterialSupply } from '../api/requisitions';
 import { OrderStructureStep } from '../components/OrderStructure/OrderStructureStep';
@@ -182,7 +181,6 @@ export default function OrderDetail() {
   const canDelete = isPermitted('cf_erp_orders_delete');
   const canStock = isPermitted('cf_erp_inventory_view');
   const canTrack = isPermitted('cf_erp_production_view');
-  const canReserve = isPermitted('cf_erp_inventory_manage');
   const canInvoices = isPermitted('cf_erp_orders_view');
   const order = useLoad(() => cfApi.get<SalesOrder>(`/orders/${id}`), [id]);
   const production = useLoad(() => (canTrack ? cfApi.get<OrderProduction>(`/orders/${id}/production`) : Promise.resolve(null)), [id, canTrack]);
@@ -475,13 +473,9 @@ export default function OrderDetail() {
     // §76: times, then production orders — the same step an order with a process shows (release per line retired).
     body = <ProductionStep order={o} onChanged={reloadAll} />;
   } else if (tab === 'stock' && canStock) {
-    body = (
-      <SectionCard flush title="Stock for this order" subtitle="Issues made against this order — what has gone to it from stock. Receipts and transfers do not name an order."
-        actions={canReserve && !locked && <MovementButtons types={['issue']} preset={{ orderId: o.id }} onPosted={moves.reload} />}>
-        {moves.error && <Box sx={{ p: 2 }}><ErrorNotice error={moves.error} onRetry={moves.reload} /></Box>}
-        <MovementsTable bare rows={moves.data ?? []} loading={moves.loading && !moves.data} empty="Nothing has been issued to this order yet." />
-      </SectionCard>
-    );
+    // 2026-11-23 (user): the order's stock as the ledger shows it — its lots, holds, issues, every entry, its WIP pieces.
+    // Stock goes out only on an MR (raise one from this order), so there is no Give out here.
+    body = <OrderStockPanel orderId={o.id} />;
   } else if (tab === 'material' && canStock && o.customer) {
     body = <CustomerMaterialPanel order={o} />;
   } else if (tab === 'allowance') {

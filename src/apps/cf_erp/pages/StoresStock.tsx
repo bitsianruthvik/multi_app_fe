@@ -36,7 +36,7 @@ const PERIODS = [['month', 'This month'], ['week', 'This week'], ['today', 'Toda
 /** Whose stock: ours, a customer's material kept for their order, or both added up (user, 2026-11-22). */
 const OWNERS = [['', 'All'], ['ours', 'Ours'], ['customer', "Customer's"]] as const;
 const SHOWS = [['stock', 'In stock or moved'], ['low', 'Below minimum'], ['reserved', 'Reserved for an order'], ['out', 'Out with someone'], ['all', 'Every item']] as const;
-type Meta = { period: { from: string; to: string }; areas: StoreArea[]; groups: LedgerGroup[] };
+type Meta = { period: { from: string; to: string }; areas: StoreArea[]; groups: LedgerGroup[]; /** 2026-11-23: customers with material in the store */ customers?: { id: number; name: string; items: number; lots: number }[] };
 const num = { textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' } as const;
 const th = { fontSize: 11.5, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--c-text-3)', textAlign: 'left', p: '8px 12px', borderBottom: '1px solid var(--c-border)', whiteSpace: 'nowrap' } as const;
 const td = { p: '9px 12px', borderBottom: '1px solid var(--c-divider)', fontSize: 13.5, verticalAlign: 'middle' } as const;
@@ -66,6 +66,8 @@ export default function StoresStock() {
   const [itemParam, setItemParam] = useUrlParam('item', '');
   const [printing, setPrinting] = useState(false);
   const [owner, setOwner] = useUrlParam('owner', '');
+  // 2026-11-23 (user: "add a customer filter to see by customer their stocks"): one customer's own material
+  const [customer, setCustomer] = useUrlParam('customer', '');
   /** What: '' = the store's stock, 'wip' or 'offcuts'. */
   const [what, setWhat] = useUrlParam('what', '');
   const other = what === 'wip' || what === 'offcuts';
@@ -78,20 +80,20 @@ export default function StoresStock() {
   const setPick = (p: TreePick) => { setFamParam(p.fam.join(',')); setSubParam(p.sub.join(',')); setVarParam(p.var.join(',')); };
   const query = {
     from, to, search: term || undefined, show: term || itemParam ? 'all' : show, areaId: areaParam || undefined,
-    familyIds: famParam || undefined, subfamilyIds: subParam || undefined, variantIds: varParam || undefined, owner: owner || undefined, itemId: itemParam || undefined,
+    familyIds: famParam || undefined, subfamilyIds: subParam || undefined, variantIds: varParam || undefined, owner: customer ? undefined : owner || undefined, customerId: customer || undefined, itemId: itemParam || undefined,
   };
   const list = usePagedList<LedgerRow, Meta>('/stores-desk/ledger', query);
   const meta = list.counts;
   const areas = meta?.areas ?? [];
   const groups = useMemo(() => meta?.groups ?? [], [meta]);
-  const filtered = !!term || !!areaParam || !!famParam || !!subParam || !!varParam || !!owner || !!what || !!itemParam || show !== 'stock';
+  const filtered = !!term || !!areaParam || !!famParam || !!subParam || !!varParam || !!owner || !!customer || !!what || !!itemParam || show !== 'stock';
   const filterWords = [
     pickWords(groups, pick).map((w) => w.label).join(', ') || 'every family',
-    SHOWS.find(([k]) => k === (term ? 'all' : show))?.[1], owner ? OWNERS.find(([k]) => k === owner)?.[1] : null,
+    SHOWS.find(([k]) => k === (term ? 'all' : show))?.[1], customer ? `${meta?.customers?.find((c) => String(c.id) === customer)?.name ?? 'one customer'}'s material` : owner ? OWNERS.find(([k]) => k === owner)?.[1] : null,
     areaParam ? areas.find((a) => String(a.id) === areaParam)?.name : 'all store areas', term ? `"${term}"` : null, `${from} to ${to}`,
   ].filter(Boolean).join(' · ');
   const toggle = (id: number) => setOpened((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const clearAll = () => { setSearch(''); setShow('all'); setPick({ fam: [], sub: [], var: [] }); setAreaParam(''); setOwner(''); setWhat(''); setItemParam(''); };
+  const clearAll = () => { setSearch(''); setShow('all'); setPick({ fam: [], sub: [], var: [] }); setAreaParam(''); setOwner(''); setCustomer(''); setWhat(''); setItemParam(''); };
 
   return (
     <Box sx={{ minWidth: 0 }}>
@@ -119,8 +121,14 @@ export default function StoresStock() {
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2, minWidth: 0, alignItems: 'center' }}>
         <ClassTreePicker groups={groups} value={pick} onChange={setPick} />
         <Box data-testid="ledger-owner" role="group" aria-label="Whose stock" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
-          {OWNERS.map(([k, label]) => <FacetChip key={k || 'all'} label={label} active={owner === k} onClick={() => setOwner(k)} />)}
+          {OWNERS.map(([k, label]) => <FacetChip key={k || 'all'} label={label} active={!customer && owner === k} onClick={() => { setCustomer(''); setOwner(k); }} />)}
         </Box>
+        {(meta?.customers?.length ?? 0) > 0 && (
+          <TextField select size="small" label="Customer" value={customer} onChange={(e) => setCustomer(e.target.value)} sx={{ flex: '1 1 220px', maxWidth: 320, minWidth: 0 }} data-testid="ledger-customer">
+            <MenuItem value="">Every customer</MenuItem>
+            {(meta?.customers ?? []).map((c) => <MenuItem key={c.id} value={String(c.id)}>{c.name} · {c.items} item{c.items === 1 ? '' : 's'}, {c.lots} lot{c.lots === 1 ? '' : 's'}</MenuItem>)}
+          </TextField>
+        )}
         {areas.length > 1 && (
           <TextField select size="small" label="Store area" value={areaParam} onChange={(e) => setAreaParam(e.target.value)} sx={{ flex: '1 1 200px', maxWidth: 300, minWidth: 0 }}>
             <MenuItem value="">All store areas, added up</MenuItem>
@@ -158,7 +166,7 @@ export default function StoresStock() {
                         </Box>
                         <Box component="td" sx={{ ...td, minWidth: 220 }}>
                           <Box sx={{ fontWeight: 500 }}>{r.item.name}</Box>
-                          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, [r.group.family, r.group.subfamily, r.group.variant].filter(Boolean).join(' › '), r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}{!owner && r.customers > 0 ? ` · ${qtyText(r.customers)} is a customer's` : ''}</Typography>
+                          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{[r.item.code, [r.group.family, r.group.subfamily, r.group.variant].filter(Boolean).join(' › '), r.item.uom].filter(Boolean).join(' · ')}{r.reserved > 0 ? ` · ${qtyText(r.reserved)} reserved` : ''}{!owner && !customer && r.customers > 0 ? ` · ${qtyText(r.customers)} is a customer's` : ''}</Typography>
                         </Box>
                         <Box component="td" sx={{ ...td, ...num }}><Mono muted>{qtyText(r.opening)}</Mono></Box>
                         <Box component="td" sx={{ ...td, ...num }}><Mono muted={!r.in}>{qtyText(r.in)}</Mono></Box>
@@ -200,7 +208,7 @@ export default function StoresStock() {
                     <span>In {qtyText(r.in)} · Out {qtyText(r.out)}</span>
                     {r.low && <Badge family="danger" label={`Below min ${qtyText(r.min)}`} noIcon />}
                     {r.reserved > 0 && <Badge family="warning" label={`${qtyText(r.reserved)} reserved`} noIcon />}
-                    {!owner && r.customers > 0 && <Badge family="neutral" label={`${qtyText(r.customers)} customer's`} noIcon />}
+                    {!owner && !customer && r.customers > 0 && <Badge family="neutral" label={`${qtyText(r.customers)} customer's`} noIcon />}
                     {r.outWith > 0 && <Badge family="info" label={`${qtyText(r.outWith)} out with`} noIcon />}
                     {r.onOrder > 0 && <Badge family="neutral" label={`${qtyText(r.onOrder)} on order`} noIcon />}
                   </Box>
