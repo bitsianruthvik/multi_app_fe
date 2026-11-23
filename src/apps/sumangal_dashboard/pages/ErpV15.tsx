@@ -8,9 +8,10 @@ import { apiFetch } from '@core/api/client';
  * login (GET /v15/data, ~11 MB, sent gzipped) and is handed to the frame with postMessage; the frame works every
  * figure out in the browser, exactly as the reviewed HTML did.
  *
- * Fresh data: the ERP agent on the customer's network sends a full dataset each night and, in working hours, an
- * update every 15 minutes. "Refresh now" asks it for one at once (GET/POST /agent/runs, /agent/refresh). Newer data is
- * never swapped in under the reader: a notice offers it, except right after they pressed "Refresh now".
+ * Fresh data: the ERP agent on the customer's network sends a full dataset each night at 02:00. In working hours it
+ * has no timer: opening this page asks it for today's entries (once per opening, when it is listening), and so does
+ * "Refresh now" (GET/POST /agent/runs, /agent/refresh); the page shows the stored data at once and reloads when the
+ * update lands. Data that arrives otherwise is never swapped in under the reader: a notice offers it.
  */
 type Payload = { D: unknown; S: unknown; H: unknown };
 type Meta = { loadedAt?: string; end?: string; source?: string } | null;
@@ -85,7 +86,7 @@ export default function ErpV15() {
     return () => { window.clearInterval(t); window.clearInterval(fast); };
   }, [check]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       await apiFetch(`${base()}/agent/refresh`, { method: 'POST', body: {} });
       askedAt.current = Date.now();
@@ -94,10 +95,17 @@ export default function ErpV15() {
       setError((e as Error).message);
       setAsking('failed');
     }
-  };
+  }, []);
 
   const agent = runs?.agents.find((a) => a.status === 'approved');
   const listening = !!agent && agent.idle_seconds != null && agent.idle_seconds < 90;
+  // opening the page asks for today's entries (the agent has no timer in the day); only when it is listening
+  const autoAsked = useRef(false);
+  useEffect(() => {
+    if (!runs || autoAsked.current) return;
+    autoAsked.current = true;
+    if (listening) refresh();
+  }, [runs, listening, refresh]);
   const newer = runs?.data?.loadedAt && shown?.loadedAt && runs.data.loadedAt > shown.loadedAt ? runs.data : null;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 96px)', minHeight: 480 }}>
@@ -105,7 +113,7 @@ export default function ErpV15() {
         {shown?.end && (
           <Typography variant="caption" color="text.secondary">
             ERP entries up to {fmtDay(shown.end)} · loaded {fmt(shown.loadedAt)}
-            {shown.source?.includes('update') ? ' (day update)' : shown.source?.startsWith('agent') ? ' (nightly)' : ''}
+            {shown.source?.includes('update') ? " (today's entries)" : shown.source?.startsWith('agent') ? ' (nightly)' : ''}
           </Typography>
         )}
         {newer && !asking && (
@@ -113,12 +121,12 @@ export default function ErpV15() {
         )}
         {agent && (
           <Button size="small" onClick={refresh} disabled={asking === 'waiting'}>
-            {asking === 'waiting' ? 'Asking the ERP agent…' : 'Refresh now'}
+            {asking === 'waiting' ? "Getting today's entries…" : 'Refresh now'}
           </Button>
         )}
         {asking === 'waiting' && (
           <Typography variant="caption" color="text.secondary">
-            {listening ? 'Usually about a minute. The page reloads when it arrives.' : 'The agent is not listening right now (outside working hours, or its machine is off). It will run when it next checks in.'}
+            {listening ? 'Usually about a minute. Meanwhile this shows the data loaded earlier; it reloads when today\'s arrives.' : 'The agent is not listening right now (outside working hours, or its PC is off). It will run when it next checks in.'}
           </Typography>
         )}
         {asking === 'failed' && <Typography variant="caption" color="error">The update did not arrive. {agent?.last_message || ''}</Typography>}
