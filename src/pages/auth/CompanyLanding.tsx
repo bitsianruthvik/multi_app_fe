@@ -202,7 +202,7 @@ function Particles() {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-type Tab = "login" | "register" | "forgot";
+type Tab = "login" | "forgot";
 
 export default function CompanyLanding() {
   const { company: companySlug } = useParams<{ company: string }>();
@@ -210,9 +210,9 @@ export default function CompanyLanding() {
   const { login, isAuthenticated, isInitialized, companySlug: authCompany } = useAuth();
 
   const [tab, setTab] = useState<Tab>("login");
-  const [companyName, setCompanyName] = useState<string>("");
-  const [companyLoading, setCompanyLoading] = useState(true);
-  const [companyNotFound, setCompanyNotFound] = useState(false);
+  // The address's own word, never the server's answer (2026-11-24): the page shows nothing that tells whether a company
+  // is there, and any address gets the same sign-in (a wrong one simply fails to sign in).
+  const companyName = companySlug ?? "";
 
   // Redirect if already authenticated for this company
   useEffect(() => {
@@ -220,33 +220,6 @@ export default function CompanyLanding() {
       navigate(`/${companySlug}/apps`, { replace: true });
     }
   }, [isInitialized, isAuthenticated, authCompany, companySlug, navigate]);
-
-  // Load company name
-  useEffect(() => {
-    if (!companySlug) return;
-    api.get(`${API_HOST}/api/public/companies/${companySlug}`)
-      .then((r) => setCompanyName(r.data.name || companySlug))
-      .catch(() => setCompanyNotFound(true))
-      .finally(() => setCompanyLoading(false));
-  }, [companySlug]);
-
-  if (companyLoading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f0c29", color: "rgba(255,255,255,0.5)", fontSize: 14 }}>
-        Loading…
-      </div>
-    );
-  }
-
-  if (companyNotFound) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#0f0c29,#302b63,#24243e)", color: "#fff", textAlign: "center", padding: 24 }}>
-        <div style={{ fontSize: 64, marginBottom: 16 }}>🔍</div>
-        <h1 style={{ fontSize: 28, fontWeight: 800, margin: "0 0 8px" }}>Company Not Found</h1>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 15 }}>There's no workspace at <code style={{ background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 6 }}>{companySlug}</code>.</p>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -316,13 +289,11 @@ export default function CompanyLanding() {
           }}
         >
           <TabBtn active={tab === "login"} onClick={() => setTab("login")}>Sign In</TabBtn>
-          <TabBtn active={tab === "register"} onClick={() => setTab("register")}>Register</TabBtn>
           <TabBtn active={tab === "forgot"} onClick={() => setTab("forgot")}>Reset Password</TabBtn>
         </div>
 
         {/* Tab content */}
         {tab === "login" && <LoginTab companySlug={companySlug!} companyName={companyName} onLogin={(token, user) => { login(token, user, companySlug!); navigate(`/${companySlug}/apps`); }} />}
-        {tab === "register" && <RegisterTab companySlug={companySlug!} onSuccess={() => setTab("login")} />}
         {tab === "forgot" && <ForgotTab companySlug={companySlug!} />}
       </div>
     </div>
@@ -389,81 +360,6 @@ function LoginTab({ companySlug, companyName, onLogin }: { companySlug: string; 
         style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}
       >
         {loading ? "Signing in…" : `Sign in to ${companyName}`}
-      </button>
-    </form>
-  );
-}
-
-// ── Register tab ─────────────────────────────────────────────────────────────
-function RegisterTab({ companySlug, onSuccess }: { companySlug: string; onSuccess: () => void }) {
-  const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const formik = useFormik({
-    initialValues: { name: "", email: "", password: "" },
-    validationSchema: yup.object({
-      name: yup.string().min(2, "At least 2 characters").required("Full name is required"),
-      email: yup.string().email("Enter a valid email").required("Email is required"),
-      password: yup.string().min(8, "Minimum 8 characters").required("Password is required"),
-    }),
-    onSubmit: async (values) => {
-      setError("");
-      setLoading(true);
-      try {
-        await api.post(`${API_HOST}/api/${companySlug}/auth/register`, values);
-        onSuccess();
-      } catch (err: any) {
-        setError(err.response?.data?.message || "Registration failed. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    },
-  });
-
-  return (
-    <form onSubmit={formik.handleSubmit} noValidate>
-      {error && <div style={errorBubble}>{error}</div>}
-      <FocusInput
-        label="Full name"
-        name="name"
-        placeholder="Jane Smith"
-        value={formik.values.name}
-        onChange={formik.handleChange}
-        onBlur={formik.handleBlur}
-        error={formik.touched.name ? formik.errors.name : undefined}
-      />
-      <FocusInput
-        label="Email address"
-        name="email"
-        type="email"
-        placeholder="you@company.com"
-        value={formik.values.email}
-        onChange={formik.handleChange}
-        onBlur={formik.handleBlur}
-        error={formik.touched.email ? formik.errors.email : undefined}
-      />
-      <FocusInput
-        label="Password"
-        name="password"
-        type={showPw ? "text" : "password"}
-        placeholder="Min 8 characters"
-        value={formik.values.password}
-        onChange={formik.handleChange}
-        onBlur={formik.handleBlur}
-        error={formik.touched.password ? formik.errors.password : undefined}
-        rightSlot={
-          <span onClick={() => setShowPw(!showPw)} style={{ display: "flex" }}>
-            {showPw ? <VisibilityOff sx={{ fontSize: 18 }} /> : <Visibility sx={{ fontSize: 18 }} />}
-          </span>
-        }
-      />
-      <button
-        type="submit"
-        disabled={loading}
-        style={{ ...btnPrimary, opacity: loading ? 0.7 : 1 }}
-      >
-        {loading ? "Creating account…" : "Create account"}
       </button>
     </form>
   );

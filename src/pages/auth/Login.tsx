@@ -394,14 +394,7 @@ export default function Login() {
           </Typography>
 
           <Typography variant="body2" sx={{ mt: 1.5, color: "#6b7280" }}>
-            Don't have an account?{" "}
-            <Box
-              component="span"
-              onClick={() => navigate(`/${company}/${app}/register`)}
-              sx={{ color: "#2563eb", fontWeight: 600, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
-            >
-              Register
-            </Box>
+            No account yet? Your company's admin adds you.
           </Typography>
           </>)}
         </Paper>

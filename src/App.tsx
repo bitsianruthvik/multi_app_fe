@@ -29,7 +29,6 @@ import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
 import { ErrorBoundary } from "@core/components/ErrorBoundary";
 import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import CompanyLanding from "./pages/auth/CompanyLanding";
 import AppSelector from "./pages/auth/AppSelector";
@@ -188,7 +187,6 @@ function App() {
 
                 {/* Public routes with slugs */}
                 <Route path="/:company/:app/login" element={<Login />} />
-                <Route path="/:company/:app/register" element={<Register />} />
                 <Route path="/:company/:app/forgot-password" element={<ForgotPassword />} />
                 <Route
                   path="/:company/:app/admin/register"
