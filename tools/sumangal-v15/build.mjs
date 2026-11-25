@@ -213,12 +213,15 @@ ${colors}
         i.title = (i.title ? i.title + '\\n\\n' : '') + t; n.remove();
       });
       // a double-click shows its table under the screen, not in a side panel, and the page scrolls to it
-      var dr = drw();
-      new MutationObserver(function () {
-        if (dr.style.display !== 'block') return;
+      // every opening scrolls, also when the table is already open (a second double-click changes no style, so a
+      // style observer missed it): openDrawer is wrapped
+      var dr = drw(), open0 = window.openDrawer;
+      window.openDrawer = function () {
+        var r = open0.apply(this, arguments);
         var pane = document.getElementById(curPane()); if (pane && dr.parentNode !== pane) pane.appendChild(dr);
         setTimeout(function () { post({ type: 'sumangal-v15-scroll', y: dr.getBoundingClientRect().top + window.scrollY }); }, 30);
-      }).observe(dr, { attributes: true, attributeFilter: ['style'] });
+        return r;
+      };
       if (wantF) filters(wantF);
       // a screen opened from inside (a drill-down to Trace) tells the menu
       document.querySelectorAll('#subtabs button').forEach(function (b) {

@@ -23,7 +23,7 @@ type Options = { cust: Opt[]; types: Opt[]; metals: Opt[]; end: string };
 type Day = 'today' | 'yesterday' | 'week' | 'month';
 type Filters = { cs: string[]; t: string; m: string; u: 'kg' | 'pcs'; amin: string; amax: string; from: string; to: string; day: Day };
 const company = () => window.location.pathname.split('/').filter(Boolean)[0] ?? '';
-const FRAME = '/sumangal-v15.html?v=4';
+const FRAME = '/sumangal-v15.html?v=5';
 const KEEP = 'sumangal.ops.filters';
 const NO_FILTERS: Filters = { cs: [], t: '', m: '', u: 'kg', amin: '15', amax: '45', from: '', to: '', day: 'today' };
 const yearBefore = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - 364); return x.toISOString().slice(0, 10); };
