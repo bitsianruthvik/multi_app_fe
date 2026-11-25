@@ -2,56 +2,15 @@ import React, { lazy, Suspense } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import { ListSkeleton } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
-import { SumangalShell, SwitchLayout, ToHome } from './components/SumangalShell';
+import { SumangalShell, ToHome } from './components/SumangalShell';
 
-const KeyMetrics = lazy(() => import('./pages/KeyMetrics'));
 const ErpV15 = lazy(() => import('./pages/ErpV15'));
-const FlowCustomer = lazy(() => import('./pages/flow/FlowCustomer'));
-const FlowPlanning = lazy(() => import('./pages/flow/FlowPlanning'));
-const FlowProduction = lazy(() => import('./pages/flow/FlowProduction'));
-const FlowDispatch = lazy(() => import('./pages/flow/FlowDispatch'));
-const FlowVendors = lazy(() => import('./pages/flow/FlowVendors'));
-const XAlerts = lazy(() => import('./pages/XAlerts'));
-const XToday = lazy(() => import('./pages/XToday'));
-const XMonth = lazy(() => import('./pages/XMonth'));
-const XLongTerm = lazy(() => import('./pages/XLongTerm'));
-const XDecisions = lazy(() => import('./pages/XDecisions'));
-const WhatChanged = lazy(() => import('./pages/WhatChanged'));
-const ActionList = lazy(() => import('./pages/ActionList'));
-const ProblemParts = lazy(() => import('./pages/ProblemParts'));
-const Orders = lazy(() => import('./pages/Orders'));
-const Production = lazy(() => import('./pages/Production'));
-const Quality = lazy(() => import('./pages/Quality'));
-const Step = lazy(() => import('./pages/Step'));
-const MeltingPanel = lazy(() => import('./components/MeltingPanel').then((m) => ({ default: m.MeltingPanel })));
-const MachiningOrders = lazy(() => import('./pages/MachiningOrders'));
-const OrderJourney = lazy(() => import('./pages/OrderJourney'));
-const Planning = lazy(() => import('./pages/Planning'));
-const TimeSpent = lazy(() => import('./pages/TimeSpent'));
-const Batches = lazy(() => import('./pages/Batches'));
-const Rhythm = lazy(() => import('./pages/Rhythm'));
-const ReadyWaiting = lazy(() => import('./pages/ReadyWaiting'));
-const OrdersPerShipment = lazy(() => import('./pages/OrdersPerShipment'));
-const MaterialSuppliers = lazy(() => import('./pages/MaterialSuppliers'));
-const Customers = lazy(() => import('./pages/Customers'));
-const Vendors = lazy(() => import('./pages/Vendors'));
-
-const STEPS: [string, string, string][] = [
-  ['injection', 'Injection', 'Wax patterns made, and how soon after the batch.'],
-  ['assembly', 'Assembly', 'Patterns assembled onto trees.'],
-  ['coating', 'Coating', 'Shells built on the assembled trees.'],
-  ['dewaxing', 'Dewaxing', 'Wax removed from the coated shells.'],
-  ['melting', 'Melting', 'Metal poured, heats, charge and energy.'],
-  ['fettling', 'Fettling', 'Castings after pouring.'],
-  ['heat-treatment', 'Heat treatment', 'What is treated, how, and where.'],
-  ['inspection', 'Inspection', 'Castings inspected, and how long after pouring.'],
-  ['machining-inspection', 'Machining inspection', 'Machined castings inspected.'],
-  ['dispatch', 'Dispatch', 'What has shipped, and what is cleared and waiting.'],
-];
 
 /**
- * sumangal_dashboard routes. **Paths must match navMeta.ts.** The platform's
- * landing URLs go to Key metrics; a literal segment outranks App.tsx's `:app` routes.
+ * sumangal_dashboard routes. **Paths must match navMeta.ts.** Only the operations dashboard (`erp/<screen>`, one
+ * route so its page stays mounted between screens) is on; the by-topic, by-intent and by-flow layouts are switched
+ * off for now (layout.ts) and their old addresses, like the platform's landing URLs, open the home screen.
+ * Their pages are still in pages/ for when they come back.
  */
 export function getSumangalDashboardRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -65,51 +24,15 @@ export function getSumangalDashboardRoutes(
       </RequireAppAccess>
     </ProtectedRoute>
   );
-  const screens: [string, React.ReactNode][] = [
-    ['erp-v15', <ErpV15 />],
-    ['key-metrics', <KeyMetrics />],
-    ['flow-asis-customer', <FlowCustomer mode="asis" />],
-    ['flow-asis-planning', <FlowPlanning mode="asis" />],
-    ['flow-asis-production', <FlowProduction mode="asis" />],
-    ['flow-asis-dispatch', <FlowDispatch mode="asis" />],
-    ['flow-asis-vendors', <FlowVendors mode="asis" />],
-    ['flow-historic-customer', <FlowCustomer mode="historic" />],
-    ['flow-historic-planning', <FlowPlanning mode="historic" />],
-    ['flow-historic-production', <FlowProduction mode="historic" />],
-    ['flow-historic-dispatch', <FlowDispatch mode="historic" />],
-    ['flow-historic-vendors', <FlowVendors mode="historic" />],
-    ['x-alerts', <XAlerts />],
-    ['x-today', <XToday />],
-    ['x-month', <XMonth />],
-    ['x-long-term', <XLongTerm />],
-    ['x-decisions', <XDecisions />],
-    ['what-changed', <WhatChanged />],
-    ['actions', <ActionList />],
-    ['problem-parts', <ProblemParts />],
-    ['journey', <OrderJourney />],
-    ['planning', <Planning />],
-    ['time-spent', <TimeSpent />],
-    ['batches', <Batches />],
-    ['rhythm', <Rhythm />],
-    ['ready-waiting', <ReadyWaiting />],
-    ['orders-per-shipment', <OrdersPerShipment />],
-    ['orders', <Orders />],
-    ['production', <Production />],
-    ['quality', <Quality />],
-    ['machining-orders', <MachiningOrders />],
-    ['material-suppliers', <MaterialSuppliers />],
-    ...STEPS.map(([slug, title, question]) => [`step-${slug}`, <Step key={slug} slug={slug} title={title} question={question} extra={slug === 'melting' ? (f) => <MeltingPanel filters={f} /> : undefined} />] as [string, React.ReactNode]),
-    ['customers', <Customers />],
-    ['vendors', <Vendors />],
-  ];
-  // Old screens that were folded into others also land on Key metrics.
-  const landing = ['', 'home', 'dashboard', 'admin/dashboard', 'admin/dashboard/*', ':role/dashboard', 'overview', 'order-types', 'shipments'];
+  // Named, not a splat: a splat here would also catch the app's login page.
+  const landing = ['', 'home', 'dashboard', 'admin/dashboard', 'admin/dashboard/*', ':role/dashboard', 'overview', 'order-types', 'shipments', 'erp', 'erp-v15',
+    'layout-topic', 'layout-intent', 'layout-flow', 'layout-erp', 'key-metrics', 'what-changed', 'actions', 'problem-parts', 'journey', 'planning', 'time-spent',
+    'batches', 'rhythm', 'ready-waiting', 'orders-per-shipment', 'orders', 'production', 'quality', 'machining-orders', 'material-suppliers', 'customers', 'vendors',
+    'x-alerts', 'x-today', 'x-month', 'x-long-term', 'x-decisions',
+    ...['injection', 'assembly', 'coating', 'dewaxing', 'melting', 'fettling', 'heat-treatment', 'inspection', 'machining-inspection', 'dispatch'].map((x) => `step-${x}`),
+    ...['customer', 'planning', 'production', 'dispatch', 'vendors'].flatMap((x) => [`flow-asis-${x}`, `flow-historic-${x}`])];
   return [
-    ...screens.map(([p, el]) => ({ path: `/:company/sumangal_dashboard/${p}`, element: wrap(el) })),
-    { path: '/:company/sumangal_dashboard/layout-intent', element: <ProtectedRoute><SwitchLayout to="intent" /></ProtectedRoute> },
-    { path: '/:company/sumangal_dashboard/layout-topic', element: <ProtectedRoute><SwitchLayout to="topic" /></ProtectedRoute> },
-    { path: '/:company/sumangal_dashboard/layout-flow', element: <ProtectedRoute><SwitchLayout to="flow" /></ProtectedRoute> },
-    { path: '/:company/sumangal_dashboard/layout-erp', element: <ProtectedRoute><SwitchLayout to="erp" /></ProtectedRoute> },
+    { path: '/:company/sumangal_dashboard/erp/:screen', element: wrap(<ErpV15 />) },
     ...landing.map((p) => ({
       path: `/:company/sumangal_dashboard${p ? `/${p}` : ''}`,
       element: <ProtectedRoute><ToHome /></ProtectedRoute>,

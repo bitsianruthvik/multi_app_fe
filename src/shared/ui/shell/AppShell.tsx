@@ -50,6 +50,7 @@ export function AppShell({
   accountItems,
   onSignOut,
   shortcutGroups,
+  contentKey,
 }: {
   appSlug: string;
   /** The one nav source — also feeds the palette, the breadcrumb and the sheet. */
@@ -71,6 +72,9 @@ export function AppShell({
   onSignOut?: () => void;
   /** App-specific keyboard bindings for the `?` sheet. */
   shortcutGroups?: ShortcutGroup[];
+  /** Remounts the page when it changes (default: the path). An app whose screens share one live page that is slow
+   *  to start (a frame) maps those paths to one key, so moving between them keeps the page. */
+  contentKey?: string;
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -203,7 +207,7 @@ export function AppShell({
 
       <Box component="main" sx={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
         <Box
-          key={pathname}
+          key={contentKey ?? pathname}
           sx={{
             // A detail route is a working screen: less air above it than a list gets.
             p: { xs: 2, md: onDetail ? 1.5 : 3 },

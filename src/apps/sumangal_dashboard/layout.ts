@@ -1,23 +1,22 @@
+import { ERP_HOME } from './erpScreens';
+
 /**
- * The dashboard has three layouts over the same data:
- *  - 'topic'  : by subject (orders, production, shipping, vendors, quality, customers);
- *  - 'intent' : by what the reader wants to do (alerts, today, this month, long term, decisions);
- *  - 'flow'   : by how an order moves: As-is (what is open today) and Historic (orders that came in a range),
- *               each with Customer, Planning, Production and Dispatch.
- *  - 'erp'    : the ERP dashboard (V15): Dashboard and Historical analysis, merged from V13 and the rebuild review;
- *               the default for a browser that has not chosen.
- * The choice is kept in this browser so the layouts can be compared side by side.
+ * The dashboard had four layouts over the same data: 'topic', 'intent', 'flow' and 'erp' (the operations
+ * dashboard, V15). The first three are switched off for now (user, 2026-11-25: "we will see later if we need
+ * them"): every browser gets 'erp', and the old layout and screen addresses land on it. Their screens stay in the
+ * code; turning a layout back on = returning it here and its routes in routes.tsx.
  */
 export type Layout = 'topic' | 'intent' | 'flow' | 'erp';
 const KEY = 'sumangal.layout';
+const ON: Layout[] = ['erp'];
 
 export function getLayout(): Layout {
   try {
-    const v = window.localStorage.getItem(KEY);
-    return v === 'intent' || v === 'flow' || v === 'topic' ? v : 'erp';
-  } catch { return 'topic'; }
+    const v = window.localStorage.getItem(KEY) as Layout | null;
+    return v && ON.includes(v) ? v : 'erp';
+  } catch { return 'erp'; }
 }
 export function setLayout(v: Layout) {
   try { window.localStorage.setItem(KEY, v); } catch { /* private window: the layout just won't be remembered */ }
 }
-export const HOME: Record<Layout, string> = { topic: 'key-metrics', intent: 'x-alerts', flow: 'flow-asis-customer', erp: 'erp-v15' };
+export const HOME: Record<Layout, string> = { topic: 'key-metrics', intent: 'x-alerts', flow: 'flow-asis-customer', erp: ERP_HOME };

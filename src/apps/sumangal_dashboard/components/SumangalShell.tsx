@@ -1,21 +1,23 @@
 import type { ReactNode } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { AppShell, ThemeScope, ToastProvider, CommandPaletteProvider } from '@shared/ui';
-import { ERP_SECTIONS, FLOW_SECTIONS, INTENT_SECTIONS, SECTIONS } from '../navMeta';
-import { getLayout, HOME, setLayout, type Layout } from '../layout';
-import { useReport, type Meta } from '../api';
-import { MetaContext } from '../filters';
+import { ERP_SECTIONS } from '../navMeta';
+import { HOME, getLayout } from '../layout';
 
-/** ORDER MATTERS: ThemeScope > CommandPaletteProvider > AppShell (see CfHrmsShell). */
+/**
+ * ORDER MATTERS: ThemeScope > CommandPaletteProvider > AppShell (see CfHrmsShell).
+ * Only the operations dashboard is on (layout.ts). Its screens share one page (a frame that takes a few seconds to
+ * start), so they share one content key: moving between them keeps the page instead of starting it again.
+ */
 export function SumangalShell({ children }: { children: ReactNode }) {
-  const { data } = useReport<Meta>('/meta');
-  const layout = getLayout(); const sections = layout === 'erp' ? ERP_SECTIONS : layout === 'flow' ? FLOW_SECTIONS : layout === 'intent' ? INTENT_SECTIONS : SECTIONS;
+  const { pathname } = useLocation();
+  const contentKey = pathname.includes('/sumangal_dashboard/erp/') ? 'erp' : pathname;
   return (
     <ThemeScope appSlug="sumangal_dashboard">
       <ToastProvider>
-        <CommandPaletteProvider appSlug="sumangal_dashboard" sections={sections} actions={[]} placeholder="Jump to a screen">
-          <AppShell appSlug="sumangal_dashboard" sections={sections} brand={{ label: layout === 'erp' ? 'Sumangal · ERP dashboard' : layout === 'flow' ? 'Sumangal · by flow' : layout === 'intent' ? 'Sumangal · by intent' : 'Sumangal · by topic', initial: 'S' }} homePath={HOME[layout]}>
-            <MetaContext.Provider value={data}>{children}</MetaContext.Provider>
+        <CommandPaletteProvider appSlug="sumangal_dashboard" sections={ERP_SECTIONS} actions={[]} placeholder="Jump to a screen">
+          <AppShell appSlug="sumangal_dashboard" sections={ERP_SECTIONS} brand={{ label: 'Sumangal · Operations', initial: 'S' }} homePath={HOME.erp} contentKey={contentKey}>
+            {children}
           </AppShell>
         </CommandPaletteProvider>
       </ToastProvider>
@@ -23,15 +25,8 @@ export function SumangalShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** The platform's landing URLs for this app open the home screen of the layout last used in this browser. */
+/** The platform's landing URLs for this app, and the addresses of the switched-off layouts, open the home screen. */
 export function ToHome() {
   const { company } = useParams();
   return <Navigate to={`/${company}/sumangal_dashboard/${HOME[getLayout()]}`} replace />;
-}
-
-/** Switches to the other layout and opens its home screen. */
-export function SwitchLayout({ to }: { to: Layout }) {
-  const { company } = useParams();
-  setLayout(to);
-  return <Navigate to={`/${company}/sumangal_dashboard/${HOME[to]}`} replace />;
 }

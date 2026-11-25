@@ -1,4 +1,5 @@
 import type { NavSection } from '@shared/ui';
+import { ERP_SCREENS } from './erpScreens';
 
 /** The single source of sumangal_dashboard navigation. routes.tsx must use the same paths. */
 export const SECTIONS: NavSection[] = [
@@ -105,10 +106,9 @@ export const FLOW_SECTIONS: NavSection[] = [
   { key: 'layout-erp', label: 'ERP dashboard ⇄', screens: [{ label: 'Open the ERP dashboard (V15)', path: 'layout-erp', keywords: ['switch', 'v15', 'erp dashboard', 'wip', 'historical'] }] },
 ];
 
-/** The fourth layout: the ERP dashboard (V15), one screen with its own Dashboard / Historical analysis tabs inside. */
-export const ERP_SECTIONS: NavSection[] = [
-  { key: 'erp', label: 'ERP dashboard', screens: [{ label: 'ERP dashboard (V15)', path: 'erp-v15', keywords: ['v15', 'wip', 'ready to dispatch', 'vendors', 'orders', 'trace', 'historical', 'capacity', 'quality', 'scrap', 'insights'] }] },
-  { key: 'layout', label: 'By topic ⇄', screens: [{ label: 'Open the by-topic dashboard', path: 'layout-topic', keywords: ['switch', 'first dashboard', 'topic'] }] },
-  { key: 'layout-intent', label: 'By intent ⇄', screens: [{ label: 'Open the by-intent dashboard', path: 'layout-intent', keywords: ['switch', 'second dashboard', 'intent', 'alerts', 'today'] }] },
-  { key: 'layout-flow', label: 'By flow ⇄', screens: [{ label: 'Open the by-flow dashboard', path: 'layout-flow', keywords: ['switch', 'as-is', 'historic', 'flow', 'third'] }] },
-];
+/** The operations dashboard (V15): Today and History. The other three layouts are switched off for now (user, 2026-11-25). */
+export const ERP_SECTIONS: NavSection[] = (['now', 'history'] as const).map((sec) => ({
+  key: 'erp-' + sec,
+  label: sec === 'now' ? 'Today' : 'History',
+  screens: ERP_SCREENS.filter((x) => x.section === sec).map((x) => ({ label: x.label, path: 'erp/' + x.slug, keywords: x.keywords })),
+}));

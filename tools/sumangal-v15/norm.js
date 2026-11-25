@@ -14,5 +14,13 @@
   for (const r of D.disp) { r[8] = r[5]; r[5] = +(r[4] * cw(r[2])).toFixed(1); }
   for (const r of D.rcv) { r[8] = r[6]; r[6] = +(r[4] * cw(r[3])).toFixed(1); }
   for (const v of D.vend) { v[5] = +(v[4] * cw(v[2])).toFixed(1); }
+  // the customers each part is made, ordered, shipped or stocked for: the customer filter's test for a line that
+  // carries only the part (challans, vendor receipts, scrap), instead of the die master's single customer
+  D.pcs = [];
+  const addPC = (p, c) => { if (p == null || c == null || c < 0) return; (D.pcs[p] || (D.pcs[p] = new Set())).add(c); };
+  for (const it of D.items) addPC(it[2], it[1]);
+  for (const o of D.ord) addPC(o[4], o[3]);
+  for (const r of D.disp) addPC(r[2], r[1]);
+  for (const r of D.rfd) addPC(r[2], r[1]);
   D.end = D.end || '2026-10-20';
 })();

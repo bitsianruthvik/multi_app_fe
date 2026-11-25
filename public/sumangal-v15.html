@@ -73,7 +73,37 @@ code{background:#f1f4f7;padding:0 4px;border-radius:4px;font-size:11px}
 #v15wait{max-width:640px;margin:80px auto;padding:20px;text-align:center;color:var(--mut);font-size:14px}
 body:not(.v15on)>header,body:not(.v15on)>section{display:none}
 @media(max-width:700px){.fb{grid-template-columns:110px 1fr 80px}.fb .note{display:none}header{padding:10px 12px}main{padding:12px}.filters{padding:8px 12px}}
-</style></head><body><div id="v15wait">Loading the ERP dashboard data…</div>
+
+:root{--bg:var(--c-canvas,#F6F7FB);--card:var(--c-surface,#fff);--ink:var(--c-text,#1A1C2E);--mut:var(--c-text-2,#5A5E78);--line:var(--c-border,#E4E6F0);
+--acc:var(--c-primary-600,#6D28D9);--acc2:var(--c-primary-50,#F5F1FE);--warn:var(--c-warning-600,#D97706);--warnbg:var(--c-warning-50,#FBF0DD);--bad:var(--c-danger-600,#E11D48);--badbg:var(--c-danger-50,#FCE9EC);
+--t3:var(--c-text-3,#8A8EA8);--s2:var(--c-surface-2,#F7F8FD);--s3:var(--c-surface-3,#EFF1F8);--dv:var(--c-divider,#ECEDF5);--rs:var(--r-sm,8px);--rm:var(--r-md,12px);--sh1:var(--e-1,0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06));--sh2:var(--e-2,0 2px 4px rgba(16,24,40,.04),0 6px 16px rgba(16,24,40,.08))}
+body{font:13.5px/1.5 var(--font-ui,'Geist',system-ui,-apple-system,'Segoe UI',sans-serif);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+header,#home,#subtabs,.homebtn{display:none!important}
+.filters{position:sticky;top:0;z-index:5;background:var(--card);border:0;border-bottom:1px solid var(--line);padding:10px 16px;gap:12px;box-shadow:var(--sh1)}
+.filters label,.row label,.dtools label{font-size:11.5px!important;font-weight:500;color:var(--t3)!important;gap:4px}
+select,input{font:inherit;font-size:13px;height:32px;padding:4px 10px;border:1px solid var(--line);border-radius:var(--rs);background:var(--card);color:var(--ink)}
+input[type=checkbox]{height:auto;accent-color:var(--acc)}input.cf{height:26px;font-size:11.5px;border-radius:6px}
+select:hover,input:hover{border-color:var(--t3)}select:focus,input:focus{outline:2px solid var(--c-focus,#7C3AED);outline-offset:-1px;border-color:transparent}
+.seg{border-radius:var(--rs);border-color:var(--line);height:32px}.seg button{font:inherit;font-size:13px;background:var(--card);color:var(--mut);padding:0 12px}.seg button.on{background:var(--acc2);color:var(--c-primary-700,#5B21B6);font-weight:600}
+main{padding:16px;max-width:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--rm);box-shadow:var(--sh1);padding:16px 18px;margin-bottom:16px}
+.card h2{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.005em;margin:0 0 4px}.card .note,.note{color:var(--t3);font-size:12.5px;line-height:1.55}
+table{font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink)}th,td{border-bottom:1px solid var(--dv);padding:7px 10px}
+th{font-size:11.5px;font-weight:600;color:var(--t3);background:var(--s2);box-shadow:0 1px 0 var(--line)}
+.scroll{border:1px solid var(--line);border-radius:var(--rs)}.scroll th:first-child,.scroll td:first-child{background:var(--card);box-shadow:1px 0 0 var(--line)}.scroll th:first-child{background:var(--s2)}
+tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:hover td,.fb:hover{background:var(--acc2)}
+.h1{background:rgba(2,132,199,.07)}.h2{background:rgba(2,132,199,.15)}.h3{background:rgba(217,119,6,.13)}.h4{background:rgba(217,119,6,.24)}.h5{background:rgba(225,29,72,.18)}
+.kpis{gap:12px}.kpi{border:1px solid var(--line);border-radius:var(--rs);background:var(--s2);padding:10px 14px}.kpi .v{font-size:20px;font-weight:600;letter-spacing:-.01em}.kpi .m{color:var(--t3);font-size:11.5px}
+.al{border-radius:var(--rs)}.al.ok{border-left-color:var(--c-success-600,#0E9F6E);background:var(--c-success-50,#E7F6EF)}
+.x,.x2,.chip,.ms summary,#drw button,main button:not(.chip):not(.seg button){font:inherit;font-size:13px;border-radius:var(--rs);border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.x2:hover,.x:hover,.ms summary:hover{border-color:var(--t3)}
+.chip{background:var(--acc2);color:var(--c-primary-700,#5B21B6);border-color:var(--c-primary-100,#EADDFD);border-radius:99px}
+.ms summary{height:32px;display:flex;align-items:center;padding:0 10px}.ms .box{background:var(--card)!important;border:1px solid var(--line)!important;border-radius:var(--rs)!important;box-shadow:var(--sh2)}
+#drw{background:rgba(10,12,24,.35)}#drw .pane2{background:var(--card);color:var(--ink);box-shadow:var(--sh2)}
+code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0E9F6E);border-color:var(--c-success-600,#0E9F6E)}
+.fb .tr,.tr2{background:var(--s3)}.fb .tr i,.tr2 i{background:var(--acc)}
+#v15wait{color:var(--t3)}
+</style><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"></head><body><div id="v15wait">Loading the ERP dashboard data…</div>
 <header><div><h1>Sumangal Castings · <span id="modeT">ERP Dashboard</span></h1><div class="sub">From the ERP database copy · last entry 20 Oct 2026 · double-click any figure for the lines behind it</div></div><button class="homebtn hidden" id="homeBtn" onclick="go('home')">← Home</button></header>
 <section id="home"><div class="home">
  <div class="big" onclick="go('dashv')"><h2>Dashboard</h2><p>Where things stand: WIP, ready to dispatch, production, vendors, orders &amp; customers, and trace a batch or an order.</p></div>
@@ -225,6 +255,14 @@ body:not(.v15on)>header,body:not(.v15on)>section{display:none}
   for (const r of D.disp) { r[8] = r[5]; r[5] = +(r[4] * cw(r[2])).toFixed(1); }
   for (const r of D.rcv) { r[8] = r[6]; r[6] = +(r[4] * cw(r[3])).toFixed(1); }
   for (const v of D.vend) { v[5] = +(v[4] * cw(v[2])).toFixed(1); }
+  // the customers each part is made, ordered, shipped or stocked for: the customer filter's test for a line that
+  // carries only the part (challans, vendor receipts, scrap), instead of the die master's single customer
+  D.pcs = [];
+  const addPC = (p, c) => { if (p == null || c == null || c < 0) return; (D.pcs[p] || (D.pcs[p] = new Set())).add(c); };
+  for (const it of D.items) addPC(it[2], it[1]);
+  for (const o of D.ord) addPC(o[4], o[3]);
+  for (const r of D.disp) addPC(r[2], r[1]);
+  for (const r of D.rfd) addPC(r[2], r[1]);
   D.end = D.end || '2026-10-20';
 })();
 
@@ -240,7 +278,7 @@ let U='kg';const F={c:'',t:'',m:'',wmin:null,wmax:null};
 const nf=x=>Math.round(x).toLocaleString('en-IN');const val=(p,k)=>U==='kg'?k:p;const uL=()=>U==='kg'?'kg':'pcs';
 const P=D.parts;
 function passItem(it){if(F.c!==''&&it[1]!=+F.c)return false;if(F.t!==''&&it[8]!=+F.t)return false;if(F.m!==''&&it[3]!=+F.m)return false;return true}
-function passPart(pi,ci,mi,ty){const p=P[pi]||[0,0,0,0,-1];if(F.c!==''&&(ci??p[4])!=+F.c)return false;if(F.t!==''&&ty!=null&&ty!=+F.t)return false;if(F.m!==''&&mi!=null&&mi!=+F.m)return false;return true}
+function passPart(pi,ci,mi,ty){const p=P[pi]||[0,0,0,0,-1];if(F.c!==''&&(ci!=null?ci!=+F.c:!(D.pcs[pi]?D.pcs[pi].has(+F.c):p[4]==+F.c)))return false;if(F.t!==''&&ty!=null&&ty!=+F.t)return false;if(F.m!==''&&mi!=null&&mi!=+F.m)return false;return true}
 // ---------- WIP
 // open quantity on a challan line as of a date = sent - received up to that date
 function openQ(v,asof){if(v[3]>asof)return 0;let r=0;for(const x of v[8]||[])if(x[0]<=asof)r+=x[1];return v[4]-r}
@@ -313,7 +351,7 @@ function renderProd(){const a=toDay(pFrom.value),b=toDay(pTo.value);const S=PST.
  const nd=Math.max(1,b-a+1);
  prodTab.innerHTML=`<tr><th>Stage</th><th>Pieces</th><th>kg</th><th>kg / day</th><th>Rejected pcs</th></tr>`+PST.map(([n],i)=>{const o=S[i];return `<tr><td class="l">${n}</td><td>${nf(o.p)}</td><td>${nf(o.k)}</td><td>${nf(o.k/nd)}</td><td>${o.r?nf(o.r):'–'}</td></tr>`}).join('');
  const days=[],vals=[];for(let d=a;d<=b;d++){days.push(fmtD(d));vals.push(Math.round(daily[d]||0))}
- mk('prodChart',{type:'bar',data:{labels:days,datasets:[{label:PST[sel][0]+' ('+uL()+')',data:vals,backgroundColor:'#5b9bd5'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{x:{ticks:{maxTicksLimit:12}}}}},320)}
+ mk('prodChart',{type:'bar',data:{labels:days,datasets:[{label:PST[sel][0]+' ('+uL()+')',data:vals,backgroundColor:colOf(PSTN(sel))}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{x:{ticks:{maxTicksLimit:12}}}}},320)}
 // ---------- Vendors
 let venOpen=[];
 function renderVen(){renderOut();const asof=toDay(asofEl.value),pf=vProc.value;venOpen=[];const sent90={};
@@ -374,7 +412,7 @@ function renderQual(){if(!window.qFrom||!qFrom.value)return;const a=toDay(qFrom.
   qTrendN.textContent=(view=='reason'?'Top 6 reasons in the selection. ':'')+'Rejection % = rejected ÷ pieces poured in the period. Dashed = all selected rejections ÷ poured.'}
  const tot=z();R.forEach(r=>tot[r.pi]+=r.v);
  qTrendT.textContent='Rejection % over time, by '+{stage:'process',dept:'responsible department',reason:'reason'}[view];
- mk('qTrend',{type:'line',data:{labels:labs,datasets:series.map((s,i)=>({label:s.name,data:s.data,borderColor:QCOL[i%8],backgroundColor:QCOL[i%8],tension:.25,spanGaps:true,pointRadius:NK>40?0:3})).concat([{label:'All selected (÷ poured)',data:tot.map((v,i)=>poured[i]?+(100*v/poured[i]).toFixed(2):null),borderColor:'#333',borderDash:[6,5],pointRadius:0,borderWidth:1.5}])},
+ mk('qTrend',{type:'line',data:{labels:labs,datasets:series.map((s,i)=>({label:s.name,data:s.data,borderColor:colOf(s.name),backgroundColor:colOf(s.name),tension:.25,spanGaps:true,pointRadius:NK>40?0:3})).concat([{label:'All selected (÷ poured)',data:tot.map((v,i)=>poured[i]?+(100*v/poured[i]).toFixed(2):null),borderColor:INK(),borderDash:[6,5],pointRadius:0,borderWidth:1.5}])},
   options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}},scales:{y:{beginAtZero:true,title:{display:true,text:'rejection %'}}}}});
  // pareto
  const PR=sum(r=>r.rn).slice(0,15);let cum=0;
@@ -419,7 +457,7 @@ function renderTrend(){const a=toDay(tFrom.value),b=toDay(tTo.value),gr=tGran.va
  const keys=[];for(let d=a;d<=b;d++){const k=periodKey(d,gr);if(keys[keys.length-1]!==k)keys.push(k)}
  const sel=[...TS].sort((x,y)=>x-y);const ds=[];const rows=[];const ndays=b-a+1;let nwork=0;for(let d=a;d<=b;d++)if(new Date(D0U+d*864e5).getUTCDay()!==3)nwork++;
  sel.forEach((i,ci)=>{const per=new Map(keys.map(k=>[k,0]));for(const [d,v] of Object.entries(S[i]))per.set(periodKey(+d,gr),per.get(periodKey(+d,gr))+val(v[0],v[1]));
-  const vals=keys.map(k=>Math.round(per.get(k)));const tot=vals.reduce((s,v)=>s+v,0),avg=vals.length?tot/vals.length:0;const col=TCOL[ci%TCOL.length];const nm=PSTN(i);
+  const vals=keys.map(k=>Math.round(per.get(k)));const tot=vals.reduce((s,v)=>s+v,0),avg=vals.length?tot/vals.length:0;const nm=PSTN(i);const col=colOf(nm);
   ds.push({label:nm,nm,data:vals,borderColor:col,backgroundColor:col,tension:.25,pointRadius:keys.length>60?0:3,borderWidth:2});
   if(tAvg.checked)ds.push({label:`${nm}: average ${nf(avg)}`,nm,avg:true,data:keys.map(()=>Math.round(avg)),borderColor:col,borderDash:[6,5],pointRadius:0,borderWidth:1.5,fill:false});
   const h=Math.floor(vals.length/2);const m1=h?vals.slice(0,h).reduce((s,v)=>s+v,0)/h:0,m2=vals.length-h?vals.slice(h).reduce((s,v)=>s+v,0)/(vals.length-h):0;
@@ -440,7 +478,7 @@ function renderScrap(){const a=toDay(sFrom.value),b=toDay(sTo.value),pf=sProc.va
  for(const r of scrRows){const o=M.get(monthKey(r.d));o.n++;if(r.scr>0){o.c++;o.s+=r.scr;o.k+=r.kg}}
  const ks=[...M.keys()];mk('scrapChart',{data:{labels:ks.map(k=>periodLab(k,'m')),datasets:[
   {type:'line',label:'Scrap % (covered lines)',data:ks.map(k=>{const o=M.get(k);return o.s+o.k?+(100*o.s/o.k).toFixed(2):null}),borderColor:'#c0392b',backgroundColor:'#c0392b',yAxisID:'y',tension:.25,spanGaps:true},
-  ...(SV&&SV.size<=6?[...SV].map((v,i)=>({type:'line',label:D.vendors[v]+' scrap %',data:ks.map(k=>{let s=0,kk=0;for(const r of scrRows)if(r.ven==v&&r.scr>0&&monthKey(r.d)==k){s+=r.scr;kk+=r.kg}return s+kk?+(100*s/kk).toFixed(2):null}),borderColor:TCOL[(i+1)%TCOL.length],backgroundColor:TCOL[(i+1)%TCOL.length],borderDash:[4,3],yAxisID:'y',tension:.25,spanGaps:true})):[]),{type:'bar',label:'Coverage: % of lines with scrap entered',data:ks.map(k=>{const o=M.get(k);return o.n?Math.round(100*o.c/o.n):0}),backgroundColor:'rgba(91,155,213,.35)',yAxisID:'y2'}]},
+  ...(SV&&SV.size<=6?[...SV].map((v,i)=>({type:'line',label:D.vendors[v]+' scrap %',data:ks.map(k=>{let s=0,kk=0;for(const r of scrRows)if(r.ven==v&&r.scr>0&&monthKey(r.d)==k){s+=r.scr;kk+=r.kg}return s+kk?+(100*s/kk).toFixed(2):null}),borderColor:colOf(D.vendors[v]),backgroundColor:colOf(D.vendors[v]),borderDash:[4,3],yAxisID:'y',tension:.25,spanGaps:true})):[]),{type:'bar',label:'Coverage: % of lines with scrap entered',data:ks.map(k=>{const o=M.get(k);return o.n?Math.round(100*o.c/o.n):0}),backgroundColor:'rgba(91,155,213,.35)',yAxisID:'y2'}]},
   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{position:'left',beginAtZero:true,title:{display:true,text:'scrap %'}},y2:{position:'right',min:0,max:100,grid:{display:false},title:{display:true,text:'coverage %'}}}}});
  // by vendor
  const V={};for(const r of scrRows){const k=r.ven+'|'+r.pr;const o=V[k]||(V[k]={ven:r.ven,pr:r.pr,n:0,c:0,pcs:0,cp:0,k:0,s:0});o.n++;o.pcs+=r.pcs;if(r.scr>0){o.c++;o.cp+=r.pcs;o.k+=r.kg;o.s+=r.scr}}
@@ -461,7 +499,7 @@ function renderFet(a,b){const C={};const M={};const ks=[];for(let d=a;d<=b;d++){
  for(const r of D.rcv){if(r[0]<a||r[0]>b||!D.procs[r[2]].startsWith('Contract fettling')||!passPart(r[3],null,null))continue;const o=C[r[1]]||(C[r[1]]={p:0,r:0});o.p+=r[4];o.r+=r[5];const mk_=r[1]+'|'+monthKey(r[0]);const m=M[mk_]||(M[mk_]={p:0,r:0});m.p+=r[4];m.r+=r[5]}
  const cs=Object.keys(C);
  sFet.innerHTML='<tr><th>Contractor</th><th>Pieces returned</th><th>Rejected</th><th>Rejection %</th></tr>'+cs.map(c=>`<tr><td>${D.vendors[c]}</td><td>${nf(C[c].p)}</td><td>${nf(C[c].r)}</td><td>${C[c].p?(100*C[c].r/C[c].p).toFixed(2)+'%':'–'}</td></tr>`).join('');
- mk('fetChart',{type:'line',data:{labels:ks.map(k=>periodLab(k,'m')),datasets:cs.map((c,i)=>({label:D.vendors[c],data:ks.map(k=>{const m=M[c+'|'+k];return m&&m.p?+(100*m.r/m.p).toFixed(2):null}),borderColor:TCOL[i],backgroundColor:TCOL[i],tension:.25,spanGaps:true}))},
+ mk('fetChart',{type:'line',data:{labels:ks.map(k=>periodLab(k,'m')),datasets:cs.map((c,i)=>({label:D.vendors[c],data:ks.map(k=>{const m=M[c+'|'+k];return m&&m.p?+(100*m.r/m.p).toFixed(2):null}),borderColor:colOf(D.vendors[c]),backgroundColor:colOf(D.vendors[c]),tension:.25,spanGaps:true}))},
   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,title:{display:true,text:'rejection %'}}}}})}
 // ---------- Customers
 const DBYOI={};for(const r of D.disp){if(r[6]!=null)(DBYOI[r[6]]=DBYOI[r[6]]||[]).push(r)}
@@ -504,7 +542,7 @@ const ERR={};(function(){for(const s of ESTG){if(!s.est)continue;let T=0,C=0,R=0
 let estRows=[];const EMAX=20;
 function renderEst(){const asof=toDay(asofEl.value);estRows=[];
  for(const s of ESTG){if(s.def){for(const r of outRows){const k=EK(D.procs[r.pr]);if(k===s.def)estRows.push({id:s.id,p:r.p,pcs:r.pcs,kg:r.kg,age:r.age,since:r.d,ven:r.ven})}continue}
-  if(ERR[s.id]>EMAX)continue;for(const p of estParts(s)){const pc=P[p][4];if(F.c!==''&&pc!=+F.c)continue;const f=fifo(EV[s.inn][p],EV[s.out][p],asof);for(const [d,q] of f.left)if(asof-d<=90)estRows.push({id:s.id,p,pcs:q,kg:q*(P[p][2]||0),age:asof-d,since:d})}}
+  if(ERR[s.id]>EMAX)continue;for(const p of estParts(s)){if(!passPart(p,null,null))continue;const f=fifo(EV[s.inn][p],EV[s.out][p],asof);for(const [d,q] of f.left)if(asof-d<=90)estRows.push({id:s.id,p,pcs:q,kg:q*(P[p][2]||0),age:asof-d,since:d})}}
  const g={};ESTG.forEach(s=>g[s.id]={b:[0,0,0,0,0],t:0,c:0});for(const r of estRows){const v=val(r.pcs,r.kg);g[r.id].b[bucket(r.age)]+=v;g[r.id].t+=v;if(inR(r.age))g[r.id].c+=v}
  const defR=wipRows.filter(r=>r.k==5);const db=[0,0,0,0,0];let dt=0,dc=0;for(const r of defR){const v=val(r.pcs,r.kg);db[bucket(r.age)]+=v;dt+=v;if(inR(r.age))dc+=v}
  const cells=(o,id)=>o.b.map((v,i)=>`<td class="click h${i+1}" onclick="estDetail('${id}',${i})">${v?nf(v):'–'}</td>`).join('');
@@ -550,7 +588,7 @@ let _al=0;new MutationObserver(()=>{cancelAnimationFrame(_al);_al=requestAnimati
 // ---------- wiring
 const $=id=>document.getElementById(id);const asofEl=$('asof'),aMinEl=$('aMin'),aMaxEl=$('aMax');
 const opt=(arr,lab)=>`<option value="">All</option>`+arr.map(([i,n])=>`<option value="${i}">${n}</option>`).join('');
-{const cw={};for(const it of D.items)cw[it[1]]=(cw[it[1]]||0)+it[6]*it[4];fCust.innerHTML=opt(Object.keys(cw).sort((a,b)=>cw[b]-cw[a]).map(i=>[i,D.cust[i]]));
+{const cw={};for(const it of D.items)cw[it[1]]=(cw[it[1]]||0)+it[6]*it[4];for(const o of D.ord)if(o[3]>=0)cw[o[3]]=cw[o[3]]||0;fCust.innerHTML=opt(Object.keys(cw).sort((a,b)=>cw[b]-cw[a]||D.cust[a].localeCompare(D.cust[b])).map(i=>[i,D.cust[i]+(D.custFull[i]&&D.custFull[i]!==D.cust[i]?' · '+D.custFull[i]:'')]));
  const mw={};for(const it of D.items)mw[it[3]]=(mw[it[3]]||0)+it[6]*it[4];fMet.innerHTML=opt(Object.keys(mw).sort((a,b)=>mw[b]-mw[a]).map(i=>[i,D.metals[i]]));
  fType.innerHTML=opt(D.types.map((n,i)=>[i,n]));vProc.innerHTML=opt(D.procs.map((n,i)=>[i,n]));pStage.innerHTML=PST.map(([n],i)=>`<option value="${i}" ${i==4?'selected':''}>${n}</option>`).join('')}
 asofEl.value=D.end;pFrom.value=toStr(END-29);pTo.value=D.end;
@@ -589,7 +627,7 @@ const wmed = (arr, q = 0.5) => { if (!arr.length) return null; const s = arr.sli
 const wavg = (arr) => { const t = arr.reduce((a, x) => a + x[1], 0); return t ? arr.reduce((a, x) => a + x[0] * x[1], 0) / t : null; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const partLab = (p) => (P[p] ? P[p][0] + ' ' + P[p][1] : '');
-const custOfPart = (p) => (P[p] && P[p][4] >= 0 ? D.cust[P[p][4]] : '');
+const custOfPart = (p) => (D.pcs[p] ? [...D.pcs[p]].map((c) => D.cust[c]).join(', ') : P[p] && P[p][4] >= 0 ? D.cust[P[p][4]] : '');
 const store = { get(k, d) { try { const v = localStorage.getItem('sum_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem('sum_' + k, JSON.stringify(v)); } catch (e) {} } };
 const SET = { pour: store.get('pour', 2250), win: store.get('win', 60) };
 const itemFacts = (i) => { const s = S.it[i] || []; const o = s[3] >= 0 ? D.ord[s[3]] : null; return { wo: s[0] || '', heats: s[1] || '', bt: s[2], ord: o ? o[1] : (s[4] === 2 ? 'manual WO' : s[4] === 3 ? 'test bars' : ''), del: o ? o[8] : null, oi: s[3] }; };
@@ -833,7 +871,7 @@ function renderWipTrend() {
   const series = SK.filter((k) => sel.has(k)).map((k) => ({ k, v: [] })); const key = (d) => [d, F.c, F.t, F.m, HIDESTALE].join('|');
   for (const [, d] of ends) { let rows = WT.cache.get(key(d)); if (!rows) { rows = wipAt(d); WT.cache.set(key(d), rows); } for (const s of series) s.v.push(Math.round(rows.filter((r) => r.k === s.k && (amin == null || r.age >= amin)).reduce((t, r) => t + val(r.pcs, r.kg), 0))); }
   const labs = ends.map(([k]) => periodLab(k, WT.gran));
-  mk('wtChart', { type: 'line', data: { labels: labs, datasets: series.map((s, i) => ({ label: STG[s.k], data: s.v, borderColor: TCOL[i % TCOL.length], backgroundColor: TCOL[i % TCOL.length] + '33', fill: false, tension: 0.25, pointRadius: labs.length > 40 ? 0 : 3 })) },
+  mk('wtChart', { type: 'line', data: { labels: labs, datasets: series.map((s, i) => ({ label: STG[s.k], data: s.v, borderColor: colOf(STG[s.k]), backgroundColor: colOf(STG[s.k]) + '33', fill: false, tension: 0.25, pointRadius: labs.length > 40 ? 0 : 3 })) },
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${nf(c.parsed.y)} ${uL()}` } } }, scales: { y: { beginAtZero: true, title: { display: true, text: uL() + ' in WIP at period end' } } },
       onClick: (ev, els) => { if (!els.length) return; const e0 = els[0]; wtDrill(series[e0.datasetIndex].k, ends[e0.index][1]); } } }, 380);
   document.getElementById('wtTab').innerHTML = `<tr><th>Stage (${uL()}) at period end${amin != null ? ', aged ' + amin + '+ days' : ''}</th>${labs.map((l) => `<th>${l}</th>`).join('')}<th>Average</th></tr>` + series.map((s) => `<tr><td class="l">${STG[s.k]}</td>${s.v.map((v, i) => `<td class="click" ondblclick="wtDrill(${s.k},${ends[i][1]})">${v ? nf(v) : '–'}</td>`).join('')}<td><b>${nf(s.v.reduce((x, y) => x + y, 0) / s.v.length)}</b></td></tr>`).join('') + `<tr class="tot"><td>Total</td>${labs.map((_, i) => `<td>${nf(series.reduce((t, s) => t + s.v[i], 0))}</td>`).join('')}<td></td></tr>`;
@@ -899,7 +937,7 @@ function renderVperf() {
   document.getElementById('vpTab').innerHTML = `<tr><th>Vendor</th><th>Process</th><th>Sent (pcs)</th><th>Received (pcs)</th><th>Received kg / working day</th><th>kg / day while holding our material</th><th>vs pour rate ${nf(SET.pour)} kg/day</th><th>Turnaround (median days)</th><th>Open now (kg)</th><th>Rejected on receipt (recorded)</th><th>Rejected later at inspection (charged)</th><th>Rejection % of received</th></tr>` +
     rows.map((o, i) => `<tr><td class="l click" ondblclick="vpDrill(${i},'att')">${esc(D.vendors[o.v])}</td><td class="l">${esc(D.procs[o.pr])}</td><td>${nf(o.sent)}</td><td class="click" ondblclick="vpDrill(${i},'rcv')">${nf(o.back)}</td><td>${nf(o.perDay)}</td><td>${nf(o.perLoaded)}</td><td>${o.pourShare.toFixed(1)}%</td><td>${o.tatMed ?? '–'}</td><td>${o.open ? nf(o.open) : '–'}</td><td>${o.rec ? nf(o.rec) : '–'}</td><td class="click" ondblclick="vpDrill(${i},'att')">${o.att ? nf(o.att) : '–'}</td><td class="${o.rate > 5 ? 'h5' : o.rate > 2 ? 'h3' : ''}">${o.rate != null ? o.rate.toFixed(1) + '%' : '–'}</td></tr>`).join('');
   const pts = rows.filter((o) => o.back >= 100 && o.tatMed != null);
-  mk('vpChart', { type: 'bubble', data: { datasets: pts.map((o, i) => ({ label: D.vendors[o.v] + ' · ' + D.procs[o.pr], data: [{ x: o.tatMed, y: +(o.rate || 0).toFixed(2), r: Math.max(4, Math.min(28, Math.sqrt(o.backKg) / 6)) }], backgroundColor: TCOL[i % TCOL.length] + 'aa' })) },
+  mk('vpChart', { type: 'bubble', data: { datasets: pts.map((o, i) => ({ label: D.vendors[o.v] + ' · ' + D.procs[o.pr], data: [{ x: o.tatMed, y: +(o.rate || 0).toFixed(2), r: Math.max(4, Math.min(28, Math.sqrt(o.backKg) / 6)) }], backgroundColor: colOf(D.vendors[o.v]) + 'aa' })) },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.raw.x} days turnaround, ${c.raw.y}% rejected` } } }, scales: { x: { title: { display: true, text: 'Turnaround, median days (faster ←)' }, beginAtZero: true }, y: { title: { display: true, text: 'Rejection % of received (better ↓)' }, beginAtZero: true } },
       onClick: (ev, els) => { if (els.length) vpDrill(rows.indexOf(pts[els[0].datasetIndex]), 'att'); } } }, 380);
 }
@@ -935,7 +973,7 @@ function renderCap() {
   document.getElementById('cpNote').innerHTML = `${nd} working days (Wednesdays off). Actual pour rate: <b>${nf(pourDay)} kg/day</b> (target ${nf(T)} kg/day). Machined parts are ${nf(pourMach)} kg/day of that, which is what machining and machining inspection need to keep up with. Weights are raw casting weight × pieces. Peak = 90th-percentile week ÷ 6 working days.`;
   document.getElementById('cpTab').innerHTML = `<tr><th>Step</th><th>In-house kg/day</th><th>Outsourced kg/day</th><th>Total capacity used kg/day</th><th>Peak week kg/day</th><th>Needed kg/day (= pour)</th><th>vs needed</th><th>vs target ${nf(T)}</th></tr>` +
     res.map((o, i) => { const vs = o.need ? o.tot / o.need * 100 : null; return `<tr><td class="l click" ondblclick="cpDrill(${i})">${esc(o.n)}</td><td>${o.inD ? nf(o.inD) : '–'}</td><td>${o.outD ? nf(o.outD) : '–'}</td><td class="click" ondblclick="cpDrill(${i})"><b>${nf(o.tot)}</b></td><td>${nf(o.peak)}</td><td>${o.need ? nf(o.need) : '–'}</td><td class="${vs != null && vs < 95 ? 'h5' : vs != null && vs < 100 ? 'h3' : ''}">${vs != null ? vs.toFixed(0) + '%' : '–'}</td><td class="${o.tot < T * 0.95 && o.need ? 'h3' : ''}">${(o.tot / T * 100).toFixed(0)}%</td></tr>`; }).join('');
-  mk('cpChart', { type: 'bar', data: { labels: res.map((o) => o.n), datasets: [{ label: 'In-house kg/day', data: res.map((o) => Math.round(o.inD)), backgroundColor: '#5b9bd5', stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: '#f2a65a', stack: 's' }, { type: 'line', label: 'Needed (pour) kg/day', data: res.map((o) => o.need ? Math.round(o.need) : null), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 4, showLine: false }, { type: 'line', label: 'Target ' + nf(T), data: res.map(() => T), borderColor: '#333', borderDash: [6, 4], pointRadius: 0 }] },
+  mk('cpChart', { type: 'bar', data: { labels: res.map((o) => o.n), datasets: [{ label: 'In-house kg/day', data: res.map((o) => Math.round(o.inD)), backgroundColor: '#5b9bd5', stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: '#f2a65a', stack: 's' }, { type: 'line', label: 'Needed (pour) kg/day', data: res.map((o) => o.need ? Math.round(o.need) : null), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 4, showLine: false }, { type: 'line', label: 'Target ' + nf(T), data: res.map(() => T), borderColor: INK(), borderDash: [6, 4], pointRadius: 0 }] },
     options: { indexAxis: 'x', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true, ticks: { autoSkip: false, maxRotation: 50, minRotation: 30, font: { size: 10 } } }, y: { stacked: true, title: { display: true, text: 'kg per working day' } } }, onClick: (ev, els) => { if (els.length) cpDrill(els[0].index); } } }, 360);
 }
 function cpDrill(i) { const o = CPD.res[i]; const ks = [...o.week.keys()].sort((x, y) => x - y); showTable(o.n + ' · by week', 'kg per week and per working day (6 per week)', ['Week', 'kg', 'kg per working day'], ks.map((k) => [periodLab(k, 'w'), Math.round(o.week.get(k)), Math.round(o.week.get(k) / 6)])); }
@@ -950,7 +988,7 @@ function renderDisp() {
     const ord = D.ord[ORDX.get(r[6])]; if (ord && ord[8] != null) { o.n++; if (r[0] <= ord[8]) o.onT++; else o.late.push(r[0] - ord[8]); } }
   const cs = [...C.values()].sort((x, y) => y.kg - x.kg); const top = cs.slice(0, 8); const other = new Array(keys.length).fill(0); cs.slice(8).forEach((o) => o.per.forEach((v, i) => (other[i] += v)));
   window._DT = { rows, keys, gr };
-  mk('dtChart', { type: 'bar', data: { labels: keys.map((k) => periodLab(k, gr)), datasets: [...top.map((o, i) => ({ label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: TCOL[i % TCOL.length], stack: 's' })), { label: 'Others', data: other.map(Math.round), backgroundColor: '#cfd6de', stack: 's' }] },
+  mk('dtChart', { type: 'bar', data: { labels: keys.map((k) => periodLab(k, gr)), datasets: [...top.map((o, i) => ({ label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: colOf(D.cust[o.c]), stack: 's' })), { label: 'Others', data: other.map(Math.round), backgroundColor: '#cfd6de', stack: 's' }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: uL() + ' dispatched' } } }, onClick: (ev, els) => { if (!els.length) return; const e0 = els[0]; const k = keys[e0.index]; const c = e0.datasetIndex < top.length ? top[e0.datasetIndex].c : null; dtDrill(c, k); } } }, 380);
   document.getElementById('dtTab').innerHTML = `<tr><th>Customer</th><th>Dispatched kg</th><th>Pieces</th><th>Dispatch days</th><th>kg per dispatch day (median)</th><th>Days between dispatches (median)</th><th>Lines on time</th><th>Median days late (late lines)</th>${keys.map((k) => `<th>${periodLab(k, gr)}</th>`).join('')}</tr>` +
     cs.map((o) => { const ds = [...o.days].sort((x, y) => x - y); const gaps = ds.slice(1).map((d, i) => [d - ds[i], 1]); const per = ds.map((d) => [rows.filter((r) => r[1] === o.c && r[0] === d).reduce((t, r) => t + r[5], 0), 1]); return `<tr><td class="l click" ondblclick="dtDrill(${o.c},null)">${esc(D.cust[o.c])}</td><td>${nf(o.kg)}</td><td>${nf(o.pcs)}</td><td>${o.days.size}</td><td>${nf(wmed(per) || 0)}</td><td>${wmed(gaps) ?? '–'}</td><td class="${o.n && o.onT / o.n < 0.7 ? 'h5' : ''}">${o.n ? Math.round(o.onT / o.n * 100) + '%' : '–'}</td><td>${o.late.length ? wmed(o.late.map((x) => [x, 1])) : '–'}</td>${o.per.map((v, i) => `<td class="click" ondblclick="dtDrill(${o.c},${keys[i]})">${v ? nf(v) : '–'}</td>`).join('')}</tr>`; }).join('');
@@ -1034,17 +1072,113 @@ function mcRejDrill() { const [a, b] = window._MCR; const rs = D.rej.filter((r) 
 
 </script>
 <script>
+// ---- Fixed colours (user, 2026-11-25: the same colour for the same process everywhere, whatever the filters).
+// Every process / step / department has one colour on every chart. Anything else (a vendor, a customer, a reason)
+// takes a colour from its name, so it keeps it when filters change what else is on the chart.
+const PCOLS = {
+  plan1: '#64748B', // PO received, WO pending
+  plan2: '#94A3B8', // WO released, PRC pending
+  inj: '#CA8A04', // injection (wax patterns); department "Wax"
+  wax: '#DB2777', // wax assembly
+  coat: '#0891B2', // coating (shell)
+  dewax: '#4338CA', // de-waxing
+  melt: '#C2410C', // melting / poured
+  ko: '#7C2D12', // knock-out
+  ht: '#9333EA', // heat treatment
+  htv: '#C084FC', // heat treatment at vendors
+  cfet: '#0F766E', // contract fettling (in-house)
+  fet: '#2DD4BF', // fettling at vendors
+  mach: '#2563EB', // machining (vendors); "M/C Rej."
+  turn: '#60A5FA', // turning
+  qc: '#16A34A', // final inspection
+  mi: '#65A30D', // machining inspection
+  clr: '#6D28D9', // cleared / ready to dispatch
+  disp: '#1E293B', // dispatched
+  dev: '#475569', // development
+  other: '#A1A1AA', // other / others
+};
+const PKEYS = [
+  [/heat treatment at vendors|of which at ht vendors/, 'htv'], [/machining inspection/, 'mi'], [/contract fettling|^fettling - a$/, 'cfet'],
+  [/fettling/, 'fet'], [/machining|^m\/c rej/, 'mach'], [/turning/, 'turn'], [/^wo pending|po received/, 'plan1'], [/^prc pending|wo released/, 'plan2'],
+  [/injection|not started|^wax$/, 'inj'], [/wax assembly|^assembly/, 'wax'], [/de-?waxing/, 'dewax'], [/^coating|shell/, 'coat'],
+  [/melting|poured|pouring/, 'melt'], [/knock-?out/, 'ko'], [/heat treatment|^ht\b/, 'ht'], [/final inspection|^inspection|\(qc\)|^qc/, 'qc'],
+  [/clearance|cleared/, 'clr'], [/dispatch/, 'disp'], [/development/, 'dev'], [/^others?$/, 'other'],
+];
+const HCOLS = ['#6D28D9', '#0891B2', '#DB2777', '#CA8A04', '#4338CA', '#0F766E', '#C2410C', '#64748B', '#9333EA', '#2563EB', '#16A34A', '#BE123C', '#0369A1', '#A16207', '#7C3AED', '#059669'];
+/** The process a label names, or '' (a WIP stage "X completed – Y pending" is the Y it waits for). */
+function procKey(label) {
+  let n = String(label || '').trim().toLowerCase();
+  const m = n.match(/–\s*(.+?)\s+pending$/); if (m) n = m[1] === 'wo' ? 'wo pending' : m[1] === 'prc' ? 'prc pending' : m[1];
+  if (/–\s*not started$/.test(String(label).toLowerCase())) n = 'not started';
+  for (const [re, k] of PKEYS) if (re.test(n)) return k;
+  return '';
+}
+const COLCACHE = new Map();
+/** The colour of a label: its process's colour, else one from its name. */
+function colOf(label) {
+  const key = String(label || '');
+  if (COLCACHE.has(key)) return COLCACHE.get(key);
+  const k = procKey(key); let c;
+  if (k) c = PCOLS[k];
+  else { let h = 0; for (const ch of key.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0; c = HCOLS[h % HCOLS.length]; }
+  COLCACHE.set(key, c); return c;
+}
+window.colOf = colOf; window.procKey = procKey;
+/** Reference lines (targets, "all selected"): the theme's text colour, so they show in dark mode too. */
+const INK = () => getComputedStyle(document.documentElement).getPropertyValue('--c-text-2').trim() || '#5A5E78';
+window.INK = INK;
+
+</script>
+<script>
 (function () {
-  var wait = document.getElementById('v15wait');
+  var wait = document.getElementById('v15wait'), booted = false, want = null, quiet = 0, tm = 0;
+  var post = function (m) { if (window.parent !== window) window.parent.postMessage(m, location.origin); };
+  // the platform's tokens (light or dark) as CSS variables, and the charts' text and grid colours to match
+  function theme(m) {
+    var r = document.documentElement.style; for (var k in m.vars) if (m.vars[k]) r.setProperty(k, m.vars[k]);
+    document.documentElement.setAttribute('data-theme', m.dark ? 'dark' : 'light'); chartTheme();
+  }
+  function chartTheme() {
+    if (!window.Chart) return;
+    var cs = getComputedStyle(document.documentElement), v = function (n, d) { return cs.getPropertyValue(n).trim() || d; };
+    var txt = v('--c-text-2', '#5A5E78'), grid = v('--c-chart-grid', '#ECEDF5'), font = v('--font-ui', '');
+    Chart.defaults.color = txt; Chart.defaults.borderColor = grid; Chart.defaults.font.size = 12; if (font) Chart.defaults.font.family = font;
+    try {
+      Object.values(charts).forEach(function (c) {
+        var sc = c.options.scales || {};
+        Object.keys(sc).forEach(function (k) { var x = sc[k]; if (x.ticks) x.ticks.color = txt; if (x.grid) x.grid.color = grid; if (x.title) x.title.color = txt; });
+        var lg = c.options.plugins && c.options.plugins.legend; if (lg && lg.labels) lg.labels.color = txt;
+        c.update('none');
+      });
+    } catch (e) { /* no charts yet */ }
+  }
+  // the app's menu picks the screen; the frame has no tabs of its own
+  function show(p) {
+    if (!booted) { want = p; return; }
+    if (curPane() === p) return;
+    quiet++; try { openTab(p); } finally { quiet--; }
+  }
   function boot(p) {
     if (window.__V15) return; window.__V15 = p;
     try {
       ['v15norm', 'v15app', 'v15ext'].forEach(function (id) { var s = document.createElement('script'); s.text = (id === 'v15norm' ? 'const D=window.__V15.D,S=window.__V15.S,H=window.__V15.H;\n' : '') + document.getElementById(id).textContent; document.body.appendChild(s); });
       document.body.classList.add('v15on'); if (wait) wait.remove();
+      chartTheme();
+      quiet++; try { go('dashv'); } finally { quiet--; }
+      booted = true; show(want || 'pWip');
+      // a screen opened from inside (a drill-down to Trace) tells the menu
+      document.querySelectorAll('#subtabs button').forEach(function (b) {
+        b.addEventListener('click', function () { if (quiet) return; clearTimeout(tm); tm = setTimeout(function () { post({ type: 'sumangal-v15-pane-changed', pane: curPane() }); }, 30); });
+      });
     } catch (e) { if (wait) wait.textContent = 'The dashboard could not start: ' + e.message; }
   }
-  window.addEventListener('message', function (e) { if (e.origin !== location.origin || !e.data || e.data.type !== 'sumangal-v15-data') return; boot(e.data.payload); });
-  if (window.parent === window && wait) wait.textContent = 'Open this from the Sumangal dashboard in the platform (ERP dashboard).';
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.type === 'sumangal-v15-data') boot(e.data.payload);
+    else if (e.data.type === 'sumangal-v15-theme') theme(e.data);
+    else if (e.data.type === 'sumangal-v15-pane') show(e.data.pane);
+  });
+  if (window.parent === window && wait) wait.textContent = 'Open this from the Sumangal dashboard in the platform.';
 })();
 </script>
 </body></html>
