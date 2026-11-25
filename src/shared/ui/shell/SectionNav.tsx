@@ -1,4 +1,4 @@
-import { Box } from '@mui/material';
+import { Box, Tooltip } from '@mui/material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -86,7 +86,7 @@ export function SectionNav({
         const meta = screen.countKey ? countMeta[screen.countKey] : undefined;
         const tone = TONE_STYLE[meta?.tone ?? 'neutral'];
 
-        return (
+        const tab = (
           <Box
             key={screenKey(screen)}
             component={NavLink}
@@ -145,6 +145,9 @@ export function SectionNav({
             )}
           </Box>
         );
+        return screen.hint ? (
+          <Tooltip key={screenKey(screen)} title={screen.hint} arrow enterDelay={400}>{tab}</Tooltip>
+        ) : tab;
       })}
     </Box>
   );

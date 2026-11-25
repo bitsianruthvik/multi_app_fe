@@ -106,9 +106,9 @@ export const FLOW_SECTIONS: NavSection[] = [
   { key: 'layout-erp', label: 'ERP dashboard ⇄', screens: [{ label: 'Open the ERP dashboard (V15)', path: 'layout-erp', keywords: ['switch', 'v15', 'erp dashboard', 'wip', 'historical'] }] },
 ];
 
-/** The operations dashboard (V15): Today and History. The other three layouts are switched off for now (user, 2026-11-25). */
+/** The dashboard (V15): Today and History. The other three layouts are switched off for now (user, 2026-11-25). */
 export const ERP_SECTIONS: NavSection[] = (['now', 'history'] as const).map((sec) => ({
   key: 'erp-' + sec,
   label: sec === 'now' ? 'Today' : 'History',
-  screens: ERP_SCREENS.filter((x) => x.section === sec).map((x) => ({ label: x.label, path: x.slug, keywords: x.keywords })),
+  screens: ERP_SCREENS.filter((x) => x.section === sec).map((x) => ({ label: x.label, path: x.slug, keywords: x.keywords, hint: x.about })),
 }));

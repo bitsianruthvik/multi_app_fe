@@ -70,7 +70,8 @@ tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:ho
 .x2:hover,.x:hover,.ms summary:hover{border-color:var(--t3)}
 .chip{background:var(--acc2);color:var(--c-primary-700,#5B21B6);border-color:var(--c-primary-100,#EADDFD);border-radius:99px}
 .ms summary{height:32px;display:flex;align-items:center;padding:0 10px}.ms .box{background:var(--card)!important;border:1px solid var(--line)!important;border-radius:var(--rs)!important;box-shadow:var(--sh2)}
-#drw{background:rgba(10,12,24,.35);position:absolute!important;bottom:auto!important}#drw .pane2{background:var(--card);color:var(--ink);box-shadow:var(--sh2)}
+#drw{position:static!important;inset:auto!important;background:none!important;margin:0 0 16px}#drw .pane2{position:static!important;width:auto!important;background:var(--card);color:var(--ink);border:1px solid var(--c-primary-200,#D9C2FB);border-radius:var(--rm);box-shadow:var(--sh2);padding:14px 18px}#drw .scroll{max-height:none!important}
+.info{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:6px;border-radius:50%;border:1px solid var(--t3);color:var(--t3);font-size:10.5px;font-weight:600;cursor:help;vertical-align:2px}
 code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0E9F6E);border-color:var(--c-success-600,#0E9F6E)}
 .fb .tr,.tr2{background:var(--s3)}.fb .tr i,.tr2 i{background:var(--acc)}
 #v15wait{color:var(--t3)}
@@ -98,7 +99,9 @@ pat('sk/(rk+sk)', 'sk/rk', 1); pat('o.s/(o.s+o.k)', 'o.s/o.k', 1); pat('s/(s+kk)
 // part; V13 took the part's customer from the die master, but ~8% of batch items are made for another customer than
 // the die's (S.I. orders ANIPL dies, IWG orders DCC CHAKAN dies…), so those customers lost their vendor work and the
 // die's customer got it. A part-only line now passes when the chosen customer orders that part (D.pcs, norm.js).
-pat("if(F.c!==''&&(ci??p[4])!=+F.c)return false;", "if(F.c!==''&&(ci!=null?ci!=+F.c:!(D.pcs[pi]?D.pcs[pi].has(+F.c):p[4]==+F.c)))return false;");
+// Several customers can be chosen (F.cs, a set; F.c keeps the list as text for cache keys).
+pat("if(F.c!==''&&(ci??p[4])!=+F.c)return false;", "if(F.cs&&(ci!=null?!F.cs.has(ci):!(D.pcs[pi]?[...D.pcs[pi]].some((c)=>F.cs.has(c)):F.cs.has(p[4]))))return false;");
+pat("function passItem(it){if(F.c!==''&&it[1]!=+F.c)return false;", "function passItem(it){if(F.cs&&!F.cs.has(it[1]))return false;");
 pat("const pc=P[p][4];if(F.c!==''&&pc!=+F.c)continue;", 'if(!passPart(p,null,null))continue;');
 patx("const custOfPart = (p) => (P[p] && P[p][4] >= 0 ? D.cust[P[p][4]] : '');", "const custOfPart = (p) => (D.pcs[p] ? [...D.pcs[p]].map((c) => D.cust[c]).join(', ') : P[p] && P[p][4] >= 0 ? D.cust[P[p][4]] : '');");
 // the list offers every customer with batches or order lines, the short name with the full one beside it
@@ -109,7 +112,9 @@ pat('borderColor:QCOL[i%8],backgroundColor:QCOL[i%8]', 'borderColor:colOf(s.name
 pat('const col=TCOL[ci%TCOL.length];const nm=PSTN(i);', 'const nm=PSTN(i);const col=colOf(nm);');
 pat('borderColor:TCOL[(i+1)%TCOL.length],backgroundColor:TCOL[(i+1)%TCOL.length]', 'borderColor:colOf(D.vendors[v]),backgroundColor:colOf(D.vendors[v])');
 pat("label:D.vendors[c],data:ks.map(k=>{const m=M[c+'|'+k];return m&&m.p?+(100*m.r/m.p).toFixed(2):null}),borderColor:TCOL[i],backgroundColor:TCOL[i]", "label:D.vendors[c],data:ks.map(k=>{const m=M[c+'|'+k];return m&&m.p?+(100*m.r/m.p).toFixed(2):null}),borderColor:colOf(D.vendors[c]),backgroundColor:colOf(D.vendors[c])");
-pat("datasets:[{label:PST[sel][0]+' ('+uL()+')',data:vals,backgroundColor:'#5b9bd5'}]", "datasets:[{label:PST[sel][0]+' ('+uL()+')',data:vals,backgroundColor:colOf(PSTN(sel))}]");
+// Production chart: every step in the period, each in its process colour (was one chosen step, day by day)
+pat("mk('prodChart',{type:'bar',data:{labels:days,datasets:[{label:PST[sel][0]+' ('+uL()+')',data:vals,backgroundColor:'#5b9bd5'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{x:{ticks:{maxTicksLimit:12}}}}},320)",
+  "mk('prodChart',{type:'bar',data:{labels:PST.map((x,i)=>PSTN(i)),datasets:[{label:uL(),data:S.map((o)=>Math.round(val(o.p,o.k))),backgroundColor:PST.map((x,i)=>colOf(PSTN(i)))}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}},440)");
 patx("borderColor: TCOL[i % TCOL.length], backgroundColor: TCOL[i % TCOL.length] + '33'", "borderColor: colOf(STG[s.k]), backgroundColor: colOf(STG[s.k]) + '33'");
 patx("backgroundColor: TCOL[i % TCOL.length] + 'aa'", "backgroundColor: colOf(D.vendors[o.v]) + 'aa'");
 patx("label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: TCOL[i % TCOL.length]", "label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: colOf(D.cust[o.c])");
@@ -157,9 +162,23 @@ ${colors}
       quiet++; try { go('dashv'); } finally { quiet--; }
       booted = true; show(want || 'pWip');
       // the screens' own date boxes are set from the page's one period
-      PAIRS.concat(QPAIRS).forEach(function (p) { [p[0], p[1]].forEach(function (id) { var el = document.getElementById(id), l = el && el.closest('label'); if (l) l.classList.add('v15date'); }); });
+      PAIRS.concat(QPAIRS, [['vAmin', 'vAmax'], ['pStage', 'pStage']]).forEach(function (p) { [p[0], p[1]].forEach(function (id) { var el = document.getElementById(id), l = el && el.closest('label'); if (l) l.classList.add('v15date'); }); });
       var opts = function (id) { return [].map.call(document.getElementById(id).options, function (o) { return [o.value, o.text]; }); };
       post({ type: 'sumangal-v15-options', options: { cust: opts('fCust'), types: opts('fType'), metals: opts('fMet'), end: D.end } });
+      // short screens: a card's explanation sits behind an (i) beside its title
+      [].forEach.call(document.querySelectorAll('.card .note:not([id])'), function (n) {
+        var card = n.closest('.card'), h = card && card.querySelector('h2'); if (!h || n.closest('table') || n.closest('#drw')) return;
+        var t = n.textContent.replace(/\\s+/g, ' ').trim(); if (!t) return;
+        var i = h.querySelector('.info'); if (!i) { i = document.createElement('span'); i.className = 'info'; i.textContent = 'i'; i.title = ''; h.appendChild(i); }
+        i.title = (i.title ? i.title + '\\n\\n' : '') + t; n.remove();
+      });
+      // a double-click shows its table under the screen, not in a side panel, and the page scrolls to it
+      var dr = drw();
+      new MutationObserver(function () {
+        if (dr.style.display !== 'block') return;
+        var pane = document.getElementById(curPane()); if (pane && dr.parentNode !== pane) pane.appendChild(dr);
+        setTimeout(function () { post({ type: 'sumangal-v15-scroll', y: dr.getBoundingClientRect().top + window.scrollY }); }, 30);
+      }).observe(dr, { attributes: true, attributeFilter: ['style'] });
       if (wantF) filters(wantF);
       // a screen opened from inside (a drill-down to Trace) tells the menu
       document.querySelectorAll('#subtabs button').forEach(function (b) {
@@ -172,7 +191,7 @@ ${colors}
   // from the latest ERP day) set different screens
   var PAIRS = [['tFrom', 'tTo'], ['qFrom', 'qTo'], ['sFrom', 'sTo'], ['wtFrom', 'wtTo', 'WT'],
     ['tgFrom', 'tgTo', 'TG'], ['vpFrom', 'vpTo', 'VP'], ['cpFrom', 'cpTo', 'CP'], ['dtFrom', 'dtTo', 'DT']];
-  var QPAIRS = [['pFrom', 'pTo'], ['funFrom', 'funTo', 'FUN']];
+  var QPAIRS = [['pFrom', 'pTo']];
   var wantF = null, range = '', quick = '';
   function quickRange(day) {
     var e = toDay(D.end), from = e, to = e;
@@ -190,8 +209,13 @@ ${colors}
   var global = function (n) { try { return eval(n); } catch (e) { return null; } };
   function filters(f) {
     if (!booted) { wantF = f; return; }
-    var ch = function (id, v) { var el = document.getElementById(id); if (el && el.value !== v) { el.value = v; el.dispatchEvent(new Event('change')); } };
-    ch('fCust', f.c || ''); ch('fType', f.t || ''); ch('fMet', f.m || '');
+    var cs = (f.cs || []).map(String).sort().join(','), t = f.t || '', m = f.m || '';
+    if (cs !== F.c || t !== F.t || m !== F.m) {
+      F.c = cs; F.cs = cs ? new Set(cs.split(',').map(Number)) : null; F.t = t; F.m = m;
+      document.getElementById('fType').value = t; document.getElementById('fMet').value = m;
+      var wt = global('WT'); if (wt && wt.cache) wt.cache.clear();
+      all(); extRefresh();
+    }
     var ub = document.querySelector('#fUnit button[data-u="' + f.u + '"]'); if (ub && !ub.classList.contains('on')) ub.click();
     var a = document.getElementById('aMin'), b = document.getElementById('aMax');
     if (a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
@@ -205,7 +229,7 @@ ${colors}
   }
   // one scroll: the frame is as tall as its content, and the drill-down panel opens over the part on screen
   var drw = function () { return document.getElementById('drw'); }, view = { top: 0, h: 600 };
-  function place() { var d = drw(); if (d) { d.style.top = view.top + 'px'; d.style.height = view.h + 'px'; } }
+  function place() { /* the drill-down table is inline now */ }
   var lastH = 0;
   function height() { var h = Math.ceil(document.body.getBoundingClientRect().height); if (h !== lastH) { lastH = h; post({ type: 'sumangal-v15-height', h: h }); } }
   if (window.ResizeObserver) new ResizeObserver(height).observe(document.body);

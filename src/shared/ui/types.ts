@@ -32,6 +32,8 @@ export interface NavScreen {
   keywords?: string[];
   /** This screen has detail routes at /:company/:appSlug/<path>/:id. */
   hasDetail?: boolean;
+  /** One line on what the screen shows, on hover over its tab (instead of a description on the screen). */
+  hint?: string;
 }
 
 /** A group of screens — one entry in the top nav's first row. */

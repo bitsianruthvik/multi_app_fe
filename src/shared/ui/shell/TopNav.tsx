@@ -68,6 +68,7 @@ export function TopNav({
   notificationCount = 0,
   accountItems,
   onSignOut,
+  actions,
 }: {
   appSlug: string;
   sections: NavSection[];
@@ -90,6 +91,8 @@ export function TopNav({
   accountItems?: ReactNode;
   /** Defaults to AuthContext's logout, then the app's login route. */
   onSignOut?: () => void;
+  /** App-level status or buttons shown in the bar, before search (e.g. when the data was loaded, Refresh). */
+  actions?: ReactNode;
 }) {
   const company = useCompanySlug();
   const navigate = useNavigate();
@@ -250,6 +253,7 @@ export function TopNav({
       )}
 
       <Box sx={{ flex: 1, minWidth: 8 }} />
+      {actions}
 
       {/* ── Search: opens the ⌘K palette ── */}
       <Box

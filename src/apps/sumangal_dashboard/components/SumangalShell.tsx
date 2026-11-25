@@ -4,11 +4,13 @@ import { AppShell, ThemeScope, ToastProvider, CommandPaletteProvider } from '@sh
 import { ERP_SECTIONS } from '../navMeta';
 import { HOME, getLayout } from '../layout';
 import { isErpPath } from '../erpScreens';
+import { ErpDataProvider, ErpDataStatus } from '../erpData';
 
 /**
  * ORDER MATTERS: ThemeScope > CommandPaletteProvider > AppShell (see CfHrmsShell).
- * Only the operations dashboard is on (layout.ts). Its screens share one page (a frame that takes a few seconds to
- * start), so they share one content key: moving between them keeps the page instead of starting it again.
+ * Only the dashboard (formerly "ERP dashboard", V15) is on (layout.ts). Its screens share one page (a frame that
+ * takes a few seconds to start), so they share one content key: moving between them keeps the page. When the data
+ * was loaded, and Refresh, sit once in the top bar.
  */
 export function SumangalShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
@@ -16,11 +18,14 @@ export function SumangalShell({ children }: { children: ReactNode }) {
   return (
     <ThemeScope appSlug="sumangal_dashboard">
       <ToastProvider>
-        <CommandPaletteProvider appSlug="sumangal_dashboard" sections={ERP_SECTIONS} actions={[]} placeholder="Jump to a screen">
-          <AppShell appSlug="sumangal_dashboard" sections={ERP_SECTIONS} brand={{ label: 'Sumangal · Operations', initial: 'S' }} homePath={HOME.erp} contentKey={contentKey}>
-            {children}
-          </AppShell>
-        </CommandPaletteProvider>
+        <ErpDataProvider>
+          <CommandPaletteProvider appSlug="sumangal_dashboard" sections={ERP_SECTIONS} actions={[]} placeholder="Jump to a screen">
+            <AppShell appSlug="sumangal_dashboard" sections={ERP_SECTIONS} brand={{ label: 'Sumangal Dashboard', initial: 'S' }} homePath={HOME.erp}
+              contentKey={contentKey} topActions={<ErpDataStatus />}>
+              {children}
+            </AppShell>
+          </CommandPaletteProvider>
+        </ErpDataProvider>
       </ToastProvider>
     </ThemeScope>
   );

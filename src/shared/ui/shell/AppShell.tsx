@@ -51,6 +51,7 @@ export function AppShell({
   onSignOut,
   shortcutGroups,
   contentKey,
+  topActions,
 }: {
   appSlug: string;
   /** The one nav source — also feeds the palette, the breadcrumb and the sheet. */
@@ -75,6 +76,8 @@ export function AppShell({
   /** Remounts the page when it changes (default: the path). An app whose screens share one live page that is slow
    *  to start (a frame) maps those paths to one key, so moving between them keeps the page. */
   contentKey?: string;
+  /** Shown in the top bar before search (TopNav `actions`). */
+  topActions?: ReactNode;
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -120,6 +123,7 @@ export function AppShell({
         notificationCount={notificationCount}
         accountItems={accountItems}
         onSignOut={onSignOut}
+        actions={topActions}
       />
 
       {onDetail && resolved ? (
