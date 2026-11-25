@@ -33,8 +33,8 @@ main{padding:16px 20px;max-width:1400px;margin:auto}
 .card h2{font-size:15px;margin:0 0 4px}.card .note{color:var(--mut);font-size:12px;margin:0 0 10px}
 .row{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-th{font-size:11px;color:var(--mut);font-weight:600;background:#fafbfc;position:sticky;top:0}th:first-child,td:first-child{text-align:left}
-td.l{text-align:left}td.click{cursor:pointer}td.click:hover{background:var(--acc2)}tr.tot td{font-weight:700;background:#fafbfc}
+th{font-size:11px;color:var(--mut);font-weight:600;background:var(--s2);position:sticky;top:0}th:first-child,td:first-child{text-align:left}
+td.l{text-align:left}td.click{cursor:pointer}td.click:hover{background:var(--acc2)}tr.tot td{font-weight:700;background:var(--s2)}
 .h1{background:#eef6fc}.h2{background:#dcebf7}.h3{background:#fdf3d8}.h4{background:#fbe2c7}.h5{background:#f8d3d0}
 .alerts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .al{border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:8px;padding:10px 12px;cursor:pointer;background:var(--warnbg)}
@@ -42,8 +42,8 @@ td.l{text-align:left}td.click{cursor:pointer}td.click:hover{background:var(--acc
 .al b{display:block;font-size:13px}.al .v{font-size:20px;font-weight:700}.al .m{font-size:12px;color:var(--mut)}
 .scroll{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:8px;-webkit-overflow-scrolling:touch}
 .scroll table{min-width:100%}th{z-index:2;box-shadow:0 1px 0 var(--line)}
-.scroll th:first-child,.scroll td:first-child{position:sticky;left:0;background:#fff;z-index:1;box-shadow:1px 0 0 var(--line)}.scroll th:first-child{z-index:3;background:#fafbfc}
-tr.tot td{position:sticky;bottom:0;background:#f1f4f7!important;z-index:1;box-shadow:0 -1px 0 var(--line)}.scroll tr.tot td:first-child{z-index:2}
+.scroll th:first-child,.scroll td:first-child{position:sticky;left:0;background:#fff;z-index:1;box-shadow:1px 0 0 var(--line)}.scroll th:first-child{z-index:3;background:var(--s2)}
+tr.tot td{position:sticky;bottom:0;background:var(--s2)!important;z-index:1;box-shadow:0 -1px 0 var(--line)}.scroll tr.tot td:first-child{z-index:2}
 td.l{white-space:normal;min-width:120px;max-width:340px}th.l{text-align:left}.ms{position:relative}.ms summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:#fff;min-width:230px;font-size:13px}.ms summary::after{content:' ▾';color:var(--mut)}.ms .box{position:absolute;z-index:20;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);padding:8px;width:340px;max-height:360px;display:flex;flex-direction:column;gap:6px}.ms .list{overflow:auto;max-height:260px}.ms .list label{display:flex;gap:6px;align-items:center;padding:3px 2px;font-size:13px;color:var(--ink);flex-direction:row}.ms .bt{display:flex;gap:6px}.ms .bt button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:3px 10px;cursor:pointer}.ms .cap{font-size:11px;color:var(--mut);display:block;margin-bottom:2px}td.n,th.n{text-align:right}td.d{white-space:nowrap}tbody tr:hover td,table tr:hover td{filter:brightness(.98)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.grid2{grid-template-columns:1fr}}
 .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:140px}.kpi .v{font-size:18px;font-weight:700}.kpi .m{font-size:11px;color:var(--mut)}
@@ -69,7 +69,7 @@ input.cf{width:100%;min-width:56px;font-size:11px;padding:2px 4px;margin-top:3px
 .fb .tr,.tr2{height:14px;background:var(--line);border-radius:4px;overflow:hidden;display:flex}.fb .tr i,.tr2 i{display:block;height:100%;background:var(--acc)}.tr2 i.lt{opacity:.35}
 .stale{color:var(--bad)}.kpi.click{cursor:pointer}.kpi.click:hover{border-color:var(--acc)}
 .grid2>div{min-width:0}select{max-width:100%}
-code{background:#f1f4f7;padding:0 4px;border-radius:4px;font-size:11px}
+code{background:var(--s2);padding:0 4px;border-radius:4px;font-size:11px}
 #v15wait{max-width:640px;margin:80px auto;padding:20px;text-align:center;color:var(--mut);font-size:14px}
 body:not(.v15on)>header,body:not(.v15on)>section{display:none}
 @media(max-width:700px){.fb{grid-template-columns:110px 1fr 80px}.fb .note{display:none}header{padding:10px 12px}main{padding:12px}.filters{padding:8px 12px}}
@@ -105,6 +105,16 @@ tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:ho
 code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0E9F6E);border-color:var(--c-success-600,#0E9F6E)}
 .fb .tr,.tr2{background:var(--s3)}.fb .tr i,.tr2 i{background:var(--acc)}
 #v15wait{color:var(--t3)}
+/* one font: form controls do not inherit it by default; weights as the platform's (400/500/600) */
+.fb{grid-template-columns:minmax(180px,280px) 1fr 100px 120px}
+button,select,input,textarea,optgroup{font-family:inherit}b,strong,th,tr.tot td{font-weight:600}
+/* dark mode: colours written into the page's markup follow the theme */
+[style*="background:color-mix(in srgb,var(--acc) 10%,transparent)"]{background:color-mix(in srgb,var(--acc) 10%,transparent)!important}
+[style*="background:color-mix(in srgb,var(--warn) 12%,transparent)"]{background:color-mix(in srgb,var(--warn) 12%,transparent)!important}
+[style*="background:color-mix(in srgb,var(--bad) 12%,transparent)"]{background:color-mix(in srgb,var(--bad) 12%,transparent)!important}
+[style*="background:var(--s2)"],[style*="background:var(--s2)"]{background:var(--s2)!important}
+[style*="background:#fff;"],[style$="background:#fff"]{background:var(--card)!important}
+.h1,.h2,.h3,.h4,.h5{color:var(--ink)}
 </style><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"></head><body><div id="v15wait">Loading the ERP dashboard data…</div>
 <header><div><h1>Sumangal Castings · <span id="modeT">ERP Dashboard</span></h1><div class="sub">From the ERP database copy · last entry 20 Oct 2026 · double-click any figure for the lines behind it</div></div><button class="homebtn hidden" id="homeBtn" onclick="go('home')">← Home</button></header>
 <section id="home"><div class="home">
@@ -178,8 +188,7 @@ code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0
 <div class="pane hidden" id="pCust"><div class="card"><h2>Customers</h2><p class="note">As of the selected date. Open orders = ordered minus dispatched on order lines (short-closed lines excluded). Overdue = delivery date passed. WIP is per batch; "At vendors" is by part. Ready to dispatch is the current position. Double-click a customer for its open order lines.</p><div class="scroll"><table id="custTab"></table></div></div></div>
 <div class="pane hidden" id="pOrd">
  <div class="card"><h2>Customers</h2><p class="note">As of the selected date. Open = ordered − dispatched on each order line. In WIP = pieces in batch items made for those lines. Ready to dispatch = cleared (up to the order quantity) − dispatched, per order line, so it also works for past dates. <b>Short</b> = open − ready − in WIP: pieces not yet anywhere in the plant. "At vendors" is by part (challans carry only the part). Double-click any figure for the lines behind it.</p><div class="scroll"><table id="ordTab"></table></div></div>
- <div class="card"><h2>From order to dispatch</h2><div class="row"><label style="font-size:12px;color:var(--mut)">Orders placed from<br><input type="date" id="funFrom"></label><label style="font-size:12px;color:var(--mut)">to<br><input type="date" id="funTo"></label></div>
-  <p class="note">The plant plans more than the order to cover expected losses. Extra planned pieces and rejections are shown as separate bars: they are not the same thing. Double-click a bar for the order lines behind it.</p><div id="funBox"></div></div>
+ <div class="card"><h2>Open orders by phase, now</h2><p class="note">Open pieces of every open order line (ordered − dispatched), by where they are now. Double-click a bar for the lines.</p><div id="funBox"></div><input type="date" id="funFrom" hidden><input type="date" id="funTo" hidden></div>
  <div class="card"><h2>Open order lines</h2><p class="note">Sorted by days late. Double-click a line to trace the order.</p><div class="scroll"><table id="olTab"></table></div></div>
 </div>
 <div class="pane hidden" id="pTrace">
@@ -300,7 +309,7 @@ function wipAt(asof){const out=[];for(const it of D.items){if(!passItem(it))cont
  for(const o of D.ord){if(o[2]>asof||o.h)continue;const it=[o[1],o[3],o[4],o[5],o[7],0,0,null,o[9]];if(!passItem(it))continue;let wq=0;for(const r of o[10])if(r[0]<=asof)wq+=r[1];
   const left=o[6]-wq;if(left>0)out.push({k:8,it,pcs:left,kg:left*o[7],age:asof-o[2],since:o[2]})}
  return out}
-const inR=a=>(aMinEl.value===''||a>=+aMinEl.value)&&(aMaxEl.value===''||a<=+aMaxEl.value);const RL=()=>aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;const inB=(a,b)=>b==null||(b==-1?inR(a):bucket(a)==b);const bLab=b=>b==null?'':' · '+(b==-3?'suspect lines (a later challan for the same part, vendor and process is already fully back)':b==-1?RL():BK[b][2]+' days');const CH=()=>`<th style="background:#eef0ff">${RL()}<br><span style="font-weight:400">(custom)</span></th>`;
+const inR=a=>(aMinEl.value===''||a>=+aMinEl.value)&&(aMaxEl.value===''||a<=+aMaxEl.value);const RL=()=>aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;const inB=(a,b)=>b==null||(b==-1?inR(a):bucket(a)==b);const bLab=b=>b==null?'':' · '+(b==-3?'suspect lines (a later challan for the same part, vendor and process is already fully back)':b==-1?RL():BK[b][2]+' days');const CH=()=>`<th style="background:color-mix(in srgb,var(--acc) 10%,transparent)">${RL()}<br><span style="font-weight:400">(custom)</span></th>`;
 function bucket(a){for(let i=0;i<5;i++)if(a<=BK[i][1])return i;return 4}
 let wipRows=[];let charts={};
 function renderWip(){const asof=toDay(asofEl.value);wipRows=wipAt(asof);const aMin=+aMinEl.value,aMax=+aMaxEl.value;
@@ -362,13 +371,13 @@ function renderVen(){renderOut();const asof=toDay(asofEl.value),pf=vProc.value;v
   const ag=asof-v[3],oq=openQ(v,asof);if(oq>0&&(vAmin.value===''||ag>=+vAmin.value)&&(vAmax.value===''||ag<=+vAmax.value))venOpen.push({ven:v[0],pr:v[1],p:v[2],d:v[3],pcs:oq,kg:v[4]?v[5]*oq/v[4]:0,age:asof-v[3],key,sus:suspect(v,asof)})}
  const by={};for(const r of venOpen){const o=by[r.key]||(by[r.key]={ven:r.ven,pr:r.pr,b:[0,0,0,0,0],t:0,n:0,old:0,c:0,s:0});const v=val(r.pcs,r.kg);o.b[bucket(r.age)]+=v;o.t+=v;if(inR(r.age))o.c+=v;if(r.sus)o.s+=v;o.n++;o.old=Math.max(o.old,r.age)}
  const keys=Object.keys(by).sort((a,b)=>by[b].t-by[a].t);
- venTab.innerHTML=`<tr><th>Vendor</th><th>Process</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total ${uL()}</th>${CH()}<th style="background:#fff4e5">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th><th>Oldest (days)</th><th>Days of work queued</th></tr>`+keys.map(k=>{const o=by[k];const q=sent90[k]?o.t/(sent90[k]/90):null;
+ venTab.innerHTML=`<tr><th>Vendor</th><th>Process</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total ${uL()}</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th><th>Oldest (days)</th><th>Days of work queued</th></tr>`+keys.map(k=>{const o=by[k];const q=sent90[k]?o.t/(sent90[k]/90):null;
   return `<tr><td class="l click" onclick="venDetail('${k}')">${D.vendors[o.ven]}</td><td class="l">${D.procs[o.pr]}</td><td>${o.n}</td>${o.b.map((v,i)=>`<td class="click h${i+1}" onclick="venDetail('${k}',${i})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="venDetail('${k}',-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="venDetail('${k}',-3)">${o.s?nf(o.s):'–'}</td><td>${o.old}</td><td>${q==null?'no sends in 90 days':Math.round(q)}</td></tr>`}).join('')+(()=>{const vs=Object.values(by);const s=f=>vs.reduce((a,o)=>a+o[f],0);return `<tr class="tot"><td>Total</td><td></td><td>${s('n')}</td>${[0,1,2,3,4].map(i=>`<td>${nf(vs.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(s('t'))}</td><td>${nf(s('c'))}</td><td>${nf(s('s'))}</td><td></td><td></td></tr>`})()}
 const OUTG=[['Contract fettling (in-house contractors)',n=>n.startsWith('Contract fettling')],['Fettling at vendors',n=>n=='Fettling'],['Machining at vendors',n=>n=='Machining'],['Heat treatment at vendors',n=>n=='Heat Treatment'],['Other vendor processes',n=>!/^Contract fettling|^Fettling$|^Machining$|^Heat Treatment$/.test(n)]];
 let outRows=[];
 function renderOut(){const asof=toDay(asofEl.value);outRows=[];for(const v of D.vend){if(!passPart(v[2],null,null))continue;const oq=openQ(v,asof);if(oq>0){const n=D.procs[v[1]];outRows.push({g:OUTG.findIndex(x=>x[1](n)),ven:v[0],pr:v[1],p:v[2],d:v[3],pcs:oq,kg:v[4]?v[5]*oq/v[4]:0,age:asof-v[3],sus:suspect(v,asof)})}}
  const T=OUTG.map(()=>({b:[0,0,0,0,0],t:0,n:0,c:0,s:0}));for(const r of outRows){const o=T[r.g],v=val(r.pcs,r.kg);o.b[bucket(r.age)]+=v;o.t+=v;o.n++;if(inR(r.age))o.c+=v;if(r.sus)o.s+=v}
- outTab.innerHTML=`<tr><th>Out with (${uL()})</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}<th style="background:#fff4e5">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th></tr>`+OUTG.map((g,i)=>{const o=T[i];return `<tr><td class="l click" onclick="outDetail(${i})">${g[0]}</td><td>${o.n}</td>${o.b.map((v,j)=>`<td class="click h${j+1}" onclick="outDetail(${i},${j})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="outDetail(${i},-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="outDetail(${i},-3)">${o.s?nf(o.s):'–'}</td></tr>`}).join('')+`<tr class="tot"><td>Total</td><td>${T.reduce((a,o)=>a+o.n,0)}</td>${[0,1,2,3,4].map(i=>`<td>${nf(T.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(T.reduce((a,o)=>a+o.t,0))}</td><td>${nf(T.reduce((a,o)=>a+o.c,0))}</td><td>${nf(T.reduce((a,o)=>a+o.s,0))}</td></tr>`}
+ outTab.innerHTML=`<tr><th>Out with (${uL()})</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th></tr>`+OUTG.map((g,i)=>{const o=T[i];return `<tr><td class="l click" onclick="outDetail(${i})">${g[0]}</td><td>${o.n}</td>${o.b.map((v,j)=>`<td class="click h${j+1}" onclick="outDetail(${i},${j})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="outDetail(${i},-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="outDetail(${i},-3)">${o.s?nf(o.s):'–'}</td></tr>`}).join('')+`<tr class="tot"><td>Total</td><td>${T.reduce((a,o)=>a+o.n,0)}</td>${[0,1,2,3,4].map(i=>`<td>${nf(T.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(T.reduce((a,o)=>a+o.t,0))}</td><td>${nf(T.reduce((a,o)=>a+o.c,0))}</td><td>${nf(T.reduce((a,o)=>a+o.s,0))}</td></tr>`}
 function outDetail(g,b){const rows=outRows.filter(r=>r.g==g&&(b==-3?r.sus:inB(r.age,b))).sort((x,y)=>y.age-x.age);
  showTable(OUTG[g][0]+bLab(b),`Open challan lines as of ${fmtD(toDay(asofEl.value))} · ${rows.length} lines · ${nf(rows.reduce((s,r)=>s+r.pcs,0))} pcs · ${nf(rows.reduce((s,r)=>s+r.kg,0))} kg`,
  ['Contractor / vendor','Process','Part','Customer','Issued on','Flag','Age (days)','Pieces','kg'],rows.map(r=>[D.vendors[r.ven],D.procs[r.pr],P[r.p][0]+' '+P[r.p][1],P[r.p][4]>=0?D.cust[P[r.p][4]]:'',fmtD(r.d),r.sus?'Suspect':'',r.age,r.pcs,r.kg]))}
@@ -517,7 +526,7 @@ function renderCust(){const asof=toDay(asofEl.value);ordRows=[];
  for(const r of D.disp)if(r[0]<=asof&&r[0]>asof-30&&passPart(r[2],r[1],r[3],r[7]))g(r[1]).d+=val(r[4],r[5]);
  const ks=Object.keys(C).sort((a,b)=>C[b].o-C[a].o);const T={o:0,od:0,oc:0,w:0,v:0,r:0,d:0};ks.forEach(k=>Object.keys(T).forEach(f=>T[f]+=C[k][f]));
  const cell=v=>v?nf(v):'–';
- custTab.innerHTML=`<tr><th>Customer (${uL()})</th><th>Open orders</th><th>of which overdue</th><th style="background:#eef0ff">Overdue by ${RL()}<br><span style="font-weight:400">(custom)</span></th><th>WIP</th><th>At vendors</th><th>Ready to dispatch<br><span style="font-weight:400">(current stock; blank at past dates)</span></th><th>Dispatched, last 30 days</th></tr>`+ks.map(k=>{const x=C[k];return `<tr><td class="l click" onclick="custDetail(${k})">${D.cust[k]}</td><td class="click" onclick="custDetail(${k})"><b>${cell(x.o)}</b></td><td class="click ${x.od?'h5':''}" onclick="custDetail(${k},1)">${cell(x.od)}</td><td class="click" onclick="custDetail(${k},2)">${cell(x.oc)}</td><td>${cell(x.w)}</td><td>${cell(x.v)}</td><td>${cell(x.r)}</td><td>${cell(x.d)}</td></tr>`}).join('')+
+ custTab.innerHTML=`<tr><th>Customer (${uL()})</th><th>Open orders</th><th>of which overdue</th><th style="background:color-mix(in srgb,var(--acc) 10%,transparent)">Overdue by ${RL()}<br><span style="font-weight:400">(custom)</span></th><th>WIP</th><th>At vendors</th><th>Ready to dispatch<br><span style="font-weight:400">(current stock; blank at past dates)</span></th><th>Dispatched, last 30 days</th></tr>`+ks.map(k=>{const x=C[k];return `<tr><td class="l click" onclick="custDetail(${k})">${D.cust[k]}</td><td class="click" onclick="custDetail(${k})"><b>${cell(x.o)}</b></td><td class="click ${x.od?'h5':''}" onclick="custDetail(${k},1)">${cell(x.od)}</td><td class="click" onclick="custDetail(${k},2)">${cell(x.oc)}</td><td>${cell(x.w)}</td><td>${cell(x.v)}</td><td>${cell(x.r)}</td><td>${cell(x.d)}</td></tr>`}).join('')+
  `<tr class="tot"><td>Total</td>${['o','od','oc','w','v','r','d'].map(f=>`<td>${nf(T[f])}</td>`).join('')}</tr>`}
 function custDetail(c,late){const rows=ordRows.filter(r=>(c==null||r.c==c)&&(!late||r.late)&&(late!=2||inR(r.late))).sort((a,b)=>b.late-a.late||(a.dd??1e9)-(b.dd??1e9));
  showTable('Open order lines'+(c!=null?' · '+D.cust[c]:'')+(late==2?' · overdue by '+RL():late?' · overdue':''),`As of ${fmtD(toDay(asofEl.value))} · ${rows.length} lines · ${nf(rows.reduce((s,r)=>s+r.pcs,0))} pcs · ${nf(rows.reduce((s,r)=>s+r.kg,0))} kg`,
@@ -549,7 +558,7 @@ function renderEst(){const asof=toDay(asofEl.value);estRows=[];
  const defR=wipRows.filter(r=>r.k==5);const db=[0,0,0,0,0];let dt=0,dc=0;for(const r of defR){const v=val(r.pcs,r.kg);db[bucket(r.age)]+=v;dt+=v;if(inR(r.age))dc+=v}
  const cells=(o,id)=>o.b.map((v,i)=>`<td class="click h${i+1}" onclick="estDetail('${id}',${i})">${v?nf(v):'–'}</td>`).join('');
  let h=`<tr><th>Stage (${uL()})</th><th>Basis</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}</tr>`;
- h+=`<tr style="background:#f1f4f7;font-weight:700"><td>HT Completed – Inspection (QC) Pending<br><span class="note">whole stage, from batch records</span></td><td>Definite</td>${db.map(v=>`<td>${v?nf(v):'–'}</td>`).join('')}<td>${nf(dt)}</td><td>${dc?nf(dc):'–'}</td></tr>`;
+ h+=`<tr style="background:var(--s2);font-weight:700"><td>HT Completed – Inspection (QC) Pending<br><span class="note">whole stage, from batch records</span></td><td>Definite</td>${db.map(v=>`<td>${v?nf(v):'–'}</td>`).join('')}<td>${nf(dt)}</td><td>${dc?nf(dc):'–'}</td></tr>`;
  for(const s of ESTG){const o=g[s.id];const bad=s.est&&ERR[s.id]>EMAX;
   h+=`<tr><td class="click" onclick="estDetail('${s.id}')">${s.name}<br><span class="note">${s.sub}</span></td><td>${s.est?(bad?`Not estimable (back-test error ${ERR[s.id]}%)`:`Estimate ±${ERR[s.id]}%`):'Definite (challans)'}</td>${bad?BK.map(()=>'<td>n/a</td>').join('')+'<td>n/a</td><td>n/a</td>':cells(o,s.id)+`<td><b>${nf(o.t)}</b></td><td class="click" onclick="estDetail('${s.id}',-1)">${o.c?nf(o.c):'–'}</td>`}</tr>`}
  estTab.innerHTML=h;
@@ -833,7 +842,7 @@ function renderOrd() {
   for (const r of D.disp) if (r[0] <= asof && r[0] > asof - 30 && passPart(r[2], r[1], r[3], r[7]) && C.has(r[1])) C.get(r[1]).d += val(r[4], r[5]);
   const rows = [...C.values()].sort((a, b) => b.o - a.o); const T = { n: 0, o: 0, od: 0, oc: 0, w: 0, v: 0, r: 0, s: 0, d: 0 }; rows.forEach((x) => Object.keys(T).forEach((k) => (T[k] += x[k])));
   const cell = (v, c, k) => `<td class="click ${k === 'od' && v ? 'h5' : ''}" ondblclick="ordDrill(${c},'${k}')">${v ? nf(v) : '–'}</td>`;
-  document.getElementById('ordTab').innerHTML = `<tr><th>Customer (${uL()})</th><th>Open lines</th><th>Open orders</th><th>of which overdue</th><th style="background:#eef0ff">Overdue by ${RL()}<br><span style="font-weight:400">(custom)</span></th><th>In WIP (for these lines)</th><th>At vendors<br><span style="font-weight:400">(by part)</span></th><th>Ready to dispatch<br><span style="font-weight:400">(by order line)</span></th><th style="background:#fdecea">Short<br><span style="font-weight:400">(not in plant yet)</span></th><th>Dispatched, last 30 days</th></tr>` +
+  document.getElementById('ordTab').innerHTML = `<tr><th>Customer (${uL()})</th><th>Open lines</th><th>Open orders</th><th>of which overdue</th><th style="background:color-mix(in srgb,var(--acc) 10%,transparent)">Overdue by ${RL()}<br><span style="font-weight:400">(custom)</span></th><th>In WIP (for these lines)</th><th>At vendors<br><span style="font-weight:400">(by part)</span></th><th>Ready to dispatch<br><span style="font-weight:400">(by order line)</span></th><th style="background:color-mix(in srgb,var(--bad) 12%,transparent)">Short<br><span style="font-weight:400">(not in plant yet)</span></th><th>Dispatched, last 30 days</th></tr>` +
     rows.map((x) => `<tr><td class="l click" ondblclick="ordDrill(${x.c},'o')">${esc(D.cust[x.c])}</td>${cell(x.n, x.c, 'o')}${['o', 'od', 'oc', 'w', 'v', 'r', 's', 'd'].map((k) => cell(x[k], x.c, k)).join('')}</tr>`).join('') + `<tr class="tot"><td>Total</td>${['n', 'o', 'od', 'oc', 'w', 'v', 'r', 's', 'd'].map((k) => `<td>${nf(T[k])}</td>`).join('')}</tr>`;
   renderFunnel(); renderOpenLines();
 }
@@ -1072,6 +1081,54 @@ function mcRejKpi() { const el = document.getElementById('sKpi'); if (!el || !sF
 function mcRejDrill() { const [a, b] = window._MCR; const rs = D.rej.filter((r) => r[0] >= a && r[0] <= b && r[1] === 7 && passItem(D.items[r[3]])); showTable('Rejected at machining inspection', 'Casting weight × pieces. These pieces are not in the scrap figure.', REJH, rejRows(rs), { link: (r) => traceAny(r[0]) }); }
 { const _rs = renderScrap; renderScrap = function () { _rs(); mcRejKpi(); }; [sFrom, sTo, sProc].forEach((e) => e.addEventListener('change', mcRejKpi)); }
 
+
+// ===================== Open orders by phase, now (replaces "From order to dispatch") =====================
+// User, 2026-11-25: on Today, no date range: show where the open orders are right now, double-click for the lines.
+// Each open order line's open pieces (ordered − dispatched) are placed, as of the latest ERP day, in:
+//   awaiting a work order (ordered − put on work orders) → work order, not batched (on work orders − batched) →
+//   each production stage (the line's batch items in WIP) → ready to dispatch (cleared − dispatched) →
+//   short (what is left: open − all of the above; usually rejected or lost pieces not yet made again).
+// Each phase is capped by what is still open after the later phases, so the bars add up to the open pieces.
+let PH = null;
+function renderFunnel() {
+  const box = document.getElementById('funBox'); if (!box) return;
+  const lines = ORDS.filter((x) => x.open > 0);
+  const byLine = new Map(lines.map((x) => [x.j, x]));
+  const stageRows = new Map(); // stage -> wip rows of open lines
+  const wipLine = new Map(); // line -> pieces in WIP
+  for (const r of wipRows) {
+    const i = ITX.get(r.it); if (i == null) continue; const j = S.it[i][3]; if (!byLine.has(j)) continue;
+    (stageRows.get(r.k) || stageRows.set(r.k, []).get(r.k)).push(r); wipLine.set(j, (wipLine.get(j) || 0) + r.pcs);
+  }
+  const ph = { awaitWo: [], woNotBatched: [], ready: [], short: [] }; const T = { awaitWo: 0, woNotBatched: 0, ready: 0, short: 0, open: 0 };
+  for (const x of lines) {
+    const v = (p) => val(p, p * x.kg);
+    const woq = x.o[10].reduce((s, r) => s + r[1], 0);
+    const bq = (ITEMS_BY_ORD.get(x.j) || []).reduce((s, i) => s + D.items[i][6], 0);
+    let left = x.open;
+    const ready = Math.min(x.ready, left); left -= ready;
+    const wip = Math.min(wipLine.get(x.j) || 0, left); left -= wip;
+    const awaitWo = Math.min(Math.max(0, x.q - woq), left); left -= awaitWo;
+    const woNb = Math.min(Math.max(0, woq - bq), left); left -= woNb;
+    x.ph = { ready, wip, awaitWo, woNb, short: left };
+    T.open += v(x.open); T.ready += v(ready); T.awaitWo += v(awaitWo); T.woNotBatched += v(woNb); T.short += v(left);
+    if (ready) ph.ready.push(x); if (awaitWo) ph.awaitWo.push(x); if (woNb) ph.woNotBatched.push(x); if (left) ph.short.push(x);
+  }
+  const bars = [['awaitWo', 'Awaiting work order', T.awaitWo, colOf('PO Received – WO Pending')], ['woNotBatched', 'Work order, not batched', T.woNotBatched, colOf('WO Released – PRC Pending')]];
+  for (const k of SORD) { if (k === 7 || k === 8) continue; const rs = stageRows.get(k); if (!rs) continue; bars.push(['s' + k, STG[k], rs.reduce((s, r) => s + val(r.pcs, r.kg), 0), colOf(STG[k])]); }
+  bars.push(['ready', 'Ready to dispatch', T.ready, colOf('Cleared for dispatch')], ['short', 'Short (to make again)', T.short, 'var(--bad)']);
+  PH = { ph, stageRows };
+  const mx = Math.max(1, ...bars.map((b) => b[2]));
+  box.innerHTML = bars.filter((b) => b[2] > 0).map(([k, l, v, c]) => `<div class="fb" ondblclick="phDrill('${k}')" title="Double-click for the lines"><span>${esc(l)}</span><div class="tr"><i style="width:${(v / mx * 100).toFixed(1)}%;background:${c}"></i></div><b>${nf(v)}</b><span class="note">${T.open ? (v / T.open * 100).toFixed(1) + '% of open' : ''}</span></div>`).join('')
+    + `<p class="note">${lines.length} open order lines · ${nf(T.open)} ${uL()} open</p>`;
+}
+function phDrill(k) {
+  if (!PH) return;
+  if (k[0] === 's' && k !== 'short') { const st = +k.slice(1); showItems(STG[st] + ' · open order lines', 'Batch items of open order lines in this stage', PH.stageRows.get(st) || []); return; }
+  const t = { awaitWo: 'Awaiting work order', woNotBatched: 'Work order, not batched', ready: 'Ready to dispatch', short: 'Short (to make again)' }[k];
+  linesTable(t, PH.ph[k] || []);
+}
+
 </script>
 <script>
 // ---- Fixed colours (user, 2026-11-25: the same colour for the same process everywhere, whatever the filters).
@@ -1085,7 +1142,7 @@ const PCOLS = {
   coat: '#0891B2', // coating (shell)
   dewax: '#4338CA', // de-waxing
   melt: '#C2410C', // melting / poured
-  ko: '#7C2D12', // knock-out
+  ko: '#9A6B4F', // knock-out (light enough for dark mode)
   ht: '#9333EA', // heat treatment
   htv: '#C084FC', // heat treatment at vendors
   cfet: '#0F766E', // contract fettling (in-house)
@@ -1095,7 +1152,7 @@ const PCOLS = {
   qc: '#16A34A', // final inspection
   mi: '#65A30D', // machining inspection
   clr: '#6D28D9', // cleared / ready to dispatch
-  disp: '#1E293B', // dispatched
+  disp: '#78716C', // dispatched (mid grey: visible on light and dark)
   dev: '#475569', // development
   other: '#A1A1AA', // other / others
 };
@@ -1167,6 +1224,8 @@ window.INK = INK;
       document.body.classList.add('v15on'); if (wait) wait.remove();
       chartTheme();
       quiet++; try { go('dashv'); } finally { quiet--; }
+      // charts drawn before the font arrived are redrawn in it
+      if (document.fonts && document.fonts.ready) document.fonts.load('500 12px Geist').then(function () { return document.fonts.ready; }).then(chartTheme, function () {});
       booted = true; show(want || 'pWip');
       // the screens' own date boxes are set from the page's one period
       PAIRS.concat(QPAIRS, [['vAmin', 'vAmax'], ['pStage', 'pStage']]).forEach(function (p) { [p[0], p[1]].forEach(function (id) { var el = document.getElementById(id), l = el && el.closest('label'); if (l) l.classList.add('v15date'); }); });

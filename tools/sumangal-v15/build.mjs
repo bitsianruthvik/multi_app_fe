@@ -17,8 +17,12 @@ const src = rd('v13-ui.html').split('\n');
 const chartLines = src.slice(0, 16).join('\n'); // doctype .. Chart.js script
 let html = src.slice(16, 132).join('\n'); // style .. trailing <script> opener
 let app = src.slice(132).join('\n').replace(/<\/script><\/body><\/html>\s*$/, '');
-const panes = rd('panes.html'), norm = rd('norm.js'), colors = rd('colors.js');
-let ext = rd('ext.js');
+const norm = rd('norm.js'), colors = rd('colors.js');
+// Orders: "open orders by phase, now" replaces the funnel over a date range (phases.js redefines renderFunnel)
+const panes = rd('panes.html').replace(/<div class="card"><h2>From order to dispatch<\/h2>[\s\S]*?<div id="funBox"><\/div><\/div>/,
+  '<div class="card"><h2>Open orders by phase, now</h2><p class="note">Open pieces of every open order line (ordered − dispatched), by where they are now. Double-click a bar for the lines.</p><div id="funBox"></div><input type="date" id="funFrom" hidden><input type="date" id="funTo" hidden></div>');
+if (!panes.includes('Open orders by phase')) throw new Error('funnel card not replaced');
+let ext = rd('ext.js') + '\n' + rd('phases.js');
 const pat = (a, b, all) => { if (!app.includes(a)) throw new Error('app patch not found: ' + a); app = all ? app.split(a).join(b) : app.replace(a, b); };
 const patx = (a, b, all) => { if (!ext.includes(a)) throw new Error('ext patch not found: ' + a); ext = all ? ext.split(a).join(b) : ext.replace(a, b); };
 const rep = (s, a, b) => { if (!s.includes(a)) throw new Error('not found: ' + a.slice(0, 80)); return s.replace(a, b); };
@@ -75,6 +79,16 @@ tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:ho
 code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0E9F6E);border-color:var(--c-success-600,#0E9F6E)}
 .fb .tr,.tr2{background:var(--s3)}.fb .tr i,.tr2 i{background:var(--acc)}
 #v15wait{color:var(--t3)}
+/* one font: form controls do not inherit it by default; weights as the platform's (400/500/600) */
+.fb{grid-template-columns:minmax(180px,280px) 1fr 100px 120px}
+button,select,input,textarea,optgroup{font-family:inherit}b,strong,th,tr.tot td{font-weight:600}
+/* dark mode: colours written into the page's markup follow the theme */
+[style*="background:#eef0ff"]{background:color-mix(in srgb,var(--acc) 10%,transparent)!important}
+[style*="background:#fff4e5"]{background:color-mix(in srgb,var(--warn) 12%,transparent)!important}
+[style*="background:#fdecea"]{background:color-mix(in srgb,var(--bad) 12%,transparent)!important}
+[style*="background:#f1f4f7"],[style*="background:#fafbfc"]{background:var(--s2)!important}
+[style*="background:#fff;"],[style$="background:#fff"]{background:var(--card)!important}
+.h1,.h2,.h3,.h4,.h5{color:var(--ink)}
 `;
 html = rep(html, '</style>', css + platformCss + '</style>');
 html = rep(html, '</head>', '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"></head>');
@@ -120,6 +134,11 @@ patx("backgroundColor: TCOL[i % TCOL.length] + 'aa'", "backgroundColor: colOf(D.
 patx("label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: TCOL[i % TCOL.length]", "label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: colOf(D.cust[o.c])");
 pat("),borderColor:'#333',borderDash:[6,5]", "),borderColor:INK(),borderDash:[6,5]");
 patx("borderColor: '#333', borderDash: [6, 4]", "borderColor: INK(), borderDash: [6, 4]");
+// colours written into the markup and scripts follow the theme (dark mode): tints of the platform's colours
+const THEMED = [['#eef0ff', 'color-mix(in srgb,var(--acc) 10%,transparent)'], ['#fff4e5', 'color-mix(in srgb,var(--warn) 12%,transparent)'],
+  ['#fdecea', 'color-mix(in srgb,var(--bad) 12%,transparent)'], ['#f1f4f7', 'var(--s2)'], ['#fafbfc', 'var(--s2)']];
+const themed = (t) => THEMED.reduce((x, [hex, v]) => x.split('background:' + hex).join('background:' + v), t);
+html = themed(html); app = themed(app); ext = themed(ext);
 for (const [n, c] of [['norm', norm], ['app', app], ['ext', ext], ['colors', colors]]) if (/<\/script/i.test(c)) throw new Error(`${n} contains </script`);
 const boot = `<script>
 ${colors}
@@ -160,6 +179,8 @@ ${colors}
       document.body.classList.add('v15on'); if (wait) wait.remove();
       chartTheme();
       quiet++; try { go('dashv'); } finally { quiet--; }
+      // charts drawn before the font arrived are redrawn in it
+      if (document.fonts && document.fonts.ready) document.fonts.load('500 12px Geist').then(function () { return document.fonts.ready; }).then(chartTheme, function () {});
       booted = true; show(want || 'pWip');
       // the screens' own date boxes are set from the page's one period
       PAIRS.concat(QPAIRS, [['vAmin', 'vAmax'], ['pStage', 'pStage']]).forEach(function (p) { [p[0], p[1]].forEach(function (id) { var el = document.getElementById(id), l = el && el.closest('label'); if (l) l.classList.add('v15date'); }); });

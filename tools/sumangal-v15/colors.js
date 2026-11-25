@@ -9,7 +9,7 @@ const PCOLS = {
   coat: '#0891B2', // coating (shell)
   dewax: '#4338CA', // de-waxing
   melt: '#C2410C', // melting / poured
-  ko: '#7C2D12', // knock-out
+  ko: '#9A6B4F', // knock-out (light enough for dark mode)
   ht: '#9333EA', // heat treatment
   htv: '#C084FC', // heat treatment at vendors
   cfet: '#0F766E', // contract fettling (in-house)
@@ -19,7 +19,7 @@ const PCOLS = {
   qc: '#16A34A', // final inspection
   mi: '#65A30D', // machining inspection
   clr: '#6D28D9', // cleared / ready to dispatch
-  disp: '#1E293B', // dispatched
+  disp: '#78716C', // dispatched (mid grey: visible on light and dark)
   dev: '#475569', // development
   other: '#A1A1AA', // other / others
 };
