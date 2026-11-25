@@ -93,7 +93,8 @@ table{font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink)}th,td{bo
 th{font-size:11.5px;font-weight:600;color:var(--t3);background:var(--s2);box-shadow:0 1px 0 var(--line)}
 .scroll{border:1px solid var(--line);border-radius:var(--rs)}.scroll th:first-child,.scroll td:first-child{background:var(--card);box-shadow:1px 0 0 var(--line)}.scroll th:first-child{background:var(--s2)}
 tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:hover td,.fb:hover{background:var(--acc2)}
-.h1{background:rgba(2,132,199,.07)}.h2{background:rgba(2,132,199,.15)}.h3{background:rgba(217,119,6,.13)}.h4{background:rgba(217,119,6,.24)}.h5{background:rgba(225,29,72,.18)}
+/* age cells: the AGE scale of colors.js, as tints */
+.h1{background:rgba(110,231,183,.16)}.h2{background:rgba(203,213,225,.22)}.h3{background:rgba(252,211,77,.20)}.h4{background:rgba(245,158,11,.22)}.h5{background:rgba(225,29,72,.16)}
 .kpis{gap:12px}.kpi{border:1px solid var(--line);border-radius:var(--rs);background:var(--s2);padding:10px 14px}.kpi .v{font-size:20px;font-weight:600;letter-spacing:-.01em}.kpi .m{color:var(--t3);font-size:11.5px}
 .al{border-radius:var(--rs)}.al.ok{border-left-color:var(--c-success-600,#0E9F6E);background:var(--c-success-50,#E7F6EF)}
 .x,.x2,.chip,.ms summary,#drw button,main button:not(.chip):not(.seg button){font:inherit;font-size:13px;border-radius:var(--rs);border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
@@ -259,7 +260,12 @@ button,select,input,textarea,optgroup{font-family:inherit}b,strong,th,tr.tot td{
   for (let i = base; i < D.items.length; i++) { const it = D.items[i]; let l = it[5]; for (const st of it[7]) for (const r of st) if (r[0] > l) l = r[0]; it.h = 1; it.last = l; }
   const baseOrd = D.ord.length;
   S.it.push(...H.sit); D.rej.push(...H.rej); D.disp.push(...H.disp); D.ord.push(...H.ord);
-  for (let j = baseOrd; j < D.ord.length; j++) D.ord[j].h = 1; // history order lines: in trends and analyses, never counted as open work D.vend.push(...H.vend); D.rcv.push(...H.rcv);
+  for (let j = baseOrd; j < D.ord.length; j++) D.ord[j].h = 1; // history order lines: in trends and analyses, never counted as open work
+  // 2022–23 challans and vendor receipts (this line had been swallowed into the comment above, so they never arrived).
+  // Like history orders: in trends, scrap and vendor performance, never as material out today (26 history challans
+  // are still open in the ERP, ~69,000 pieces, almost surely receipts never booked; openQ and vendorPerf skip them).
+  const baseVend = D.vend.length; D.vend.push(...H.vend); D.rcv.push(...H.rcv);
+  for (let j = baseVend; j < D.vend.length; j++) D.vend[j].h = 1;
   S.plan = S.plan || []; while (S.plan.length < D.ord.length) S.plan.push(0);
   // casting weight is the standard: every kg = pieces x the die's casting weight
   const cw = (p) => (D.parts[p] ? D.parts[p][2] : 0);
@@ -292,7 +298,7 @@ function passItem(it){if(F.cs&&!F.cs.has(it[1]))return false;if(F.t!==''&&it[8]!
 function passPart(pi,ci,mi,ty){const p=P[pi]||[0,0,0,0,-1];if(F.cs&&(ci!=null?!F.cs.has(ci):!(D.pcs[pi]?[...D.pcs[pi]].some((c)=>F.cs.has(c)):F.cs.has(p[4]))))return false;if(F.t!==''&&ty!=null&&ty!=+F.t)return false;if(F.m!==''&&mi!=null&&mi!=+F.m)return false;return true}
 // ---------- WIP
 // open quantity on a challan line as of a date = sent - received up to that date
-function openQ(v,asof){if(v[3]>asof)return 0;let r=0;for(const x of v[8]||[])if(x[0]<=asof)r+=x[1];return v[4]-r}
+function openQ(v,asof){if(v[3]>asof||v.h)return 0;let r=0;for(const x of v[8]||[])if(x[0]<=asof)r+=x[1];return v[4]-r}
 let HIDESTALE=false;
 const VKEY={};D.vend.forEach(v=>{(VKEY[v[0]+'|'+v[1]+'|'+v[2]]=VKEY[v[0]+'|'+v[1]+'|'+v[2]]||[]).push(v)});
 function suspect(v,asof){for(const x of VKEY[v[0]+'|'+v[1]+'|'+v[2]])if(x!==v&&x[3]>v[3]&&x[3]<=asof&&openQ(x,asof)<=0)return true;return false}
@@ -318,7 +324,7 @@ function renderWip(){const asof=toDay(asofEl.value);wipRows=wipAt(asof);const aM
  let h=`<tr><th>Stage (${uL()})</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}<th>of which stale<br><span style="font-weight:400">(no entry on batch 180+ d)</span></th></tr>`;
  SORD.forEach(k=>{const s=g[k];h+=`<tr><td class="l click" onclick="wipDetail(${k})">${STG[k]}${STGN[k]?`<br><span class="note">${STGN[k]}</span>`:''}</td>${s.b.map((v,i)=>`<td class="click h${i+1}" onclick="wipDetail(${k},${i})">${v?nf(v):'–'}</td>`).join('')}<td class="click" onclick="wipDetail(${k})"><b>${nf(s.t)}</b></td><td class="click" onclick="wipDetail(${k},-1)">${s.c?nf(s.c):'–'}</td><td class="click" onclick="wipDetail(${k},-2)">${s.s?nf(s.s):'–'}</td></tr>`});
  h+=`<tr class="tot"><td>Total</td>${tot.b.map(v=>`<td>${nf(v)}</td>`).join('')}<td>${nf(tot.t)}</td><td>${nf(tot.c)}</td><td>${nf(tot.s)}</td></tr>`;wipTab.innerHTML=h;
- const cols=['#9cc5e6','#5b9bd5','#f6d58a','#f2a65a','#d9534f'];
+ const cols=AGE;
  mk('wipChart',{type:'bar',data:{labels:SORD.map(k=>STG[k].split(' – ')[1]||STG[k]),datasets:BK.map((b,i)=>({label:b[2]+' days',data:SORD.map(k=>Math.round(g[k].b[i])),backgroundColor:cols[i]}))},
   options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true,title:{display:true,text:uL()}},y:{stacked:true}}}},300)}
 function mk(id,cfg,h){if(charts[id])charts[id].destroy();const el=document.getElementById(id);if(h)el.parentNode.style.height=h+'px';charts[id]=new Chart(el,cfg)}
@@ -427,13 +433,13 @@ function renderQual(){if(!window.qFrom||!qFrom.value)return;const a=toDay(qFrom.
   options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}},scales:{y:{beginAtZero:true,title:{display:true,text:'rejection %'}}}}});
  // pareto
  const PR=sum(r=>r.rn).slice(0,15);let cum=0;
- mk('qPareto',{data:{labels:PR.map(x=>RNAMES[x[0]].length>24?RNAMES[x[0]].slice(0,23)+'…':RNAMES[x[0]]),datasets:[{type:'bar',label:'Rejected ('+uL()+')',data:PR.map(x=>Math.round(x[1])),backgroundColor:'#5b9bd5',yAxisID:'y'},
-  {type:'line',label:'Cumulative %',data:PR.map(x=>{cum+=x[1];return TR?+(100*cum/TR).toFixed(1):0}),borderColor:'#c0392b',backgroundColor:'#c0392b',yAxisID:'y2',pointRadius:3}]},
+ mk('qPareto',{data:{labels:PR.map(x=>RNAMES[x[0]].length>24?RNAMES[x[0]].slice(0,23)+'…':RNAMES[x[0]]),datasets:[{type:'bar',label:'Rejected ('+uL()+')',data:PR.map(x=>Math.round(x[1])),backgroundColor:SEM.bad,yAxisID:'y'},
+  {type:'line',label:'Cumulative %',data:PR.map(x=>{cum+=x[1];return TR?+(100*cum/TR).toFixed(1):0}),borderColor:INK(),backgroundColor:INK(),yAxisID:'y2',pointRadius:3}]},
   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{title:c=>RNAMES[PR[c[0].dataIndex][0]]}}},scales:{x:{ticks:{autoSkip:false,maxRotation:60,minRotation:40,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:uL()}},y2:{position:'right',min:0,max:100,grid:{display:false},title:{display:true,text:'cumulative %'}}}}});
  // dept vs target
  const DS=sum(r=>r.dep);const deps=[...new Set(DS.map(x=>x[0]).concat(Object.keys(D.dtgt)))];
- mk('qDept',{type:'bar',data:{labels:deps,datasets:[{label:'Actual % of poured',data:deps.map(d=>{const x=DS.find(y=>y[0]==d);return TP&&x?+(100*x[1]/TP).toFixed(2):0}),backgroundColor:deps.map(d=>{const x=DS.find(y=>y[0]==d);const v=TP&&x?100*x[1]/TP:0;return D.dtgt[d]!=null&&v>D.dtgt[d]?'#d9534f':'#5b9bd5'})},
-  {label:'Target %',data:deps.map(d=>D.dtgt[d]??null),backgroundColor:'#cfd6de'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}},scales:{y:{beginAtZero:true,title:{display:true,text:'% of poured'}}}}});
+ mk('qDept',{type:'bar',data:{labels:deps,datasets:[{label:'Actual % of poured',data:deps.map(d=>{const x=DS.find(y=>y[0]==d);return TP&&x?+(100*x[1]/TP).toFixed(2):0}),backgroundColor:deps.map(d=>{const x=DS.find(y=>y[0]==d);const v=TP&&x?100*x[1]/TP:0;return D.dtgt[d]!=null&&v>D.dtgt[d]?SEM.bad:SEM.good})},
+  {label:'Target %',data:deps.map(d=>D.dtgt[d]??null),backgroundColor:SEM.neutral}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}%`}}},scales:{y:{beginAtZero:true,title:{display:true,text:'% of poured'}}}}});
  // matrix
  const deps2=DS.map(x=>x[0]);const st2=[...new Set(R.map(r=>r.s))].sort((x,y)=>x-y);const M={};R.forEach(r=>{const k=r.s+'|'+r.dep;M[k]=(M[k]||0)+r.v});
  qMatrix.innerHTML=`<tr><th>Caught at ↓ / Caused by →</th>${deps2.map(d=>`<th>${d}</th>`).join('')}<th>Total</th></tr>`+st2.map(s=>`<tr><td>${D.rstg[s]}</td>${deps2.map(d=>{const v=M[s+'|'+d]||0;const same=D.rstg[s].toLowerCase().startsWith(d.toLowerCase().slice(0,4));return `<td class="${v&&!same?'h3':''}">${v?nf(v):'–'}</td>`}).join('')}<td><b>${nf(deps2.reduce((x,d)=>x+(M[s+'|'+d]||0),0))}</b></td></tr>`).join('')+
@@ -488,8 +494,8 @@ function renderScrap(){const a=toDay(sFrom.value),b=toDay(sTo.value),pf=sProc.va
  const M=new Map();for(let d=a;d<=b;d++){const k=monthKey(d);if(!M.has(k))M.set(k,{n:0,c:0,s:0,k:0})}
  for(const r of scrRows){const o=M.get(monthKey(r.d));o.n++;if(r.scr>0){o.c++;o.s+=r.scr;o.k+=r.kg}}
  const ks=[...M.keys()];mk('scrapChart',{data:{labels:ks.map(k=>periodLab(k,'m')),datasets:[
-  {type:'line',label:'Scrap % (covered lines)',data:ks.map(k=>{const o=M.get(k);return o.s+o.k?+(100*o.s/o.k).toFixed(2):null}),borderColor:'#c0392b',backgroundColor:'#c0392b',yAxisID:'y',tension:.25,spanGaps:true},
-  ...(SV&&SV.size<=6?[...SV].map((v,i)=>({type:'line',label:D.vendors[v]+' scrap %',data:ks.map(k=>{let s=0,kk=0;for(const r of scrRows)if(r.ven==v&&r.scr>0&&monthKey(r.d)==k){s+=r.scr;kk+=r.kg}return s+kk?+(100*s/kk).toFixed(2):null}),borderColor:colOf(D.vendors[v]),backgroundColor:colOf(D.vendors[v]),borderDash:[4,3],yAxisID:'y',tension:.25,spanGaps:true})):[]),{type:'bar',label:'Coverage: % of lines with scrap entered',data:ks.map(k=>{const o=M.get(k);return o.n?Math.round(100*o.c/o.n):0}),backgroundColor:'rgba(91,155,213,.35)',yAxisID:'y2'}]},
+  {type:'line',label:'Scrap % (covered lines)',data:ks.map(k=>{const o=M.get(k);return o.s+o.k?+(100*o.s/o.k).toFixed(2):null}),borderColor:SEM.bad,backgroundColor:SEM.bad,yAxisID:'y',tension:.25,spanGaps:true},
+  ...(SV&&SV.size<=6?[...SV].map((v,i)=>({type:'line',label:D.vendors[v]+' scrap %',data:ks.map(k=>{let s=0,kk=0;for(const r of scrRows)if(r.ven==v&&r.scr>0&&monthKey(r.d)==k){s+=r.scr;kk+=r.kg}return s+kk?+(100*s/kk).toFixed(2):null}),borderColor:colOf(D.vendors[v]),backgroundColor:colOf(D.vendors[v]),borderDash:[4,3],yAxisID:'y',tension:.25,spanGaps:true})):[]),{type:'bar',label:'Coverage: % of lines with scrap entered',data:ks.map(k=>{const o=M.get(k);return o.n?Math.round(100*o.c/o.n):0}),backgroundColor:'rgba(161,161,170,.35)',yAxisID:'y2'}]},
   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{position:'left',beginAtZero:true,title:{display:true,text:'scrap %'}},y2:{position:'right',min:0,max:100,grid:{display:false},title:{display:true,text:'coverage %'}}}}});
  // by vendor
  const V={};for(const r of scrRows){const k=r.ven+'|'+r.pr;const o=V[k]||(V[k]={ven:r.ven,pr:r.pr,n:0,c:0,pcs:0,cp:0,k:0,s:0});o.n++;o.pcs+=r.pcs;if(r.scr>0){o.c++;o.cp+=r.pcs;o.k+=r.kg;o.s+=r.scr}}
@@ -913,7 +919,7 @@ function renderTime() {
     `<tr class="tot"><td>Sum of medians</td><td>${tot}</td><td></td><td></td><td></td><td></td><td></td></tr>`;
   // monthly median of the chosen stage
   const k = +document.getElementById('tgStage').value; const arr = W[k]; const ks = [...new Set(arr.map((x) => periodKey(x[3], 'm')))].sort((x, y) => x - y);
-  mk('tgChart', { type: 'line', data: { labels: ks.map((x) => periodLab(x, 'm')), datasets: [{ label: 'Median days', data: ks.map((m) => wmed(arr.filter((x) => periodKey(x[3], 'm') === m))), borderColor: '#2f5d8a', backgroundColor: '#2f5d8a', tension: 0.25 }, { label: '80% within', data: ks.map((m) => wmed(arr.filter((x) => periodKey(x[3], 'm') === m), 0.8)), borderColor: '#e07b39', backgroundColor: '#e07b39', borderDash: [5, 4], tension: 0.25 }] },
+  mk('tgChart', { type: 'line', data: { labels: ks.map((x) => periodLab(x, 'm')), datasets: [{ label: 'Median days', data: ks.map((m) => wmed(arr.filter((x) => periodKey(x[3], 'm') === m))), borderColor: SEM.main, backgroundColor: SEM.main, tension: 0.25 }, { label: '80% within', data: ks.map((m) => wmed(arr.filter((x) => periodKey(x[3], 'm') === m), 0.8)), borderColor: SEM.mainLight, backgroundColor: SEM.mainLight, borderDash: [5, 4], tension: 0.25 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'days' } } } } }, 300);
 }
 function tgDrill(k) {
@@ -929,7 +935,7 @@ function vendorPerf() {
   const M = new Map(); const g = (v, pr) => M.get(v + '|' + pr) || M.set(v + '|' + pr, { v, pr, sent: 0, sentKg: 0, back: 0, backKg: 0, tat: [], rec: 0, att: 0, attRows: [], loaded: new Set(), open: 0 }).get(v + '|' + pr);
   for (const v of D.vend) { if (!passPart(v[2], null, null)) continue; const o = g(v[0], v[1]); const kgpc = v[4] ? v[5] / v[4] : 0; if (v[3] >= a && v[3] <= b) { o.sent += v[4]; o.sentKg += v[5]; }
     let left = v[4]; let d0 = v[3]; for (const [d, q] of v[8] || []) { if (d >= a && d <= b) { o.back += q; o.backKg += q * kgpc; o.tat.push([d - v[3], q]); } left -= q; }
-    const endD = left > 0 ? b : Math.max(...(v[8] || [[v[3]]]).map((x) => x[0])); for (let d = Math.max(a, d0); d <= Math.min(b, endD); d++) if (!isWed(d)) o.loaded.add(d); if (left > 0 && v[3] <= b) o.open += left * kgpc; }
+    const endD = left > 0 && !v.h ? b : Math.max(...(v[8] || [[v[3]]]).map((x) => x[0])); for (let d = Math.max(a, d0); d <= Math.min(b, endD); d++) if (!isWed(d)) o.loaded.add(d); if (left > 0 && !v.h && v[3] <= b) o.open += left * kgpc; }
   for (const r of D.rcv) { if (r[0] < a || r[0] > b || !passPart(r[3], null, null)) continue; g(r[1], r[2]).rec += r[5]; }
   // attribution: rejections at final / machining inspection go to the vendors whose lots of that part came back in the W days before
   const RCV = new Map(); for (const r of D.rcv) (RCV.get(r[3]) || RCV.set(r[3], []).get(r[3])).push(r);
@@ -984,7 +990,7 @@ function renderCap() {
   document.getElementById('cpNote').innerHTML = `${nd} working days (Wednesdays off). Actual pour rate: <b>${nf(pourDay)} kg/day</b> (target ${nf(T)} kg/day). Machined parts are ${nf(pourMach)} kg/day of that, which is what machining and machining inspection need to keep up with. Weights are raw casting weight × pieces. Peak = 90th-percentile week ÷ 6 working days.`;
   document.getElementById('cpTab').innerHTML = `<tr><th>Step</th><th>In-house kg/day</th><th>Outsourced kg/day</th><th>Total capacity used kg/day</th><th>Peak week kg/day</th><th>Needed kg/day (= pour)</th><th>vs needed</th><th>vs target ${nf(T)}</th></tr>` +
     res.map((o, i) => { const vs = o.need ? o.tot / o.need * 100 : null; return `<tr><td class="l click" ondblclick="cpDrill(${i})">${esc(o.n)}</td><td>${o.inD ? nf(o.inD) : '–'}</td><td>${o.outD ? nf(o.outD) : '–'}</td><td class="click" ondblclick="cpDrill(${i})"><b>${nf(o.tot)}</b></td><td>${nf(o.peak)}</td><td>${o.need ? nf(o.need) : '–'}</td><td class="${vs != null && vs < 95 ? 'h5' : vs != null && vs < 100 ? 'h3' : ''}">${vs != null ? vs.toFixed(0) + '%' : '–'}</td><td class="${o.tot < T * 0.95 && o.need ? 'h3' : ''}">${(o.tot / T * 100).toFixed(0)}%</td></tr>`; }).join('');
-  mk('cpChart', { type: 'bar', data: { labels: res.map((o) => o.n), datasets: [{ label: 'In-house kg/day', data: res.map((o) => Math.round(o.inD)), backgroundColor: '#5b9bd5', stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: '#f2a65a', stack: 's' }, { type: 'line', label: 'Needed (pour) kg/day', data: res.map((o) => o.need ? Math.round(o.need) : null), borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 4, showLine: false }, { type: 'line', label: 'Target ' + nf(T), data: res.map(() => T), borderColor: INK(), borderDash: [6, 4], pointRadius: 0 }] },
+  mk('cpChart', { type: 'bar', data: { labels: res.map((o) => o.n), datasets: [{ label: 'In-house kg/day', data: res.map((o) => Math.round(o.inD)), backgroundColor: SEM.main, stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: SEM.mainLight, stack: 's' }, { type: 'line', label: 'Needed (pour) kg/day', data: res.map((o) => o.need ? Math.round(o.need) : null), borderColor: INK(), backgroundColor: INK(), pointRadius: 4, showLine: false }, { type: 'line', label: 'Target ' + nf(T), data: res.map(() => T), borderColor: INK(), borderDash: [6, 4], pointRadius: 0 }] },
     options: { indexAxis: 'x', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true, ticks: { autoSkip: false, maxRotation: 50, minRotation: 30, font: { size: 10 } } }, y: { stacked: true, title: { display: true, text: 'kg per working day' } } }, onClick: (ev, els) => { if (els.length) cpDrill(els[0].index); } } }, 360);
 }
 function cpDrill(i) { const o = CPD.res[i]; const ks = [...o.week.keys()].sort((x, y) => x - y); showTable(o.n + ' · by week', 'kg per week and per working day (6 per week)', ['Week', 'kg', 'kg per working day'], ks.map((k) => [periodLab(k, 'w'), Math.round(o.week.get(k)), Math.round(o.week.get(k) / 6)])); }
@@ -999,7 +1005,7 @@ function renderDisp() {
     const ord = D.ord[ORDX.get(r[6])]; if (ord && ord[8] != null) { o.n++; if (r[0] <= ord[8]) o.onT++; else o.late.push(r[0] - ord[8]); } }
   const cs = [...C.values()].sort((x, y) => y.kg - x.kg); const top = cs.slice(0, 8); const other = new Array(keys.length).fill(0); cs.slice(8).forEach((o) => o.per.forEach((v, i) => (other[i] += v)));
   window._DT = { rows, keys, gr };
-  mk('dtChart', { type: 'bar', data: { labels: keys.map((k) => periodLab(k, gr)), datasets: [...top.map((o, i) => ({ label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: colOf(D.cust[o.c]), stack: 's' })), { label: 'Others', data: other.map(Math.round), backgroundColor: '#cfd6de', stack: 's' }] },
+  mk('dtChart', { type: 'bar', data: { labels: keys.map((k) => periodLab(k, gr)), datasets: [...top.map((o, i) => ({ label: D.cust[o.c], data: o.per.map(Math.round), backgroundColor: colOf(D.cust[o.c]), stack: 's' })), { label: 'Others', data: other.map(Math.round), backgroundColor: SEM.neutral, stack: 's' }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: uL() + ' dispatched' } } }, onClick: (ev, els) => { if (!els.length) return; const e0 = els[0]; const k = keys[e0.index]; const c = e0.datasetIndex < top.length ? top[e0.datasetIndex].c : null; dtDrill(c, k); } } }, 380);
   document.getElementById('dtTab').innerHTML = `<tr><th>Customer</th><th>Dispatched kg</th><th>Pieces</th><th>Dispatch days</th><th>kg per dispatch day (median)</th><th>Days between dispatches (median)</th><th>Lines on time</th><th>Median days late (late lines)</th>${keys.map((k) => `<th>${periodLab(k, gr)}</th>`).join('')}</tr>` +
     cs.map((o) => { const ds = [...o.days].sort((x, y) => x - y); const gaps = ds.slice(1).map((d, i) => [d - ds[i], 1]); const per = ds.map((d) => [rows.filter((r) => r[1] === o.c && r[0] === d).reduce((t, r) => t + r[5], 0), 1]); return `<tr><td class="l click" ondblclick="dtDrill(${o.c},null)">${esc(D.cust[o.c])}</td><td>${nf(o.kg)}</td><td>${nf(o.pcs)}</td><td>${o.days.size}</td><td>${nf(wmed(per) || 0)}</td><td>${wmed(gaps) ?? '–'}</td><td class="${o.n && o.onT / o.n < 0.7 ? 'h5' : ''}">${o.n ? Math.round(o.onT / o.n * 100) + '%' : '–'}</td><td>${o.late.length ? wmed(o.late.map((x) => [x, 1])) : '–'}</td>${o.per.map((v, i) => `<td class="click" ondblclick="dtDrill(${o.c},${keys[i]})">${v ? nf(v) : '–'}</td>`).join('')}</tr>`; }).join('');
@@ -1019,7 +1025,7 @@ function renderIns() {
   window._INS = { its, bins };
   document.getElementById('in1').innerHTML = `<div class="kpis"><div class="kpi"><div class="v">${q(0.5)} kg</div><div class="m">median batch item (p10 ${q(0.1)}, p90 ${q(0.9)})</div></div><div class="kpi"><div class="v">${hq(0.5)} kg</div><div class="m">median heat poured (p10 ${hq(0.1)}, p90 ${hq(0.9)})</div></div><div class="kpi"><div class="v">${hn[Math.floor(hn.length / 2)] || '–'}</div><div class="m">batch items per heat (median)</div></div><div class="kpi"><div class="v">${withHeat ? Math.round(multiHeat / withHeat * 100) : 0}%</div><div class="m">of batch items poured over 2+ heats</div></div></div>
   <p class="note">Batch items made in the last two years. Lines are split into items of about 150 kg, each a whole number of trees (item quantity is a multiple of the die's set-up quantity for 99% of items). A heat pours a similar weight but takes it from about 3 items, so items and heats do not line up: most items are poured over two heats. Double-click a bar for its batch items.</p>`;
-  mk('in1Chart', { type: 'bar', data: { labels: bins.map((_, i) => i < 11 ? `${i * 50}–${i * 50 + 50}` : '550+'), datasets: [{ label: 'Batch items by weight (kg)', data: bins, backgroundColor: '#5b9bd5' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { title: { display: true, text: 'batch items' } } }, onClick: (ev, els) => { if (!els.length) return; const b = els[0].index; showItems(`Batch items of ${b * 50}–${b < 11 ? b * 50 + 50 : '+'} kg`, '', window._INS.its.filter(([it]) => Math.min(11, Math.floor(it[6] * it[4] / 50)) === b).map(([it]) => ({ k: 0, it, pcs: it[6], kg: it[6] * it[4], age: toDay(asofEl.value) - it[5], since: it[5], stale: false }))); } } }, 260);
+  mk('in1Chart', { type: 'bar', data: { labels: bins.map((_, i) => i < 11 ? `${i * 50}–${i * 50 + 50}` : '550+'), datasets: [{ label: 'Batch items by weight (kg)', data: bins, backgroundColor: SEM.main }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { title: { display: true, text: 'batch items' } } }, onClick: (ev, els) => { if (!els.length) return; const b = els[0].index; showItems(`Batch items of ${b * 50}–${b < 11 ? b * 50 + 50 : '+'} kg`, '', window._INS.its.filter(([it]) => Math.min(11, Math.floor(it[6] * it[4] / 50)) === b).map(([it]) => ({ k: 0, it, pcs: it[6], kg: it[6] * it[4], age: toDay(asofEl.value) - it[5], since: it[5], stale: false }))); } } }, 260);
   document.getElementById('in1Tab').innerHTML = `<tr><th>Order line weight</th><th>Lines</th><th>Batch items per line</th><th>Median item kg</th></tr>` + lineBands.map((r) => `<tr><td class="l">${r[0]}</td><td>${nf(r[1])}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('');
   // --- 2. Are customers buying the extra pieces?
   const done = [...ITEMS_BY_ORD.entries()].filter(([j]) => { const o = D.ord[j]; return o[2] >= a && o[2] < END - 150 && passPart(o[4], o[3], o[5], o[9]); }).map(([j, ii]) => { const o = D.ord[j]; const b2 = ii.reduce((t, i) => t + D.items[i][6], 0); const cl = ii.reduce((t, i) => t + D.items[i][7][7].reduce((s, r) => s + r[2], 0), 0); const dq = o[11].reduce((s, r) => s + r[1], 0); return { j, o, q: o[6], b: b2, cl, dq, extraMade: Math.max(0, cl - o[6]), extraBought: Math.max(0, Math.min(dq, cl) - o[6]), extraLeft: Math.max(0, cl - Math.max(dq, o[6])), short: Math.max(0, o[6] - cl) }; });
@@ -1134,27 +1140,25 @@ function phDrill(k) {
 // ---- Fixed colours (user, 2026-11-25: the same colour for the same process everywhere, whatever the filters).
 // Every process / step / department has one colour on every chart. Anything else (a vendor, a customer, a reason)
 // takes a colour from its name, so it keeps it when filters change what else is on the chart.
+// ONE palette for the whole dashboard (user, 2026-11-25: colours that look like one piece, easy to tell apart,
+// in the platform's style, and meaningful: green = right, red = wrong).
+//  - SEM: meaning. good (green) / bad (red) / warn (amber) are used ONLY for good, bad and needs-attention.
+//  - AGE: the age scale on every aged table and chart, fresh → old: mint, grey, light amber, amber, red.
+//  - PCOLS: processes, one family per area, two shades (light = first step, dark = second); no green or red here.
+//  - main / mainLight: a plain measure (output, turnaround, sizes) and a second series of it; targets use INK().
+const SEM = { good: '#0E9F6E', bad: '#E11D48', warn: '#D97706', neutral: '#A1A1AA', main: '#7C3AED', mainLight: '#A78BFA' };
+const AGE = ['#6EE7B7', '#CBD5E1', '#FCD34D', '#F59E0B', '#E11D48'];
 const PCOLS = {
-  plan1: '#64748B', // PO received, WO pending
-  plan2: '#94A3B8', // WO released, PRC pending
-  inj: '#CA8A04', // injection (wax patterns); department "Wax"
-  wax: '#DB2777', // wax assembly
-  coat: '#0891B2', // coating (shell)
-  dewax: '#4338CA', // de-waxing
-  melt: '#C2410C', // melting / poured
-  ko: '#9A6B4F', // knock-out (light enough for dark mode)
-  ht: '#9333EA', // heat treatment
-  htv: '#C084FC', // heat treatment at vendors
-  cfet: '#0F766E', // contract fettling (in-house)
-  fet: '#2DD4BF', // fettling at vendors
-  mach: '#2563EB', // machining (vendors); "M/C Rej."
-  turn: '#60A5FA', // turning
-  qc: '#16A34A', // final inspection
-  mi: '#65A30D', // machining inspection
-  clr: '#6D28D9', // cleared / ready to dispatch
-  disp: '#78716C', // dispatched (mid grey: visible on light and dark)
-  dev: '#475569', // development
-  other: '#A1A1AA', // other / others
+  plan1: '#94A3B8', plan2: '#64748B', // planning (slate): PO received, WO pending · WO released, PRC pending
+  inj: '#A78BFA', wax: '#7C3AED', // wax room (violet): injection · wax assembly; department "Wax"
+  coat: '#38BDF8', dewax: '#0369A1', // shell (sky): coating · de-waxing
+  melt: '#FB923C', ko: '#C2410C', // foundry (orange): melting / poured · knock-out
+  ht: '#C026D3', htv: '#E879F9', // heat treatment (fuchsia): in-house final pass · at vendors
+  cfet: '#0891B2', fet: '#67E8F9', // fettling (cyan): contract (in-house) · at vendors
+  mach: '#4F46E5', turn: '#A5B4FC', // machining (indigo): machining; "M/C Rej." · turning
+  qc: '#CA8A04', mi: '#FACC15', // inspection (gold): final inspection · machining inspection
+  clr: '#34D399', disp: '#0E9F6E', // done (green, the one place green is a process: finished is the right state)
+  dev: '#78716C', other: '#A1A1AA', // development (stone) · other
 };
 const PKEYS = [
   [/heat treatment at vendors|of which at ht vendors/, 'htv'], [/machining inspection/, 'mi'], [/contract fettling|^fettling - a$/, 'cfet'],
@@ -1163,7 +1167,8 @@ const PKEYS = [
   [/melting|poured|pouring/, 'melt'], [/knock-?out/, 'ko'], [/heat treatment|^ht\b/, 'ht'], [/final inspection|^inspection|\(qc\)|^qc/, 'qc'],
   [/clearance|cleared/, 'clr'], [/dispatch/, 'disp'], [/development/, 'dev'], [/^others?$/, 'other'],
 ];
-const HCOLS = ['#6D28D9', '#0891B2', '#DB2777', '#CA8A04', '#4338CA', '#0F766E', '#C2410C', '#64748B', '#9333EA', '#2563EB', '#16A34A', '#BE123C', '#0369A1', '#A16207', '#7C3AED', '#059669'];
+// names (vendors, customers, reasons): the process families' mid shades, never green or red
+const HCOLS = ['#7C3AED', '#0891B2', '#C026D3', '#FB923C', '#4F46E5', '#CA8A04', '#0369A1', '#64748B', '#A78BFA', '#38BDF8', '#E879F9', '#C2410C', '#A5B4FC', '#78716C'];
 /** The process a label names, or '' (a WIP stage "X completed – Y pending" is the Y it waits for). */
 function procKey(label) {
   let n = String(label || '').trim().toLowerCase();
@@ -1186,6 +1191,7 @@ window.colOf = colOf; window.procKey = procKey;
 /** Reference lines (targets, "all selected"): the theme's text colour, so they show in dark mode too. */
 const INK = () => getComputedStyle(document.documentElement).getPropertyValue('--c-text-2').trim() || '#5A5E78';
 window.INK = INK;
+window.SEM = SEM; window.AGE = AGE;
 
 </script>
 <script>

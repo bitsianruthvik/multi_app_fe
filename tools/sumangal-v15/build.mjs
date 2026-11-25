@@ -67,7 +67,8 @@ table{font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink)}th,td{bo
 th{font-size:11.5px;font-weight:600;color:var(--t3);background:var(--s2);box-shadow:0 1px 0 var(--line)}
 .scroll{border:1px solid var(--line);border-radius:var(--rs)}.scroll th:first-child,.scroll td:first-child{background:var(--card);box-shadow:1px 0 0 var(--line)}.scroll th:first-child{background:var(--s2)}
 tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:hover td,.fb:hover{background:var(--acc2)}
-.h1{background:rgba(2,132,199,.07)}.h2{background:rgba(2,132,199,.15)}.h3{background:rgba(217,119,6,.13)}.h4{background:rgba(217,119,6,.24)}.h5{background:rgba(225,29,72,.18)}
+/* age cells: the AGE scale of colors.js, as tints */
+.h1{background:rgba(110,231,183,.16)}.h2{background:rgba(203,213,225,.22)}.h3{background:rgba(252,211,77,.20)}.h4{background:rgba(245,158,11,.22)}.h5{background:rgba(225,29,72,.16)}
 .kpis{gap:12px}.kpi{border:1px solid var(--line);border-radius:var(--rs);background:var(--s2);padding:10px 14px}.kpi .v{font-size:20px;font-weight:600;letter-spacing:-.01em}.kpi .m{color:var(--t3);font-size:11.5px}
 .al{border-radius:var(--rs)}.al.ok{border-left-color:var(--c-success-600,#0E9F6E);background:var(--c-success-50,#E7F6EF)}
 .x,.x2,.chip,.ms summary,#drw button,main button:not(.chip):not(.seg button){font:inherit;font-size:13px;border-radius:var(--rs);border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
@@ -113,6 +114,10 @@ pat('sk/(rk+sk)', 'sk/rk', 1); pat('o.s/(o.s+o.k)', 'o.s/o.k', 1); pat('s/(s+kk)
 // part; V13 took the part's customer from the die master, but ~8% of batch items are made for another customer than
 // the die's (S.I. orders ANIPL dies, IWG orders DCC CHAKAN dies…), so those customers lost their vendor work and the
 // die's customer got it. A part-only line now passes when the chosen customer orders that part (D.pcs, norm.js).
+// 2022–23 challans (norm.js, .h) are history: never open today, and they do not stretch a vendor's holding days.
+pat('function openQ(v,asof){if(v[3]>asof)return 0;', 'function openQ(v,asof){if(v[3]>asof||v.h)return 0;');
+patx('const endD = left > 0 ? b :', 'const endD = left > 0 && !v.h ? b :');
+patx('if (left > 0 && v[3] <= b) o.open += left * kgpc;', 'if (left > 0 && !v.h && v[3] <= b) o.open += left * kgpc;');
 // Several customers can be chosen (F.cs, a set; F.c keeps the list as text for cache keys).
 pat("if(F.c!==''&&(ci??p[4])!=+F.c)return false;", "if(F.cs&&(ci!=null?!F.cs.has(ci):!(D.pcs[pi]?[...D.pcs[pi]].some((c)=>F.cs.has(c)):F.cs.has(p[4]))))return false;");
 pat("function passItem(it){if(F.c!==''&&it[1]!=+F.c)return false;", "function passItem(it){if(F.cs&&!F.cs.has(it[1]))return false;");
@@ -139,6 +144,20 @@ const THEMED = [['#eef0ff', 'color-mix(in srgb,var(--acc) 10%,transparent)'], ['
   ['#fdecea', 'color-mix(in srgb,var(--bad) 12%,transparent)'], ['#f1f4f7', 'var(--s2)'], ['#fafbfc', 'var(--s2)']];
 const themed = (t) => THEMED.reduce((x, [hex, v]) => x.split('background:' + hex).join('background:' + v), t);
 html = themed(html); app = themed(app); ext = themed(ext);
+// Colours by meaning (colors.js SEM / AGE): replaces V13's and the review's own colours, chart by chart.
+pat("const cols=['#9cc5e6','#5b9bd5','#f6d58a','#f2a65a','#d9534f'];", 'const cols=AGE;');
+pat("data:PR.map(x=>Math.round(x[1])),backgroundColor:'#5b9bd5',yAxisID:", 'data:PR.map(x=>Math.round(x[1])),backgroundColor:SEM.bad,yAxisID:'); // pareto: rejections
+pat("return TR?+(100*cum/TR).toFixed(1):0}),borderColor:'#c0392b',backgroundColor:'#c0392b'", 'return TR?+(100*cum/TR).toFixed(1):0}),borderColor:INK(),backgroundColor:INK()');
+pat("v>D.dtgt[d]?'#d9534f':'#5b9bd5'", 'v>D.dtgt[d]?SEM.bad:SEM.good'); // department vs its target
+pat("data:deps.map(d=>D.dtgt[d]??null),backgroundColor:'#cfd6de'", 'data:deps.map(d=>D.dtgt[d]??null),backgroundColor:SEM.neutral');
+pat("toFixed(2):null}),borderColor:'#c0392b',backgroundColor:'#c0392b',yAxisID:'y'", "toFixed(2):null}),borderColor:SEM.bad,backgroundColor:SEM.bad,yAxisID:'y'"); // scrap %
+pat("backgroundColor:'rgba(91,155,213,.35)',yAxisID:'y2'", "backgroundColor:'rgba(161,161,170,.35)',yAxisID:'y2'"); // coverage
+patx("backgroundColor: '#5b9bd5', stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: '#f2a65a'", "backgroundColor: SEM.main, stack: 's' }, { label: 'Outsourced kg/day', data: res.map((o) => Math.round(o.outD)), backgroundColor: SEM.mainLight");
+patx("borderColor: '#c0392b', backgroundColor: '#c0392b', pointRadius: 4, showLine: false", 'borderColor: INK(), backgroundColor: INK(), pointRadius: 4, showLine: false');
+patx("borderColor: '#2f5d8a', backgroundColor: '#2f5d8a', tension: 0.25 }", 'borderColor: SEM.main, backgroundColor: SEM.main, tension: 0.25 }');
+patx("borderColor: '#e07b39', backgroundColor: '#e07b39', borderDash: [5, 4]", 'borderColor: SEM.mainLight, backgroundColor: SEM.mainLight, borderDash: [5, 4]');
+patx("data: bins, backgroundColor: '#5b9bd5' }", 'data: bins, backgroundColor: SEM.main }');
+patx("data: other.map(Math.round), backgroundColor: '#cfd6de'", 'data: other.map(Math.round), backgroundColor: SEM.neutral');
 for (const [n, c] of [['norm', norm], ['app', app], ['ext', ext], ['colors', colors]]) if (/<\/script/i.test(c)) throw new Error(`${n} contains </script`);
 const boot = `<script>
 ${colors}

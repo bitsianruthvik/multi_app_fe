@@ -7,7 +7,12 @@
   for (let i = base; i < D.items.length; i++) { const it = D.items[i]; let l = it[5]; for (const st of it[7]) for (const r of st) if (r[0] > l) l = r[0]; it.h = 1; it.last = l; }
   const baseOrd = D.ord.length;
   S.it.push(...H.sit); D.rej.push(...H.rej); D.disp.push(...H.disp); D.ord.push(...H.ord);
-  for (let j = baseOrd; j < D.ord.length; j++) D.ord[j].h = 1; // history order lines: in trends and analyses, never counted as open work D.vend.push(...H.vend); D.rcv.push(...H.rcv);
+  for (let j = baseOrd; j < D.ord.length; j++) D.ord[j].h = 1; // history order lines: in trends and analyses, never counted as open work
+  // 2022–23 challans and vendor receipts (this line had been swallowed into the comment above, so they never arrived).
+  // Like history orders: in trends, scrap and vendor performance, never as material out today (26 history challans
+  // are still open in the ERP, ~69,000 pieces, almost surely receipts never booked; openQ and vendorPerf skip them).
+  const baseVend = D.vend.length; D.vend.push(...H.vend); D.rcv.push(...H.rcv);
+  for (let j = baseVend; j < D.vend.length; j++) D.vend[j].h = 1;
   S.plan = S.plan || []; while (S.plan.length < D.ord.length) S.plan.push(0);
   // casting weight is the standard: every kg = pieces x the die's casting weight
   const cw = (p) => (D.parts[p] ? D.parts[p][2] : 0);

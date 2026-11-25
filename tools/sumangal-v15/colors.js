@@ -1,27 +1,25 @@
 // ---- Fixed colours (user, 2026-11-25: the same colour for the same process everywhere, whatever the filters).
 // Every process / step / department has one colour on every chart. Anything else (a vendor, a customer, a reason)
 // takes a colour from its name, so it keeps it when filters change what else is on the chart.
+// ONE palette for the whole dashboard (user, 2026-11-25: colours that look like one piece, easy to tell apart,
+// in the platform's style, and meaningful: green = right, red = wrong).
+//  - SEM: meaning. good (green) / bad (red) / warn (amber) are used ONLY for good, bad and needs-attention.
+//  - AGE: the age scale on every aged table and chart, fresh → old: mint, grey, light amber, amber, red.
+//  - PCOLS: processes, one family per area, two shades (light = first step, dark = second); no green or red here.
+//  - main / mainLight: a plain measure (output, turnaround, sizes) and a second series of it; targets use INK().
+const SEM = { good: '#0E9F6E', bad: '#E11D48', warn: '#D97706', neutral: '#A1A1AA', main: '#7C3AED', mainLight: '#A78BFA' };
+const AGE = ['#6EE7B7', '#CBD5E1', '#FCD34D', '#F59E0B', '#E11D48'];
 const PCOLS = {
-  plan1: '#64748B', // PO received, WO pending
-  plan2: '#94A3B8', // WO released, PRC pending
-  inj: '#CA8A04', // injection (wax patterns); department "Wax"
-  wax: '#DB2777', // wax assembly
-  coat: '#0891B2', // coating (shell)
-  dewax: '#4338CA', // de-waxing
-  melt: '#C2410C', // melting / poured
-  ko: '#9A6B4F', // knock-out (light enough for dark mode)
-  ht: '#9333EA', // heat treatment
-  htv: '#C084FC', // heat treatment at vendors
-  cfet: '#0F766E', // contract fettling (in-house)
-  fet: '#2DD4BF', // fettling at vendors
-  mach: '#2563EB', // machining (vendors); "M/C Rej."
-  turn: '#60A5FA', // turning
-  qc: '#16A34A', // final inspection
-  mi: '#65A30D', // machining inspection
-  clr: '#6D28D9', // cleared / ready to dispatch
-  disp: '#78716C', // dispatched (mid grey: visible on light and dark)
-  dev: '#475569', // development
-  other: '#A1A1AA', // other / others
+  plan1: '#94A3B8', plan2: '#64748B', // planning (slate): PO received, WO pending · WO released, PRC pending
+  inj: '#A78BFA', wax: '#7C3AED', // wax room (violet): injection · wax assembly; department "Wax"
+  coat: '#38BDF8', dewax: '#0369A1', // shell (sky): coating · de-waxing
+  melt: '#FB923C', ko: '#C2410C', // foundry (orange): melting / poured · knock-out
+  ht: '#C026D3', htv: '#E879F9', // heat treatment (fuchsia): in-house final pass · at vendors
+  cfet: '#0891B2', fet: '#67E8F9', // fettling (cyan): contract (in-house) · at vendors
+  mach: '#4F46E5', turn: '#A5B4FC', // machining (indigo): machining; "M/C Rej." · turning
+  qc: '#CA8A04', mi: '#FACC15', // inspection (gold): final inspection · machining inspection
+  clr: '#34D399', disp: '#0E9F6E', // done (green, the one place green is a process: finished is the right state)
+  dev: '#78716C', other: '#A1A1AA', // development (stone) · other
 };
 const PKEYS = [
   [/heat treatment at vendors|of which at ht vendors/, 'htv'], [/machining inspection/, 'mi'], [/contract fettling|^fettling - a$/, 'cfet'],
@@ -30,7 +28,8 @@ const PKEYS = [
   [/melting|poured|pouring/, 'melt'], [/knock-?out/, 'ko'], [/heat treatment|^ht\b/, 'ht'], [/final inspection|^inspection|\(qc\)|^qc/, 'qc'],
   [/clearance|cleared/, 'clr'], [/dispatch/, 'disp'], [/development/, 'dev'], [/^others?$/, 'other'],
 ];
-const HCOLS = ['#6D28D9', '#0891B2', '#DB2777', '#CA8A04', '#4338CA', '#0F766E', '#C2410C', '#64748B', '#9333EA', '#2563EB', '#16A34A', '#BE123C', '#0369A1', '#A16207', '#7C3AED', '#059669'];
+// names (vendors, customers, reasons): the process families' mid shades, never green or red
+const HCOLS = ['#7C3AED', '#0891B2', '#C026D3', '#FB923C', '#4F46E5', '#CA8A04', '#0369A1', '#64748B', '#A78BFA', '#38BDF8', '#E879F9', '#C2410C', '#A5B4FC', '#78716C'];
 /** The process a label names, or '' (a WIP stage "X completed – Y pending" is the Y it waits for). */
 function procKey(label) {
   let n = String(label || '').trim().toLowerCase();
@@ -53,3 +52,4 @@ window.colOf = colOf; window.procKey = procKey;
 /** Reference lines (targets, "all selected"): the theme's text colour, so they show in dark mode too. */
 const INK = () => getComputedStyle(document.documentElement).getPropertyValue('--c-text-2').trim() || '#5A5E78';
 window.INK = INK;
+window.SEM = SEM; window.AGE = AGE;
