@@ -110,5 +110,5 @@ export const FLOW_SECTIONS: NavSection[] = [
 export const ERP_SECTIONS: NavSection[] = (['now', 'history'] as const).map((sec) => ({
   key: 'erp-' + sec,
   label: sec === 'now' ? 'Today' : 'History',
-  screens: ERP_SCREENS.filter((x) => x.section === sec).map((x) => ({ label: x.label, path: 'erp/' + x.slug, keywords: x.keywords })),
+  screens: ERP_SCREENS.filter((x) => x.section === sec).map((x) => ({ label: x.label, path: x.slug, keywords: x.keywords })),
 }));

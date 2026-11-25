@@ -48,14 +48,15 @@ const platformCss = `
 --acc:var(--c-primary-600,#6D28D9);--acc2:var(--c-primary-50,#F5F1FE);--warn:var(--c-warning-600,#D97706);--warnbg:var(--c-warning-50,#FBF0DD);--bad:var(--c-danger-600,#E11D48);--badbg:var(--c-danger-50,#FCE9EC);
 --t3:var(--c-text-3,#8A8EA8);--s2:var(--c-surface-2,#F7F8FD);--s3:var(--c-surface-3,#EFF1F8);--dv:var(--c-divider,#ECEDF5);--rs:var(--r-sm,8px);--rm:var(--r-md,12px);--sh1:var(--e-1,0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06));--sh2:var(--e-2,0 2px 4px rgba(16,24,40,.04),0 6px 16px rgba(16,24,40,.08))}
 body{font:13.5px/1.5 var(--font-ui,'Geist',system-ui,-apple-system,'Segoe UI',sans-serif);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
-header,#home,#subtabs,.homebtn{display:none!important}
-.filters{position:sticky;top:0;z-index:5;background:var(--card);border:0;border-bottom:1px solid var(--line);padding:10px 16px;gap:12px;box-shadow:var(--sh1)}
+header,#home,#subtabs,.homebtn,.filters,.v15date{display:none!important}
+html,body{overflow:hidden;background:transparent!important}body{margin:0}
+main .scroll{max-height:none!important;overflow-x:auto;overflow-y:hidden}
 .filters label,.row label,.dtools label{font-size:11.5px!important;font-weight:500;color:var(--t3)!important;gap:4px}
 select,input{font:inherit;font-size:13px;height:32px;padding:4px 10px;border:1px solid var(--line);border-radius:var(--rs);background:var(--card);color:var(--ink)}
 input[type=checkbox]{height:auto;accent-color:var(--acc)}input.cf{height:26px;font-size:11.5px;border-radius:6px}
 select:hover,input:hover{border-color:var(--t3)}select:focus,input:focus{outline:2px solid var(--c-focus,#7C3AED);outline-offset:-1px;border-color:transparent}
 .seg{border-radius:var(--rs);border-color:var(--line);height:32px}.seg button{font:inherit;font-size:13px;background:var(--card);color:var(--mut);padding:0 12px}.seg button.on{background:var(--acc2);color:var(--c-primary-700,#5B21B6);font-weight:600}
-main{padding:16px;max-width:none}
+main{padding:0 0 8px;max-width:none}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--rm);box-shadow:var(--sh1);padding:16px 18px;margin-bottom:16px}
 .card h2{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.005em;margin:0 0 4px}.card .note,.note{color:var(--t3);font-size:12.5px;line-height:1.55}
 table{font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink)}th,td{border-bottom:1px solid var(--dv);padding:7px 10px}
@@ -69,7 +70,7 @@ tr.tot td{background:var(--s3)!important;font-weight:600}td.click:hover,tr.dr:ho
 .x2:hover,.x:hover,.ms summary:hover{border-color:var(--t3)}
 .chip{background:var(--acc2);color:var(--c-primary-700,#5B21B6);border-color:var(--c-primary-100,#EADDFD);border-radius:99px}
 .ms summary{height:32px;display:flex;align-items:center;padding:0 10px}.ms .box{background:var(--card)!important;border:1px solid var(--line)!important;border-radius:var(--rs)!important;box-shadow:var(--sh2)}
-#drw{background:rgba(10,12,24,.35)}#drw .pane2{background:var(--card);color:var(--ink);box-shadow:var(--sh2)}
+#drw{background:rgba(10,12,24,.35);position:absolute!important;bottom:auto!important}#drw .pane2{background:var(--card);color:var(--ink);box-shadow:var(--sh2)}
 code{background:var(--s3);color:var(--ink)}.pill.ok{color:var(--c-success-600,#0E9F6E);border-color:var(--c-success-600,#0E9F6E)}
 .fb .tr,.tr2{background:var(--s3)}.fb .tr i,.tr2 i{background:var(--acc)}
 #v15wait{color:var(--t3)}
@@ -155,17 +156,53 @@ ${colors}
       chartTheme();
       quiet++; try { go('dashv'); } finally { quiet--; }
       booted = true; show(want || 'pWip');
+      // the screens' own date boxes are set from the page's one period
+      PAIRS.forEach(function (p) { [p[0], p[1]].forEach(function (id) { var el = document.getElementById(id), l = el && el.closest('label'); if (l) l.classList.add('v15date'); }); });
+      var opts = function (id) { return [].map.call(document.getElementById(id).options, function (o) { return [o.value, o.text]; }); };
+      post({ type: 'sumangal-v15-options', options: { cust: opts('fCust'), types: opts('fType'), metals: opts('fMet'), end: D.end } });
+      if (wantF) filters(wantF);
       // a screen opened from inside (a drill-down to Trace) tells the menu
       document.querySelectorAll('#subtabs button').forEach(function (b) {
         b.addEventListener('click', function () { if (quiet) return; clearTimeout(tm); tm = setTimeout(function () { post({ type: 'sumangal-v15-pane-changed', pane: curPane() }); }, 30); });
       });
     } catch (e) { if (wait) wait.textContent = 'The dashboard could not start: ' + e.message; }
   }
+  // the page's filter bar: customer, order type, metal, kg / pieces, age range, and one period for every dated screen
+  var PAIRS = [['pFrom', 'pTo'], ['tFrom', 'tTo'], ['qFrom', 'qTo'], ['sFrom', 'sTo'], ['funFrom', 'funTo', 'FUN'], ['wtFrom', 'wtTo', 'WT'],
+    ['tgFrom', 'tgTo', 'TG'], ['vpFrom', 'vpTo', 'VP'], ['cpFrom', 'cpTo', 'CP'], ['dtFrom', 'dtTo', 'DT']];
+  var wantF = null, range = '';
+  var global = function (n) { try { return eval(n); } catch (e) { return null; } };
+  function filters(f) {
+    if (!booted) { wantF = f; return; }
+    var ch = function (id, v) { var el = document.getElementById(id); if (el && el.value !== v) { el.value = v; el.dispatchEvent(new Event('change')); } };
+    ch('fCust', f.c || ''); ch('fType', f.t || ''); ch('fMet', f.m || '');
+    var ub = document.querySelector('#fUnit button[data-u="' + f.u + '"]'); if (ub && !ub.classList.contains('on')) ub.click();
+    var a = document.getElementById('aMin'), b = document.getElementById('aMax');
+    if (a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
+    if (f.from && f.to && f.from + f.to !== range) {
+      range = f.from + f.to;
+      PAIRS.forEach(function (p) {
+        var x = document.getElementById(p[0]), y = document.getElementById(p[1]); if (x) x.value = f.from; if (y) y.value = f.to;
+        var o = p[2] && global(p[2]); if (o) { o.from = toDay(f.from); o.to = toDay(f.to); }
+      });
+      quiet++;
+      try { renderProd(); var c = curPane(); if (c === 'pQual') renderQual(); else if (c === 'pTrend') renderTrend(); else if (c === 'pScrap') renderScrap(); else extRefresh(); } finally { quiet--; }
+    }
+  }
+  // one scroll: the frame is as tall as its content, and the drill-down panel opens over the part on screen
+  var drw = function () { return document.getElementById('drw'); }, view = { top: 0, h: 600 };
+  function place() { var d = drw(); if (d) { d.style.top = view.top + 'px'; d.style.height = view.h + 'px'; } }
+  var lastH = 0;
+  function height() { var h = Math.ceil(document.body.getBoundingClientRect().height); if (h !== lastH) { lastH = h; post({ type: 'sumangal-v15-height', h: h }); } }
+  if (window.ResizeObserver) new ResizeObserver(height).observe(document.body);
+  window.addEventListener('load', height);
   window.addEventListener('message', function (e) {
     if (e.origin !== location.origin || !e.data) return;
     if (e.data.type === 'sumangal-v15-data') boot(e.data.payload);
     else if (e.data.type === 'sumangal-v15-theme') theme(e.data);
     else if (e.data.type === 'sumangal-v15-pane') show(e.data.pane);
+    else if (e.data.type === 'sumangal-v15-filters') filters(e.data.filters);
+    else if (e.data.type === 'sumangal-v15-viewport') { view = { top: e.data.top, h: e.data.h }; place(); }
   });
   if (window.parent === window && wait) wait.textContent = 'Open this from the Sumangal dashboard in the platform.';
 })();

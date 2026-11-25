@@ -3,6 +3,7 @@ import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { AppShell, ThemeScope, ToastProvider, CommandPaletteProvider } from '@shared/ui';
 import { ERP_SECTIONS } from '../navMeta';
 import { HOME, getLayout } from '../layout';
+import { isErpPath } from '../erpScreens';
 
 /**
  * ORDER MATTERS: ThemeScope > CommandPaletteProvider > AppShell (see CfHrmsShell).
@@ -11,7 +12,7 @@ import { HOME, getLayout } from '../layout';
  */
 export function SumangalShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const contentKey = pathname.includes('/sumangal_dashboard/erp/') ? 'erp' : pathname;
+  const contentKey = isErpPath(pathname) ? 'erp' : pathname;
   return (
     <ThemeScope appSlug="sumangal_dashboard">
       <ToastProvider>
