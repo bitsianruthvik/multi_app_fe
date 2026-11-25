@@ -344,7 +344,7 @@ export function acceptBody(plan: NestingPlan) {
       // parts as "overlap" (SO260014 N-002, 2026-10-18).
       ...((n as { layout?: string }).layout ? { layout: (n as { layout?: string }).layout } : {}),
       // §90: a plate of a custom size not in the catalog yet — the server makes the catalog plate when this is accepted.
-      ...(n.plateItemId == null && n.customPlate ? { customPlate: { length: n.customPlate.length, width: n.customPlate.width, impactClass: n.customPlate.impactClass } } : {}),
+      ...(n.plateItemId == null && n.customPlate ? { customPlate: { length: n.customPlate.length, width: n.customPlate.width, impactClass: n.customPlate.impactClass, ...(n.customPlate.kind ? { kind: n.customPlate.kind } : {}) } } : {}),
       pieces: n.pieces.map((p) => {
         const x = p as NestPiece & PieceExtras;
         return {
@@ -1146,6 +1146,7 @@ export function customPlateBadge(n: Pick<Nest, 'plateItemId' | 'customPlate'>): 
   const was = c.replaces?.plateCode ? ` It replaces ${c.replaces.plateCode} (${mm(c.replaces.length)} × ${mm(c.replaces.width)}).` : '';
   if (c.inCatalog || n.plateItemId != null) return { label: 'Custom size', family: 'info', title: `AI cut this plate to ${size}, a size the catalog has (${c.code ?? 'custom'}).${was}` };
   const steel = [c.grade, c.impactClass].filter(Boolean).join(' ');
+  if (c.kind === 'standard') return { label: 'Standard size — not in the catalog yet', family: 'info', title: `${size}${steel ? ` ${steel}` : ''}: a standard size; it is added to the catalog when this nesting is used.` };
   return { label: 'Custom size — not in the catalog yet', family: 'warning', title: `${size}${steel ? ` ${steel}` : ''}: ${CUSTOM_NOT_IN_CATALOG}${was}` };
 }
 

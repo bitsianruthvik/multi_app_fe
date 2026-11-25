@@ -23,11 +23,17 @@ export type PlateLimitsDraft = Record<(typeof PLATE_LIMITS)[number]['key'], stri
 export const limitsDraft = (c?: NestCustomPlateSetting | null): PlateLimitsDraft =>
   Object.fromEntries(PLATE_LIMITS.map((f) => [f.key, c?.[f.key] == null ? '' : String(c[f.key])])) as PlateLimitsDraft;
 
+/** The standard sizes as typed ("1500, 2000, 2500") and back. */
+export const sizesText = (v?: number[] | null) => (v?.length ? v.join(', ') : '');
+export const sizesOf = (s: string): number[] | null => { const v = s.split(/[,\s/]+/).filter(Boolean).map(Number); return v.length ? v : null; };
+/** Typed standard sizes that are not all sizes in mm. */
+export const badSizes = (s: string) => s.trim() !== '' && s.split(/[,\s/]+/).filter(Boolean).some((x) => !(Number(x) > 0 && Number(x) <= 30000));
+
 /** A typed limit that is not a size: not a number of mm from 1 to 30 000 (blank is fine). */
 export const badMm = (s: string) => s.trim() !== '' && !(Number(s) > 0 && Number(s) <= 30000);
 
 /** The card's draft as the save sends it: blank = null. */
-export function plateRulesBody(rule: NestGradeRule | '', on: boolean, d: PlateLimitsDraft): { gradeRule: NestGradeRule | null; customPlates: NestCustomPlateSetting } {
+export function plateRulesBody(rule: NestGradeRule | '', on: boolean, d: PlateLimitsDraft, std: { widths: string; lengths: string } = { widths: '', lengths: '' }): { gradeRule: NestGradeRule | null; customPlates: NestCustomPlateSetting } {
   const n = (s: string) => (s.trim() === '' ? null : Number(s));
-  return { gradeRule: rule === '' ? null : rule, customPlates: { on, maxLength: n(d.maxLength), maxWidth: n(d.maxWidth), minLength: n(d.minLength), minWidth: n(d.minWidth), step: n(d.step), minLotPieces: n(d.minLotPieces), minLotTonnes: n(d.minLotTonnes) } };
+  return { gradeRule: rule === '' ? null : rule, customPlates: { on, maxLength: n(d.maxLength), maxWidth: n(d.maxWidth), minLength: n(d.minLength), minWidth: n(d.minWidth), step: n(d.step), minLotPieces: n(d.minLotPieces), minLotTonnes: n(d.minLotTonnes), standardWidths: sizesOf(std.widths), standardLengths: sizesOf(std.lengths) } };
 }

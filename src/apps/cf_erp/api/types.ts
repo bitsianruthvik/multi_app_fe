@@ -1537,6 +1537,8 @@ export interface Nest {
 
 /** §90 (2026-10-19): the custom size one plate of a proposal moved to. */
 export interface NestCustomPlate {
+  /** 'standard': a standard size the catalog lacks (the company's standard sizes); absent / 'custom': a custom size. */
+  kind?: 'standard' | 'custom';
   thickness: number; length: number; width: number;
   grade: string | null; material: string | null; impactClass: string | null; density?: number | null;
   /** True when the catalog already has this size (an earlier accepted nesting made it): itemId / code are it. */

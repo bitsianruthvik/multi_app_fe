@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Box, Button, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import { CfApiError } from '../api/client';
 import { saveNestShopRules, type NestGradeRule, type NestShopRules } from '../api/cutting';
-import { GRADE_RULE_WORDS, PLATE_LIMITS, badMm, limitsDraft, plateRulesBody, type PlateLimitsDraft } from '../lib/plateRules';
+import { GRADE_RULE_WORDS, PLATE_LIMITS, badMm, badSizes, limitsDraft, plateRulesBody, sizesText, type PlateLimitsDraft } from '../lib/plateRules';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, SectionCard } from './ui';
 import { useToast } from './toastContext';
@@ -19,6 +19,7 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
   const [rule, setRule] = useState<NestGradeRule | ''>('');
   const [on, setOn] = useState(false);
   const [draft, setDraft] = useState<PlateLimitsDraft>(limitsDraft(null));
+  const [std, setStd] = useState({ widths: '', lengths: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const [saved, setSaved] = useState(0); // motion: a check draws after each save
@@ -27,13 +28,14 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
     setRule(rules.gradeRule ?? '');
     setOn(!!rules.customPlates?.on);
     setDraft(limitsDraft(rules.customPlates));
+    setStd({ widths: sizesText(rules.customPlates?.standardWidths), lengths: sizesText(rules.customPlates?.standardLengths) });
   }, [rules]);
   const schema = !!rules?.plateSchema;
-  const bad = PLATE_LIMITS.some((f) => badMm(draft[f.key]));
+  const bad = PLATE_LIMITS.some((f) => badMm(draft[f.key])) || badSizes(std.widths) || badSizes(std.lengths) || (std.widths.trim() === '') !== (std.lengths.trim() === '');
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      const out = await saveNestShopRules(plateRulesBody(rule, on, draft));
+      const out = await saveNestShopRules(plateRulesBody(rule, on, draft, std));
       onSaved(out);
       toast.success('Plate rules saved.');
       setSaved((n) => n + 1);
@@ -50,6 +52,13 @@ export function NestPlateRulesCard({ rules, onSaved }: { rules: NestShopRules | 
             <MenuItem value="">{`Default — ${GRADE_RULE_WORDS[(rules?.gradeRuleDefault ?? 'exact') as NestGradeRule] ?? 'exact'}`}</MenuItem>
             {(rules?.gradeRules ?? ['better', 'exact', 'higher']).map((r) => <MenuItem key={r} value={r}>{GRADE_RULE_WORDS[r] ?? r}</MenuItem>)}
           </TextField>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TextField size="small" label="Standard widths mm" value={std.widths} disabled={!canEdit || !schema} error={badSizes(std.widths)} placeholder="none — the catalog's plates"
+              onChange={(e) => setStd((s) => ({ ...s, widths: e.target.value }))} sx={{ width: 260 }} inputProps={{ 'aria-label': 'Standard plate widths mm' }} />
+            <TextField size="small" label="Standard lengths mm" value={std.lengths} disabled={!canEdit || !schema} error={badSizes(std.lengths)} placeholder="none — the catalog's plates"
+              onChange={(e) => setStd((s) => ({ ...s, lengths: e.target.value }))} sx={{ width: 260 }} inputProps={{ 'aria-label': 'Standard plate lengths mm' }} />
+          </Box>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>The mill&apos;s standard sizes, for every thickness, grade and impact class (e.g. 1500, 2000, 2500 wide × 10000, 12000 long). When set, nesting offers these sizes and the custom sizes below instead of the catalog&apos;s plates, prefers standard (a custom plate counts its premium), and adds any size it uses that the catalog lacks when the nesting is used. Blank = the catalog&apos;s plates.</Typography>
           <FormControlLabel
             control={<Switch checked={on} disabled={!canEdit || !schema} onChange={(e) => setOn(e.target.checked)} slotProps={{ input: { 'aria-label': 'Let the AI propose custom plate sizes' } }} />}
             label={<Typography sx={{ fontSize: 14 }}>Lines on &quot;Standard + custom sizes&quot; may use custom plates. Off: catalog sizes only.</Typography>}
