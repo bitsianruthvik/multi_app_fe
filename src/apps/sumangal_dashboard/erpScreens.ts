@@ -2,16 +2,17 @@
  * The screens of the operations dashboard (the ERP dashboard, V15). Each is one pane of the page in the frame
  * (public/sumangal-v15.html); the app's own menu opens them, so the frame shows no menu of its own.
  * Paths are one segment (the shell's menu reads only the first segment after the app); navMeta.ts builds the
- * menu from this list and routes.tsx the routes. `period`: the screen uses the shared From–To; `age`: the age range.
+ * menu from this list and routes.tsx the routes. `period`: the screen uses History's shared From–To; `quick`: Today's choice of today / yesterday / this week /
+ * this month (Today's screens have no dates to pick, user 2026-11-25); `age`: the age range.
  */
-export type ErpScreen = { slug: string; pane: string; label: string; section: 'now' | 'history'; about: string; keywords: string[]; period?: boolean; age?: boolean };
+export type ErpScreen = { slug: string; pane: string; label: string; section: 'now' | 'history'; about: string; keywords: string[]; period?: boolean; quick?: boolean; age?: boolean };
 
 export const ERP_SCREENS: ErpScreen[] = [
   { slug: 'wip', age: true, pane: 'pWip', section: 'now', label: 'Work in progress', about: 'Pieces in production by stage and how long they have waited, and what is out with fettling contractors and vendors.', keywords: ['wip', 'stage', 'age', 'stale', 'fettling'] },
   { slug: 'ready', age: true, pane: 'pRfd', section: 'now', label: 'Ready to dispatch', about: 'Cleared castings in the finished store, not yet dispatched, by customer and age.', keywords: ['rfd', 'cleared', 'finished store', 'stock'] },
-  { slug: 'production', period: true, pane: 'pProd', section: 'now', label: 'Production', about: 'What went through each step, day by day, for the dates you choose.', keywords: ['output', 'per day', 'poured', 'stage'] },
+  { slug: 'production', quick: true, pane: 'pProd', section: 'now', label: 'Production', about: 'What went through each step today, yesterday, this week or this month.', keywords: ['output', 'per day', 'poured', 'stage'] },
   { slug: 'vendors', age: true, pane: 'pVen', section: 'now', label: 'Vendors', about: 'Material out with vendors and contractors, for how long, and how many days of work each has queued.', keywords: ['challan', 'machining', 'fettling', 'job work', 'out'] },
-  { slug: 'orders', age: true, period: true, pane: 'pOrd', section: 'now', label: 'Orders & customers', about: 'Open order lines per customer: in work, ready, short and overdue.', keywords: ['customers', 'open orders', 'overdue', 'late', 'order lines'] },
+  { slug: 'orders', age: true, quick: true, pane: 'pOrd', section: 'now', label: 'Orders & customers', about: 'Open order lines per customer: in work, ready, short and overdue.', keywords: ['customers', 'open orders', 'overdue', 'late', 'order lines'] },
   { slug: 'trace', pane: 'pTrace', section: 'now', label: 'Trace a batch or order', about: 'Follow one batch, order or work order through every step.', keywords: ['batch', 'order', 'work order', 'heat', 'find'] },
   { slug: 'production-trend', period: true, pane: 'pTrend', section: 'history', label: 'Production trend', about: 'Output of each step by day, week, month or year, against its own average.', keywords: ['trend', 'monthly', 'output'] },
   { slug: 'wip-trend', period: true, pane: 'pWipT', section: 'history', label: 'WIP trend', about: 'How much was in work at each stage at the end of every period.', keywords: ['wip', 'trend', 'history'] },

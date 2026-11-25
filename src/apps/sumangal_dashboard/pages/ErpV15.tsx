@@ -34,12 +34,13 @@ type Runs = {
 };
 type Opt = [string, string];
 type Options = { cust: Opt[]; types: Opt[]; metals: Opt[]; end: string };
-type Filters = { c: string; t: string; m: string; u: 'kg' | 'pcs'; amin: string; amax: string; from: string; to: string };
+type Day = 'today' | 'yesterday' | 'week' | 'month';
+type Filters = { c: string; t: string; m: string; u: 'kg' | 'pcs'; amin: string; amax: string; from: string; to: string; day: Day };
 const company = () => window.location.pathname.split('/').filter(Boolean)[0] ?? '';
 const base = () => `/api/${company()}/sumangal_dashboard`;
 const FRAME = '/sumangal-v15.html?v=3';
 const KEEP = 'sumangal.ops.filters';
-const NO_FILTERS: Filters = { c: '', t: '', m: '', u: 'kg', amin: '15', amax: '45', from: '', to: '' };
+const NO_FILTERS: Filters = { c: '', t: '', m: '', u: 'kg', amin: '15', amax: '45', from: '', to: '', day: 'today' };
 let cached: Promise<Payload> | null = null;
 function loadData(): Promise<Payload> {
   if (!cached) {
@@ -51,7 +52,8 @@ function loadData(): Promise<Payload> {
   return cached;
 }
 const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
-const fmtDay = (d?: string) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
+const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
+const isToday = (iso?: string) => !!iso && new Date(iso).toDateString() === new Date().toDateString();
 const yearBefore = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - 364); return x.toISOString().slice(0, 10); };
 function kept(): Filters {
   try { return { ...NO_FILTERS, ...JSON.parse(sessionStorage.getItem(KEEP) || '{}') }; } catch { return NO_FILTERS; }
@@ -205,13 +207,15 @@ export default function ErpV15() {
 
   const agent = runs?.agents.find((a) => a.status === 'approved');
   const listening = !!agent && agent.idle_seconds != null && agent.idle_seconds < 90;
-  // opening the page asks for today's entries (the agent has no timer in the day); only when it is listening
+  // Today's screens want today's entries: the page asks for them (the agent has no timer in the day) as soon as the
+  // agent is listening and what is shown is not today's update, once per opening
+  const freshToday = !!shown?.source?.includes('update') && isToday(shown?.loadedAt);
   const autoAsked = useRef(false);
   useEffect(() => {
-    if (!runs || autoAsked.current) return;
+    if (!runs || autoAsked.current || !listening || freshToday) return;
     autoAsked.current = true;
-    if (listening) refresh();
-  }, [runs, listening, refresh]);
+    refresh();
+  }, [runs, listening, freshToday, refresh]);
   const newer = runs?.data?.loadedAt && shown?.loadedAt && runs.data.loadedAt > shown.loadedAt ? runs.data : null;
   const custOpt = opts?.cust.filter((o) => o[0] !== '') ?? [];
   const pick = (label: string, v: string, list: Opt[] | undefined, key: 't' | 'm') => (
@@ -228,10 +232,11 @@ export default function ErpV15() {
         actions={(
           <Stack alignItems="flex-end" spacing={0.25}>
             <Stack direction="row" spacing={1} alignItems="center">
-              {shown?.end && (
-                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                  As of {fmtDay(shown.end)} · loaded {fmt(shown.loadedAt)}
-                  {shown.source?.includes('update') ? " (today's entries)" : shown.source?.startsWith('agent') ? ' (nightly)' : ''}
+              {shown?.loadedAt && (
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', textAlign: 'right' }}>
+                  {freshToday ? <>Up to date: today's entries to {time(shown.loadedAt)}</>
+                    : isToday(shown.loadedAt) ? <>Last night's copy ({time(shown.loadedAt)}): entries up to yesterday</>
+                      : <>ERP copy from {fmt(shown.loadedAt)}</>}
                 </Typography>
               )}
               {newer && !asking && <Button size="small" variant="outlined" onClick={() => showNewer(newer)}>Newer data from {fmt(newer.loadedAt)}: show it</Button>}
@@ -244,6 +249,11 @@ export default function ErpV15() {
             {asking === 'waiting' && (
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', maxWidth: 460, textAlign: 'right' }}>
                 {listening ? "Usually about a minute. Meanwhile this shows the data loaded earlier; it reloads when today's arrives." : 'The agent is not listening right now (outside working hours, or its PC is off). It will run when it next checks in.'}
+              </Typography>
+            )}
+            {!freshToday && !asking && !listening && shown?.loadedAt && (
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', maxWidth: 520, textAlign: 'right' }}>
+                {"Today's entries come from Sumangal's server between 08:00 and 21:00 (not on Wednesdays, the weekly off); they load by themselves when you open this then."}
               </Typography>
             )}
             {asking === 'failed' && <Typography sx={{ fontSize: 12, color: 'var(--c-danger-600)' }}>The update did not arrive. {agent?.last_message || ''}</Typography>}
@@ -272,6 +282,13 @@ export default function ErpV15() {
             <TextField size="small" type="number" label="Age from (days)" value={f.amin} onChange={(e) => set({ amin: e.target.value })} sx={{ ...field, width: 128 }} />
             <TextField size="small" type="number" label="to (days)" placeholder="any" value={f.amax} onChange={(e) => set({ amax: e.target.value })} sx={{ ...field, width: 100 }} slotProps={{ inputLabel: { shrink: true } }} />
           </Stack>
+        )}
+        {screen.quick && (
+          <ToggleButtonGroup size="small" exclusive value={f.day} onChange={(_, v) => v && set({ day: v })} sx={{ height: 36 }}>
+            {([['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['month', 'This month']] as const).map(([v, l]) => (
+              <ToggleButton key={v} value={v} sx={{ px: 1.75, textTransform: 'none' }}>{l}</ToggleButton>
+            ))}
+          </ToggleButtonGroup>
         )}
         {screen.period && (
           <Stack direction="row" spacing={0.75} alignItems="center">
