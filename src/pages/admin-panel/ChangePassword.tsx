@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Box, Button, Container, Stack, TextField, Typography } from "@mui/material";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@core/contexts/AuthContext";
+import { isAdminRole } from "@core/utils/roles";
 import { adminApi, problemsOf } from "./api";
 
 /**
@@ -19,8 +20,10 @@ export default function ChangePassword() {
     setBusy(true); setProblems([]);
     try {
       await adminApi(company).changePassword(current, next);
-      // A full load: the session is read again, now without "must change".
-      window.location.assign(`/${company}/apps`);
+      // A full load: the session is read again, now without "must change". Back into the app they signed in to
+      // (the app list only when none is known).
+      const app = localStorage.getItem("appSlug");
+      window.location.assign(app ? `/${company}/${app}/${isAdminRole(user?.role) ? "admin/dashboard" : "dashboard"}` : `/${company}/apps`);
     } catch (e) { setProblems(problemsOf(e)); setBusy(false); }
   };
   return (

@@ -401,6 +401,15 @@ export function TopNav({
         <MenuItem
           onClick={() => {
             setAvatarAnchor(null);
+            navigate(`/${company}/apps/password`);
+          }}
+          sx={{ fontSize: 13.5 }}
+        >
+          Change password
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAvatarAnchor(null);
             navigate(`/${company}/apps`);
           }}
           sx={{ fontSize: 13.5 }}
