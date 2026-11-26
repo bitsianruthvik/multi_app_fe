@@ -10,6 +10,7 @@
  */
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { currentCompany } from '@core/auth/session';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,7 +119,7 @@ export async function fabPost<T = unknown>(
   path: string,
   body: Record<string, unknown> = {},
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) throw new Error('fabPost: companySlug not found in localStorage.');
   const res = await api.post<T>(`${API_HOST}/api/${companySlug}/fab_erp/${path}`, body);
   return res.data;
@@ -129,7 +130,7 @@ export async function fabPut<T = unknown>(
   path: string,
   body: Record<string, unknown> = {},
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) throw new Error('fabPut: companySlug not found in localStorage.');
   const res = await api.put<T>(`${API_HOST}/api/${companySlug}/fab_erp/${path}`, body);
   return res.data;
@@ -140,7 +141,7 @@ export async function fabPatch<T = unknown>(
   path: string,
   body: Record<string, unknown> = {},
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) throw new Error('fabPatch: companySlug not found in localStorage.');
   const res = await api.patch<T>(`${API_HOST}/api/${companySlug}/fab_erp/${path}`, body);
   return res.data;
@@ -150,7 +151,7 @@ export async function fabPatch<T = unknown>(
 export async function fabDel<T = unknown>(
   path: string,
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) throw new Error('fabDel: companySlug not found in localStorage.');
   const res = await api.delete<T>(`${API_HOST}/api/${companySlug}/fab_erp/${path}`);
   return res.data;
@@ -161,7 +162,7 @@ export async function fabGet<T = unknown>(
   path: string,
   params: Record<string, unknown> = {},
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) throw new Error('fabGet: companySlug not found in localStorage.');
   const res = await api.get<T>(`${API_HOST}/api/${companySlug}/fab_erp/${path}`, { params });
   return res.data;
@@ -172,7 +173,7 @@ export async function fabMutate<T = unknown>(
   op: 'insert' | 'update' | 'delete',
   payload: Record<string, unknown>,
 ): Promise<T> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   if (!companySlug) {
     throw new Error('fabMutate: companySlug not found in localStorage. User may not be logged in.');
   }

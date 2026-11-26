@@ -38,6 +38,7 @@ import { getApiBaseUrl } from '@core/api/client';
 import type { AssignmentContextRow, ReportingSummary, ResolvedRelationship } from './assignments';
 import type { PositionContextRow, PositionRow } from './positions';
 import type { Role } from './roles';
+import { getToken } from '@core/auth/session';
 
 export type DocumentType = 'ROLE_JD' | 'EMPLOYEE_RESPONSIBILITY_PROFILE';
 
@@ -577,7 +578,7 @@ export async function downloadDocument(
 ): Promise<void> {
   const company = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
   const url = `${getApiBaseUrl()}/api/${company}/cf_hrms/documents/${id}/download?format=${format}`;
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     credentials: 'include',

@@ -20,6 +20,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet, fabPost, fabDel } from './client';
 import type { OrderReadiness } from './readiness';
 import type { TreeNode } from '../hooks/useTree';
+import { currentCompany } from '@core/auth/session';
 
 /**
  * Quantities are DECIMAL(18,6) columns and mysql2 hands those back as strings.
@@ -572,7 +573,7 @@ export const getCatalogSizes = () =>
  * keep their ids, and with them their sizes, their plate and their tasks.
  */
 export async function downloadStructureSheet(orderId: number | string, orderLineId: number | string): Promise<Blob> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   const res = await api.get(
     `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/structure/sheet`,
     { params: { orderLineId }, responseType: 'blob' },
@@ -598,7 +599,7 @@ export async function uploadStructureSheet(
   file: File,
   revisionReason?: string,
 ): Promise<StructureSheetResult> {
-  const companySlug = localStorage.getItem('companySlug');
+  const companySlug = currentCompany();
   const form = new FormData();
   form.append('excel_file', file);
   form.append('orderLineId', String(orderLineId));

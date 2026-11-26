@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearSession, companyOfPage, getToken } from "@core/auth/session";
 
 // Get API base URL from environment variable
 const API_BASE_URL = import.meta.env.VITE_API_HOST || import.meta.env.VITE_API_BASE_URL;
@@ -40,8 +41,9 @@ instance.interceptors.request.use(
     } else {
       config.baseURL = `${API_HOST}/api`;
     }
-    const token = localStorage.getItem("token");
-    if (token) {
+    // The sign-in of the company in the page's address (core/auth/session.ts: one per company), unless the caller set one.
+    const token = getToken();
+    if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -56,7 +58,8 @@ instance.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response && error.response.status === 401) {
-      localStorage.removeItem("token");
+      // This page's company is signed out; the other companies' sign-ins stay.
+      clearSession(companyOfPage());
       const parts = window.location.pathname.split("/").filter(Boolean);
       const nonAppSegments = ["apps", "reset-password"];
       if (parts.length >= 2 && !nonAppSegments.includes(parts[1])) {

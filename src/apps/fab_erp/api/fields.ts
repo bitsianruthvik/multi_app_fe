@@ -13,8 +13,9 @@
 import { useEffect, useState } from 'react';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet, fabQuery, fabMutate } from './client';
+import { currentCompany } from '@core/auth/session';
 
-const base = () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+const base = () => `${API_HOST}/api/${currentCompany()}/fab_erp`;
 
 /** The rungs a value can hang off, broadest first. */
 export type FieldScope =

@@ -1,10 +1,11 @@
 import { useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '@core/contexts/AuthContext';
+import { getToken } from '@core/auth/session';
 
 type Permission = { feature_tag?: string } | string;
 
-const hasToken = () => { try { return !!localStorage.getItem('token'); } catch { return false; } };
+const hasToken = () => { try { return !!getToken(); } catch { return false; } };
 
 /**
  * A permission predicate for filtering lists (nav, palette) — the same

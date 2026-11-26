@@ -1,10 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { API_HOST } from "@core/utils/axiosConfig";
 import api from "@core/utils/axiosConfig";
 import { isAdminRole } from "@core/utils/roles";
 import { initRegistryRefresh } from "@core/api-builder/registry";
+import {
+  clearSession, companyOfPage, getAppSlug, getToken, lastCompany, setAppSlug, setToken,
+} from "@core/auth/session";
 
 interface AppRole {
   roleId: number;
@@ -37,6 +41,7 @@ interface AuthContextType {
   isInitialized: boolean;
   login: (token: string, userData: User, companySlug: string, appSlug?: string | null) => void;
   selectApp: (appSlug: string) => void;
+  /** Signs out of this page's company only; the others stay signed in. */
   logout: () => void;
   getHomePath: () => string;
 }
@@ -53,128 +58,110 @@ const AuthContext = createContext<AuthContextType>({
   getHomePath: () => "/",
 });
 
+/** What this page knows of one company's sign-in: undefined = not checked yet, user null = not signed in. */
+type Known = { user: User | null; app: string | null };
+const CRM_KEPT = "cf_crm:verifiedUser";
+
+/**
+ * ONE SIGN-IN PER COMPANY (2026-11-26, core/auth/session.ts). The page's company is the first part of its address
+ * (/placebo/cf_erp/... → placebo); the sign-in shown is that company's. An address that names no company (/,
+ * /platform/...) uses the company signed in to last. Moving to another company's address checks that company's own
+ * sign-in; the others are untouched.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [companySlug, setCompanySlug] = useState<string | null>(null);
-  const [appSlug, setAppSlug] = useState<string | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const location = useLocation();
+  const company = companyOfPage(location.pathname) ?? lastCompany();
+  const [known, setKnown] = useState<Record<string, Known>>({});
+  const knownRef = useRef(known);
+  knownRef.current = known;
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    const company = localStorage.getItem("companySlug");
-    const app = localStorage.getItem("appSlug");
-
-    const initializeAuth = async () => {
-      if (token && company) {
-        try {
-          // Use app-level verify when both slugs are known; company-level otherwise
-          const verifyUrl = app
-            ? `${API_HOST}/api/${company}/${app}/verify`
-            : `${API_HOST}/api/${company}/auth/verify`;
-          const response = await api.get(verifyUrl);
-          if (response.data?.user) {
-            const verifiedUser: User = {
-              ...response.data.user,
-              appRoles: response.data.appRoles ?? response.data.user.appRoles ?? undefined,
-            };
-            setUser(verifiedUser);
-            setIsAuthenticated(true);
-            setCompanySlug(company);
-            if (app) setAppSlug(app);
-            // cf_crm opens without a connection (home-screen app): remember who was signed in
-            if (app === "cf_crm") {
-              try { localStorage.setItem("cf_crm:verifiedUser", JSON.stringify({ company, user: verifiedUser })); } catch { /* storage full or blocked */ }
-            }
-            // Fire and forget — uses baked manifest as fallback if this fails
-            initRegistryRefresh({ url: `${API_HOST}/api/${company}/schema/resources` });
-          }
-        } catch (err: any) {
-          // cf_crm only: no answer at all (offline, server waking up) is not a
-          // refused sign-in. Keep the last confirmed session for this company;
-          // the CRM itself works from its own copy and re-checks once online.
-          // Any real answer (401, 403 …) still signs out, as for every app.
-          if (app === "cf_crm" && !err?.response) {
-            try {
-              const kept = JSON.parse(localStorage.getItem("cf_crm:verifiedUser") || "null");
-              if (kept && kept.company === company && kept.user) {
-                setUser(kept.user);
-                setIsAuthenticated(true);
-                setCompanySlug(company);
-                setAppSlug(app);
-                setIsInitialized(true);
-                return;
-              }
-            } catch { /* fall through to signing out */ }
-          }
-          localStorage.removeItem("cf_crm:verifiedUser");
-          localStorage.removeItem("token");
-          localStorage.removeItem("companySlug");
-          localStorage.removeItem("appSlug");
-          setIsAuthenticated(false);
-          setUser(null);
-          setCompanySlug(null);
-          setAppSlug(null);
-        }
-      } else {
-        setIsAuthenticated(false);
-        setUser(null);
-        setCompanySlug(null);
-        setAppSlug(null);
-      }
-      setIsInitialized(true);
-    };
-    initializeAuth();
+  const remember = useCallback((slug: string, k: Known) => {
+    setKnown((prev) => ({ ...prev, [slug]: k }));
   }, []);
 
-  const login = (
-    token: string,
-    userData: User,
-    company: string,
-    app?: string | null
-  ) => {
-    localStorage.setItem("token", token);
-    localStorage.setItem("companySlug", company);
-    if (app) {
-      localStorage.setItem("appSlug", app);
-      setAppSlug(app);
-    } else {
-      localStorage.removeItem("appSlug");
-      setAppSlug(null);
-    }
-    setUser(userData);
-    setCompanySlug(company);
-    setIsAuthenticated(true);
+  // Check this company's kept sign-in once per page load (login() fills it in directly).
+  useEffect(() => {
+    if (!company || knownRef.current[company] !== undefined) return;
+    const token = getToken(company);
+    const app = getAppSlug(company);
+    if (!token) { remember(company, { user: null, app: null }); return; }
+    let gone = false;
+    const verify = async () => {
+      try {
+        // Use app-level verify when both slugs are known; company-level otherwise
+        const verifyUrl = app ? `${API_HOST}/api/${company}/${app}/verify` : `${API_HOST}/api/${company}/auth/verify`;
+        const response = await api.get(verifyUrl);
+        if (gone) return;
+        if (response.data?.user) {
+          const verifiedUser: User = {
+            ...response.data.user,
+            appRoles: response.data.appRoles ?? response.data.user.appRoles ?? undefined,
+          };
+          remember(company, { user: verifiedUser, app });
+          // cf_crm opens without a connection (home-screen app): remember who was signed in
+          if (app === "cf_crm") {
+            try { localStorage.setItem(CRM_KEPT, JSON.stringify({ company, user: verifiedUser })); } catch { /* storage full or blocked */ }
+          }
+          // Fire and forget — uses baked manifest as fallback if this fails
+          initRegistryRefresh({ url: `${API_HOST}/api/${company}/schema/resources` });
+        } else {
+          remember(company, { user: null, app: null });
+        }
+      } catch (err: any) {
+        if (gone) return;
+        // cf_crm only: no answer at all (offline, server waking up) is not a
+        // refused sign-in. Keep the last confirmed session for this company;
+        // the CRM itself works from its own copy and re-checks once online.
+        // Any real answer (401, 403 …) still signs out, as for every app.
+        if (app === "cf_crm" && !err?.response) {
+          try {
+            const kept = JSON.parse(localStorage.getItem(CRM_KEPT) || "null");
+            if (kept && String(kept.company).toLowerCase() === company && kept.user) {
+              remember(company, { user: kept.user, app });
+              return;
+            }
+          } catch { /* fall through to signing out */ }
+        }
+        clearSession(company);
+        remember(company, { user: null, app: null });
+      }
+    };
+    void verify();
+    return () => { gone = true; };
+  }, [company, remember]);
+
+  const login = (token: string, userData: User, slug: string, app?: string | null) => {
+    const c = slug.toLowerCase();
+    setToken(c, token);
+    setAppSlug(c, app ?? null);
+    remember(c, { user: userData, app: app ?? null });
     // Fire and forget — uses baked manifest as fallback if this fails
-    initRegistryRefresh({ url: `${API_HOST}/api/${company}/schema/resources` });
+    initRegistryRefresh({ url: `${API_HOST}/api/${c}/schema/resources` });
   };
 
   const selectApp = (app: string) => {
-    localStorage.setItem("appSlug", app);
-    setAppSlug(app);
+    if (!company) return;
+    setAppSlug(company, app);
+    const k = knownRef.current[company];
+    if (k) remember(company, { ...k, app });
   };
 
   const logout = () => {
-    const company = localStorage.getItem("companySlug");
-    const app = localStorage.getItem("appSlug");
-    localStorage.removeItem("token");
-    localStorage.removeItem("cf_crm:verifiedUser");
-    localStorage.removeItem("companySlug");
-    localStorage.removeItem("appSlug");
-    setIsAuthenticated(false);
-    setUser(null);
-    setCompanySlug(null);
-    setAppSlug(null);
-    // Call backend to clear the HTTP-only cookie
-    const logoutUrl = app
-      ? `${API_HOST}/api/${company}/${app}/auth/logout`
-      : company
-        ? `${API_HOST}/api/${company}/auth/logout`
-        : null;
-    if (logoutUrl) {
-      api.post(logoutUrl).catch(() => {});
-    }
+    if (!company) return;
+    const app = knownRef.current[company]?.app ?? getAppSlug(company);
+    clearSession(company);
+    remember(company, { user: null, app: null });
+    // Call backend to clear the HTTP-only cookie (only a fallback now: every page sends its own company's sign-in)
+    const logoutUrl = app ? `${API_HOST}/api/${company}/${app}/auth/logout` : `${API_HOST}/api/${company}/auth/logout`;
+    api.post(logoutUrl).catch(() => {});
   };
+
+  const current = company ? known[company] : undefined;
+  const user = current?.user ?? null;
+  const isAuthenticated = !!user;
+  const isInitialized = !company || current !== undefined;
+  const companySlug = isAuthenticated ? company : null;
+  const appSlug = current?.app ?? null;
 
   const getHomePath = () => {
     if (!user || !companySlug) return "/";

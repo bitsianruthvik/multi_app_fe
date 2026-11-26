@@ -12,6 +12,7 @@
 import { useState, useEffect } from 'react';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import type { FormulaVariables } from '../types';
+import { currentCompany } from '@core/auth/session';
 
 const EMPTY: FormulaVariables = { machine: [], item: [] };
 
@@ -25,7 +26,7 @@ export function useFormulaVariables(): {
   const [error,   setError]   = useState('');
 
   useEffect(() => {
-    const companySlug = localStorage.getItem('companySlug');
+    const companySlug = currentCompany();
     if (!companySlug) {
       setError('No company selected');
       setLoading(false);

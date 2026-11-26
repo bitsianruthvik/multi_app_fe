@@ -21,6 +21,7 @@ import StructureEditor, { StructureColumnHeader, type StructureSaveResult } from
 import { DialogCloseButton } from './FormDialog';
 import type { OrderReadiness } from '../api/readiness';
 import { codeRangeLabel } from '../utils/codeRange';
+import { currentCompany } from '@core/auth/session';
 
 /**
  * Step 1: what this order is selling, AND what each of those is made of.
@@ -163,7 +164,7 @@ export default function OrderLinesPanel({
   );
   useEffect(() => {
     api.get<{ materials: string[]; byMaterial: Record<string, string[]> }>(
-      `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/steel-options`,
+      `${API_HOST}/api/${currentCompany()}/fab_erp/steel-options`,
     ).then((r) => setSteel(r.data)).catch(() => {});
   }, []);
   const gradesFor = useCallback(
@@ -603,7 +604,7 @@ export default function OrderLinesPanel({
                 Type a name or code. The list is what this shop sells: anything under <b>Fabricated</b>, or any
                 item that has a bill of materials — a whole span or a single girder alike. Not here?{' '}
                 <MuiLink
-                  href={`/${localStorage.getItem('companySlug')}/fab_erp/item-catalog?tab=non-catalog`}
+                  href={`/${currentCompany()}/fab_erp/item-catalog?tab=non-catalog`}
                   target="_blank" rel="noopener"
                 >
                   Add it under Items › Non-catalog
@@ -1082,7 +1083,7 @@ export default function OrderLinesPanel({
 
 /** The fab_erp app root, which the spec routes hang off. */
 function specBase() {
-  return `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+  return `${API_HOST}/api/${currentCompany()}/fab_erp`;
 }
 
 /** A copy of `obj` without `key` — `delete` would mutate state in place. */

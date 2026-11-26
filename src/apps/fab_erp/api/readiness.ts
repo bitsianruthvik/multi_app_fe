@@ -1,4 +1,5 @@
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { currentCompany } from '@core/auth/session';
 
 /**
  * Order readiness — the five preparation stages and what is missing from each.
@@ -66,7 +67,7 @@ export interface OrderReadiness {
   blockers: ReadinessBlocker[];
 }
 
-const base = () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+const base = () => `${API_HOST}/api/${currentCompany()}/fab_erp`;
 
 export async function fetchOrderReadiness(orderId: number): Promise<OrderReadiness> {
   const res = await api.get<OrderReadiness>(`${base()}/orders/${orderId}/readiness`);

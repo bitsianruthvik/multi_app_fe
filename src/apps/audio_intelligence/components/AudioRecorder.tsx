@@ -19,6 +19,7 @@ import { query } from "@core/api-builder";
 import { formatAnalysis } from "@apps/audio_intelligence/utils/analysisFormatter";
 import { uuidv4 } from "@core/api-builder/security";
 import { useAuth } from "@core/contexts/AuthContext";
+import { getToken } from '@core/auth/session';
 
 interface AudioRecorderProps {
   onRecordingComplete: (recording: any) => void;
@@ -292,7 +293,7 @@ export default function AudioRecorder({
       const baseUrl = (
         (import.meta as any).env.VITE_API_BASE_URL || ""
       ).replace(/\/$/, "");
-      const token = localStorage.getItem("token");
+      const token = getToken();
       const uploadRes = await fetch(
         `${baseUrl}/api/${companySlug}/${appSlug}/audio/upload`,
         {

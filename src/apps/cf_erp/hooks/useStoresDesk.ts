@@ -3,6 +3,7 @@ import { getDeskSettings } from '../api/storesDesk';
 import { getMdMe } from '../api/md';
 import type { NavScreen } from '../navMeta';
 import { useIsPermitted } from './useIsPermitted';
+import { getToken } from '@core/auth/session';
 
 /**
  * A company switch read once per LOGIN and shared by every menu on the page. 2026-11-23 (user: "stock entry is not visible
@@ -10,7 +11,7 @@ import { useIsPermitted } from './useIsPermitted';
  * failed call, e.g. before login or by an account without the permission) stayed when another account logged in without a
  * reload. Now it is kept per login token, and a failed call is never kept — the next screen asks again.
  */
-const loginKey = () => { try { return localStorage.getItem('token') ?? ''; } catch { return ''; } };
+const loginKey = () => { try { return getToken() ?? ''; } catch { return ''; } };
 function sessionSwitch(read: () => Promise<boolean>) {
   let key: string | null = null;
   let known: boolean | null = null;

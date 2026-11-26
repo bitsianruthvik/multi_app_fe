@@ -30,6 +30,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { backendMessage, StatusBadge } from '../../components';
 import { DialogCloseButton } from '../../components/FormDialog';
 import type { ImportItemsResult, ImportDryRunResult } from '../../api/catalog';
+import { currentCompany } from '@core/auth/session';
 
 /** The row/code/reason table both the dry-run preview and a live result's `problems[]` share. */
 function ProblemsTable({ problems }: { problems: ImportDryRunResult['problems'] }) {
@@ -98,7 +99,7 @@ export function ImporterControls({ onImported }: { onImported: () => void | Prom
   async function downloadTemplate() {
     setExporting(true);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/items/export-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
@@ -114,7 +115,7 @@ export function ImporterControls({ onImported }: { onImported: () => void | Prom
   async function handleImportFile(file: File) {
     setDryRunning(true); setImportErr(''); setImportResult(null); setDryRun(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', file);
       const res = await api.post<ImportDryRunResult>(
@@ -136,7 +137,7 @@ export function ImporterControls({ onImported }: { onImported: () => void | Prom
     if (!dryRunFile) return;
     setApplying(true); setImportErr('');
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', dryRunFile);
       const res = await api.post<ImportItemsResult>(

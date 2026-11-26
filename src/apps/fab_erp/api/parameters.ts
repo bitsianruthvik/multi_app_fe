@@ -11,9 +11,10 @@
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet } from './client';
 import type { OrderReadiness } from './readiness';
+import { currentCompany } from '@core/auth/session';
 
 const base = () =>
-  `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+  `${API_HOST}/api/${currentCompany()}/fab_erp`;
 
 export interface ParameterColumn {
   fieldKey: string;

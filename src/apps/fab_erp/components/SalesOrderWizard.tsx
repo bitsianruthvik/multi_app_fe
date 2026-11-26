@@ -29,6 +29,7 @@ import OrderParameters from './OrderParameters';
 import OrderProductionPlan from './OrderProductionPlan';
 import OrderLinesPanel from './OrderLinesPanel';
 import StageIcon from './StageIcon';
+import { currentCompany } from '@core/auth/session';
 
 /**
  * The sales order, as one wizard.
@@ -110,7 +111,7 @@ export default function SalesOrderWizard({
   const revisionMode = !!revisionReason;
 
   const base = useCallback(
-    () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`,
+    () => `${API_HOST}/api/${currentCompany()}/fab_erp`,
     [],
   );
 

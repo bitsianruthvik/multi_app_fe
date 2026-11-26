@@ -89,7 +89,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   // A login only ever opens its own company: another company's address gets
   // "no access", never this login's screens under that company's name.
-  if (company && signedInCompany && company !== signedInCompany) {
+  if (company && signedInCompany && company.toLowerCase() !== signedInCompany.toLowerCase()) {
     return <CompanyMismatch requested={company} signedIn={signedInCompany} />;
   }
 
@@ -157,11 +157,12 @@ function App() {
     <AppThemeProvider>
       <CssBaseline enableColorScheme />
       <LocalizationProvider dateAdapter={AdapterDayjs}>
+        {/* Router outside AuthProvider: the sign-in follows the company in the address (one per company, 2026-11-26) */}
+        <Router>
         <AuthProvider>
           {/* the signed-in company's colours and logo (core/brand), none before sign-in */}
           <CompanyBrandProvider>
           <BrandPalette>
-          <Router>
             <AppShell>
               <Suspense
                 fallback={
@@ -397,10 +398,10 @@ function App() {
               </Routes>
               </Suspense>
             </AppShell>
-          </Router>
           </BrandPalette>
           </CompanyBrandProvider>
         </AuthProvider>
+        </Router>
       </LocalizationProvider>
     </AppThemeProvider>
   );

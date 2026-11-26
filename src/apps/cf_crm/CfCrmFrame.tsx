@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@core/contexts/AuthContext';
 import { API_HOST } from '@core/utils/axiosConfig';
+import { getToken, setToken, signedInCompanies } from '@core/auth/session';
 
 /**
  * cf_crm's whole screen. The app itself is the NorthEast Network single-page
@@ -116,24 +117,27 @@ export default function CfCrmFrame() {
       apiHost: API_HOST,
       company,
       initialLink,
-      getToken: () => localStorage.getItem('token'),
+      getToken: () => getToken(company),
       // after a password change or a two-step code the server issues a new
       // token (the old sign-ins are ended); the platform reads it from here too
       setToken: (token: string) => {
-        if (typeof token === 'string' && token.split('.').length === 3) localStorage.setItem('token', token);
+        if (typeof token === 'string' && token.split('.').length === 3) setToken(company, token);
       },
       onAuthLost: toLogin,
       logout: toLogin,
       leave: () => live.current.navigate(`/${company}/apps`),
       toOwnCompany: async () => {
-        const mine = localStorage.getItem('companySlug') || '';
-        if (!mine || mine === company || !/^[a-z0-9_-]+$/i.test(mine)) return false;
+        // The companies this browser is signed in to (one sign-in per company, core/auth/session.ts), other than this one.
+        const mine = signedInCompanies().filter((c) => c !== company.toLowerCase() && /^[a-z0-9_-]+$/i.test(c));
+        if (!mine.length) return false;
         const customerOf = (slug: string) => fetch(`${API_HOST}/api/${encodeURIComponent(slug)}/cf_crm/public-brand`, { credentials: 'omit' })
           .then((r) => (r.ok ? r.json() : null)).then((j) => (j && j.customer) || '').catch(() => '');
-        const [here, theirs] = await Promise.all([customerOf(company), customerOf(mine)]);
-        if (!here || here !== theirs) return false;
-        window.location.replace(`/${mine}/cf_crm`);
-        return true;
+        const here = await customerOf(company);
+        if (!here) return false;
+        for (const other of mine) {
+          if ((await customerOf(other)) === here) { window.location.replace(`/${other}/cf_crm`); return true; }
+        }
+        return false;
       },
       onBrand: ({ appName, color }) => {
         if (appName) document.title = appName;

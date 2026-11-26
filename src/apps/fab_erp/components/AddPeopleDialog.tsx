@@ -27,6 +27,7 @@ import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
 import { shiftSpan, type ShiftOption } from './PersonSheet';
 import { DialogCloseButton } from './FormDialog';
+import { currentCompany } from '@core/auth/session';
 
 export interface MachineOption { id: number; name: string }
 
@@ -86,7 +87,7 @@ export function AddPeopleDialog({
 
   async function downloadTemplate() {
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/workers/import-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
@@ -100,7 +101,7 @@ export function AddPeopleDialog({
   async function upload(file: File) {
     setImporting(true); setErr(''); setImportResult(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', file);
       const res = await api.post<ImportResult>(

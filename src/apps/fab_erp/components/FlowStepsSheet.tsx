@@ -30,6 +30,7 @@ import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceT
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { EmptyState, ListSkeleton, Mono, StatusBadge, useToast, backendMessage } from './index';
 import { DialogCloseButton } from './FormDialog';
+import { currentCompany } from '@core/auth/session';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -441,7 +442,7 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
   async function downloadStepsTemplate() {
     setExporting(true);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/flows/${flow.id}/export-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
@@ -457,7 +458,7 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
   async function handleImportStepsFile(file: File) {
     setImporting(true); setImportErr(''); setImportResult(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', file);
       const res = await api.post<ImportFlowStepsResult>(

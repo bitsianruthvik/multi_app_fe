@@ -4,6 +4,7 @@ import { useAuth } from "@core/contexts/AuthContext";
 import { isAdminRole } from "@core/utils/roles";
 import { AuthButton, AuthField, AuthFrame, AuthLink, AuthNote } from "@core/components/auth/AuthFrame";
 import { adminApi, problemsOf } from "./api";
+import { getAppSlug } from '@core/auth/session';
 
 /**
  * /:company/apps/password — a person chooses their own password. Anyone can come here; someone whose password was set
@@ -24,7 +25,7 @@ export default function ChangePassword() {
       await adminApi(company).changePassword(current, next);
       // A full load: the session is read again, now without "must change". Back into the app they signed in to
       // (the app list only when none is known).
-      const app = localStorage.getItem("appSlug");
+      const app = getAppSlug();
       window.location.assign(app ? `/${company}/${app}/${isAdminRole(user?.role) ? "admin/dashboard" : "dashboard"}` : `/${company}/apps`);
     } catch (e) { setProblems(problemsOf(e)); setBusy(false); }
   };

@@ -41,6 +41,7 @@ import {
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
 import { DialogCloseButton } from '../components/FormDialog';
+import { currentCompany } from '@core/auth/session';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -862,7 +863,7 @@ export default function Operations() {
   async function downloadOperationsTemplate() {
     setExporting(true);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/operations/export-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
@@ -878,7 +879,7 @@ export default function Operations() {
   async function handleImportOperationsFile(file: File) {
     setImporting(true); setImportErr(''); setImportResult(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', file);
       const res = await api.post<ImportOperationsResult>(

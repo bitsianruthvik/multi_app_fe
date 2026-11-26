@@ -23,6 +23,7 @@ import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
+import { currentCompany } from '@core/auth/session';
 
 interface PreviewRow {
   row: number; machine: string; reason: string;
@@ -51,7 +52,7 @@ export function GapExcelBar({ date, onApplied }: { date: string; onApplied?: () 
   // Held so Apply re-sends the same file the operator already reviewed.
   const [pending, setPending] = useState<File | null>(null);
 
-  const slug = () => localStorage.getItem('companySlug');
+  const slug = () => currentCompany();
 
   async function download() {
     setBusy(true); setErr('');

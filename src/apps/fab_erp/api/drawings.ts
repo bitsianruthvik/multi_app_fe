@@ -9,8 +9,9 @@
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet } from './client';
+import { currentCompany } from '@core/auth/session';
 
-const base = () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+const base = () => `${API_HOST}/api/${currentCompany()}/fab_erp`;
 
 export interface Drawing {
   id: number;

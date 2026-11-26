@@ -6,8 +6,9 @@
  */
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { currentCompany } from '@core/auth/session';
 
-const base = () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+const base = () => `${API_HOST}/api/${currentCompany()}/fab_erp`;
 
 // ── Goods receipt against a purchase order ──────────────────────────────────
 // The Stock in screen's second mode. These are not scoped to a sales order,

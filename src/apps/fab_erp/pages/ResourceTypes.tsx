@@ -26,6 +26,7 @@ import MachineAssetPanel from '../components/MachineAssetPanel';
 import BuyMachineDialog from '../components/BuyMachineDialog';
 import { DialogCloseButton } from '../components/FormDialog';
 import ResourceTypePurchases from '../components/ResourceTypePurchases';
+import { currentCompany } from '@core/auth/session';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -1115,7 +1116,7 @@ export default function ResourceTypes() {
   async function downloadResourcesTemplate() {
     setExporting(true);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/resources/export-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
@@ -1131,7 +1132,7 @@ export default function ResourceTypes() {
   async function handleImportResourcesFile(file: File) {
     setImporting(true); setImportErr(''); setImportResult(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
+      const companySlug = currentCompany();
       const form = new FormData();
       form.append('excel_file', file);
       const res = await api.post<ImportResourcesResult>(

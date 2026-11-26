@@ -23,7 +23,7 @@ export default function CompanyLanding() {
 
   // Redirect if already authenticated for this company
   useEffect(() => {
-    if (isInitialized && isAuthenticated && authCompany === companySlug) {
+    if (isInitialized && isAuthenticated && authCompany === companySlug.toLowerCase()) {
       navigate(`/${companySlug}/apps`, { replace: true });
     }
   }, [isInitialized, isAuthenticated, authCompany, companySlug, navigate]);

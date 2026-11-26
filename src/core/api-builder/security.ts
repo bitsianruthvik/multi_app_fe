@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getSchemaVersion } from './registry';
+import { getToken } from '@core/auth/session';
 
 function uuidv4(): string {
   if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) return (crypto as any).randomUUID();
@@ -12,13 +13,8 @@ function uuidv4(): string {
 }
 
 export function buildSecurityHeaders(opts?: { token?: string; idempotencyKey?: string; requestId?: string }) {
-  // Accept either 'token' or legacy 'auth.token' keys in localStorage so both
-  // the axios-based frontend and the fetch-based api-builder work.
-  const token =
-    opts?.token ??
-    (typeof localStorage !== 'undefined'
-      ? localStorage.getItem('token') ?? localStorage.getItem('auth.token') ?? undefined
-      : undefined);
+  // The sign-in of the company in the page's address (core/auth/session.ts: one per company).
+  const token = opts?.token ?? getToken() ?? undefined;
   const headers: Record<string, string> = {
     'X-Resource-Version': getSchemaVersion(),
     'x-request-id': opts?.requestId ?? uuidv4(),

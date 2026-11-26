@@ -4,6 +4,8 @@
  * Uses VITE_API_BASE_URL from environment and automatically attaches JWT tokens.
  */
 
+import { getToken } from "@core/auth/session";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_HOST ||
   import.meta.env.VITE_API_BASE_URL;
@@ -55,8 +57,8 @@ export async function apiFetch<T = any>(
     ...customHeaders,
   };
 
-  // Attach JWT token from localStorage if available
-  const token = localStorage.getItem("token");
+  // The sign-in of the company in the page's address (core/auth/session.ts: one per company)
+  const token = getToken();
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }

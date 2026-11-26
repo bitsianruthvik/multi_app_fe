@@ -20,6 +20,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import api, { buildFullApiUrl, API_HOST } from "@core/utils/axiosConfig";
 import { apiPost } from "@core/api/client";
+import { getToken } from '@core/auth/session';
 
 export default function CompanyDocuments() {
   const [docs, setDocs] = useState<any[]>([]);
@@ -79,7 +80,7 @@ export default function CompanyDocuments() {
 
       const url = `${API_HOST}/api/query/v1/documents/upload`;
       console.debug("Uploading document to:", url);
-      const token = localStorage.getItem("token");
+      const token = getToken();
       const resp = await fetch(url, {
         method: "POST",
         credentials: "include",
