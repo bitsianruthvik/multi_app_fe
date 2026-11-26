@@ -13,16 +13,18 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import ViewInArRounded from '@mui/icons-material/ViewInArRounded';
 import { CfApiError } from '../../api/client';
-import { blobAsText, downloadDrawing, fetchDrawingBlob, forgetLineModel, getDrawings, getDrawingShapes, getLineModel3d, linePhysics, placeAddedRow, type Drawing, type LineModelEdits, type Model3D, type PhysicsInfo, type PhysicsSource } from '../../api/drawings';
+import { blobAsText, downloadDrawing, fetchDrawingBlob, forgetLineModel, getDrawings, getDrawingShapes, getLineModel3d, linePhysics, lineReview, placeAddedRow, type Drawing, type LineModelEdits, type Model3D, type PhysicsInfo, type PhysicsSource, type ReviewInfo, type ReviewSource } from '../../api/drawings';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { editsWords } from '../../lib/model3d';
 import ScienceRounded from '@mui/icons-material/ScienceRounded';
+import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 import { litMark, selectionFacts, settleScope, thicknessFromName, type Part3D, type Scope3D, type Selection3D } from '../../lib/model3d';
 import { partOfView, pickShape, shapeFacts, shapePath, shapesOf, type Shape, type ShapeFacts } from '../../lib/dxfPick';
 
 // three.js only loads when someone opens the 3D view.
 const Model3DView = lazy(() => import('./Model3DView'));
 const PhysicsView = lazy(() => import('./PhysicsView'));
+const ReviewView = lazy(() => import('./ReviewView'));
 import { getDesignUses, type DesignUses } from '../../api/links';
 import { piecesWords } from '../../lib/links';
 import { DesignUsesDialog } from './DesignUsesDialog';
@@ -327,10 +329,12 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels, selected, r
   );
 }
 
-export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false, fetchFile, downloadFile, loadModel, modelKey, readFacts, physics }: {
+export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false, fetchFile, downloadFile, loadModel, modelKey, readFacts, physics, review }: {
   onClose: () => void;
   /** Where the structure's physics view comes from when it is not an order line's (a standard's); a line's is read by default. */
   physics?: PhysicsSource;
+  /** Where the structure's drawing review comes from when it is not an order line's (a standard's); a line's is read by default. */
+  review?: ReviewSource;
   /**
    * Where the 3D model comes from when it is not an order line's (a standard drawing's), with `modelKey` naming it so
    * it is read once. Without it the line's model is read (GET …/lines/:lineId/model3d) when there is a line.
@@ -384,7 +388,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   // THE PHYSICS VIEW of the structure (components/Drawings/PhysicsView.tsx): offered when one was run for it.
   const physicsSrc = useMemo(() => physics ?? (lineId > 0 ? linePhysics(orderId, lineId) : null), [physics, orderId, lineId]);
   const [physicsInfo, setPhysicsInfo] = useState<PhysicsInfo | null>(null);
-  const [modePhysics, setModePhysics] = useState(false);
+  // THE DRAWING REVIEW (components/Drawings/ReviewView.tsx): offered when one is kept for the structure. Physics and the review
+  // each take the whole view in place of the drawing, one at a time.
+  const reviewSrc = useMemo(() => review ?? (lineId > 0 ? lineReview(orderId, lineId) : null), [review, orderId, lineId]);
+  const [reviewInfo, setReviewInfo] = useState<ReviewInfo | null>(null);
+  const [overlay, setOverlay] = useState<'physics' | 'review' | null>(null);
+  const modePhysics = overlay === 'physics'; const modeReview = overlay === 'review'; const modeOverlay = overlay != null;
   useEffect(() => {
     let live = true;
     setPhysicsInfo(null);
@@ -392,6 +401,13 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [physicsSrc?.key]);
+  useEffect(() => {
+    let live = true;
+    setReviewInfo(null);
+    reviewSrc?.info().then((i) => { if (live && typeof i?.fileId === 'number') setReviewInfo(i); }).catch(() => { /* none kept: no button */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewSrc?.key]);
   // A plate part in 3D: its outline (from this drawing, else the line's drawings) and its thickness. Read once, on the
   // first 3D click; a DXF that is not a plate part (a level's drawing) has none.
   const [part, setPart] = useState<Part3D | null | 'loading' | 'none'>(null);
@@ -693,7 +709,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 3, pb: 1, minHeight: 36, flexWrap: 'wrap' }}>
         {(model || canPart) && (
           <ToggleButtonGroup size="small" exclusive value={mode3d ? '3d' : '2d'} aria-label="3D or 2D" sx={{ mr: 0.5 }}
-            onChange={(_, v) => { if (!v) return; setModePhysics(false); if (v === '3d') { if (!mode3d) void loadPart(); setPick3d(true); } else setPick3d(false); }}>
+            onChange={(_, v) => { if (!v) return; setOverlay(null); if (v === '3d') { if (!mode3d) void loadPart(); setPick3d(true); } else setPick3d(false); }}>
             <ToggleButton value="3d" data-testid="viewer-3d-toggle" sx={{ textTransform: 'none' }}><ViewInArRounded sx={{ fontSize: 18, mr: 0.5 }} />3D</ToggleButton>
             <ToggleButton value="2d" data-testid="viewer-2d-toggle" sx={{ textTransform: 'none' }}>2D drawing</ToggleButton>
           </ToggleButtonGroup>
@@ -721,8 +737,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             <ToggleButton value="file" data-testid="viewer-source-file">Customer sheet</ToggleButton>
           </ToggleButtonGroup>
         )}
+        {reviewInfo && (
+          <Button size={large ? 'large' : 'small'} variant={modeReview ? 'contained' : 'outlined'} startIcon={<FactCheckRounded />} onClick={() => setOverlay((x) => (x === 'review' ? null : 'review'))}
+            data-testid="viewer-review-toggle" aria-pressed={modeReview} sx={{ mr: 0.5 }}>{modeReview ? 'Back to the drawing' : 'Review'}</Button>
+        )}
         {physicsInfo && (
-          <Button size={large ? 'large' : 'small'} variant={modePhysics ? 'contained' : 'outlined'} startIcon={<ScienceRounded />} onClick={() => setModePhysics((x) => !x)}
+          <Button size={large ? 'large' : 'small'} variant={modePhysics ? 'contained' : 'outlined'} startIcon={<ScienceRounded />} onClick={() => setOverlay((x) => (x === 'physics' ? null : 'physics'))}
             data-testid="viewer-physics-toggle" aria-pressed={modePhysics}>{modePhysics ? 'Back to the drawing' : 'Physics'}</Button>
         )}
         {ib('Details', <ViewSidebarRounded fontSize={iconSize} />, () => setStrip((x) => !x), { testid: 'viewer-strip-toggle', pressed: strip, text: strip ? 'Hide the details' : 'Show the details', sx: { color: strip ? 'var(--c-primary-700)' : 'var(--c-text-2)' } })}
@@ -734,10 +754,15 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             <PhysicsView source={physicsSrc} info={physicsInfo} />
           </Suspense>
         )}
-        {pick3d === null && !modePhysics && (
+        {modeReview && reviewInfo && reviewSrc && (
+          <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the review…</Box>}>
+            <ReviewView source={reviewSrc} info={reviewInfo} />
+          </Suspense>
+        )}
+        {pick3d === null && !modeOverlay && (
           <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Reading the 3D model…</Box>
         )}
-        {mode3d && !modePhysics && (
+        {mode3d && !modeOverlay && (
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', background: 'var(--c-surface-2)' }}>
             {part === 'loading' || (!model && part === null && loaded.state === 'loading') ? (
               <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Reading the part’s shape…</Box>
@@ -752,7 +777,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             )}
           </Box>
         )}
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d || modePhysics || pick3d === null ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', display: mode3d || modeOverlay || pick3d === null ? 'none' : 'flex', background: 'var(--c-surface-2)' }}>
           {(showModel ? !view : loaded.state === 'loading') && (
             <Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}>
               <CircularProgress size={18} /> {showModel ? 'Drawing it from the model…' : 'Loading the drawing…'}
@@ -800,7 +825,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
             </Box>
           )}
         </Box>
-        {strip && !modePhysics && (
+        {strip && !modeOverlay && (
           <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} readFacts={readFacts} inModel={inModel}
             selected={mode3d
               ? sel3d && <Selected3D sel={sel3d} scope={scope3d} onScope={setScopePick} allOfMark={allOfMark} onAllOfMark={setAllOfMark} onClear={() => onPick3d(null)}

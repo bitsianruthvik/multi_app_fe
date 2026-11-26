@@ -1,4 +1,4 @@
-import { cfApi, LONG_WRITE_MS } from './client';
+import { cfApi, LONG_WRITE_MS, qs } from './client';
 import { expandModel, type ModelFile } from '../lib/modelDrawing';
 
 /** Drawings (DXF or PDF) for any row of an order line, on its Structure tab — the contract with the server's drawings routes. */
@@ -325,3 +325,20 @@ export const standardPhysics = (standardId: number): PhysicsSource => ({
   info: () => cfApi.get<PhysicsInfo>(`/standard-drawings/${standardId}/physics`),
   page: () => cfApi.getBlob(`/standard-drawings/${standardId}/physics/page`, { timeoutMs: LONG_WRITE_MS }).then(utf8),
 });
+
+/**
+ * THE DRAWING REVIEW kept with a structure (backend reviewService; user, 2026-11-26: "we should be able to see the part by part
+ * comparison and all of those screens we build in the image viewer"): its facts, and its files — the page, its data and each
+ * image (a crop of the customer's sheet), asked one by one as the page needs them.
+ */
+export interface ReviewSummary { designs?: number; red?: number; amber?: number; green?: number; questions?: number; engineer?: number; checklist?: number; attention?: number }
+export interface ReviewInfo { fileId: number; savedAt: string; set: string | null; built: string | null; summary: ReviewSummary | null; stale: boolean }
+export interface ReviewSource { info: () => Promise<ReviewInfo>; text: (name: 'index.html' | 'data.json') => Promise<string>; image: (path: string) => Promise<Blob>; key: string }
+const reviewSource = (base: string, key: string): ReviewSource => ({
+  key,
+  info: () => cfApi.get<ReviewInfo>(base),
+  text: (name) => cfApi.getBlob(`${base}/file${qs({ name })}`, { timeoutMs: LONG_WRITE_MS }).then(utf8),
+  image: (path) => cfApi.getBlob(`${base}/file${qs({ name: path })}`, { timeoutMs: LONG_WRITE_MS }),
+});
+export const lineReview = (orderId: number, lineId: number): ReviewSource => reviewSource(`/orders/${orderId}/lines/${lineId}/review`, `line:${orderId}:${lineId}`);
+export const standardReview = (standardId: number): ReviewSource => reviewSource(`/standard-drawings/${standardId}/review`, `standard:${standardId}`);
