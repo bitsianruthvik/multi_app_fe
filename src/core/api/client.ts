@@ -115,7 +115,7 @@ export async function apiFetchLines(
 ): Promise<void> {
   const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   const headers: Record<string, string> = {};
-  const token = localStorage.getItem("token");
+  const token = getToken();   // the sign-in of the company in the page's address, as apiFetch
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
