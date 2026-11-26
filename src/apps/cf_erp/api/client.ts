@@ -1,4 +1,4 @@
-import { apiFetch } from '@core/api/client';
+import { apiFetch, apiFetchLines } from '@core/api/client';
 
 /**
  * cf_erp API access. Every request still goes through the platform's
@@ -125,6 +125,40 @@ export function prefetchGet(path: string): void {
   answer.catch(() => { if (prefetched.get(path)?.answer === answer) prefetched.delete(path); });
   prefetched.set(path, { at: Date.now(), answer });
 }
+/**
+ * SEVERAL READS STARTED AS ONE STREAMED ANSWER (2026-11-26). `streamPath` answers JSON a line at a time, one line per
+ * part — { part, status, body } (the backend's routes/lineOpening.js) — each body exactly what the part's own endpoint
+ * answers. Every `path` gets a waiting answer now, kept as prefetchGet keeps one, and it is filled the moment its part
+ * arrives: a screen draws its section while the others are still on their way. A part that does not come with a 200
+ * (it failed on the server, the stream broke or timed out, or the server does not know the stream) is asked of its own
+ * endpoint instead — so a screen that already took the waiting answer still gets the real one, or the real error.
+ */
+type Waiting = { path: string; resolve: (v: unknown) => void; reject: (e: unknown) => void };
+export function prefetchParts(streamPath: string, parts: { part: string; path: string }[], { timeoutMs }: { timeoutMs?: number } = {}): void {
+  const now = Date.now();
+  const waiting = new Map<string, Waiting>();
+  for (const { part, path } of parts) {
+    const kept = prefetched.get(path);
+    if (kept && now - kept.at < PREFETCH_KEEP_MS) continue;
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const answer = new Promise<unknown>((res, rej) => { resolve = res; reject = rej; });
+    answer.catch(() => { if (prefetched.get(path)?.answer === answer) prefetched.delete(path); });
+    prefetched.set(path, { at: now, answer });
+    waiting.set(part, { path, resolve, reject });
+  }
+  if (!waiting.size) return;
+  const askOwn = (w: Waiting) => { call<unknown>('GET', w.path).then(w.resolve, w.reject); };
+  const rest = () => { for (const w of waiting.values()) askOwn(w); waiting.clear(); };
+  apiFetchLines(`${base()}${streamPath}`, (line) => {
+    const m = (line ?? {}) as { part?: string; status?: number; body?: unknown };
+    const w = m.part != null ? waiting.get(m.part) : undefined;
+    if (!w || m.part == null) return;
+    waiting.delete(m.part);
+    if (m.status === 200 && 'body' in m) w.resolve(m.body); else askOwn(w);
+  }, timeoutMs ? { timeout: timeoutMs } : {}).then(rest, rest);
+}
+
 function takePrefetched<T>(path: string): Promise<T> | null {
   const kept = prefetched.get(path);
   if (!kept) return null;

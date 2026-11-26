@@ -5,6 +5,7 @@
 
 export {
   apiFetch,
+  apiFetchLines,
   apiGet,
   apiPost,
   apiPut,

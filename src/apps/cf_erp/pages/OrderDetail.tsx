@@ -10,8 +10,8 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { NewMrDialog } from '../components/Stores/NewMrDialog';
-import { cfApi, CfApiError, LONG_WRITE_MS, prefetchGet, qs } from '../api/client';
-import { lineReadPaths } from '../api/linePrefetch';
+import { cfApi, CfApiError, LONG_WRITE_MS, prefetchGet, prefetchParts, qs } from '../api/client';
+import { lineOpeningPath, lineReadParts, lineStructurePath } from '../api/linePrefetch';
 import { openGroupsAtStart, readOpenGroups } from '../lib/orderStructure';
 import { lineLock } from '../api/lock';
 import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStage, OrderStatus, Party, ReleaseSummary, SalesOrder } from '../api/types';
@@ -296,8 +296,10 @@ export default function OrderDetail() {
   /*
    * WHILE THE PROCESS IS STILL BEING READ (speed, 2026-11-09). A link that names Structure & values draws it at once
    * (below). A link that names no tab lands where the process says — most often that same step — so the reads its open
-   * lines will make (values, drawings, codes, banners: reads only, never the structure itself, which may choose
-   * selections) are started now, beside /process, and the screens take those answers (api/client prefetchGet).
+   * lines will make (values, drawings, codes, banners) are started now, beside /process, and the screens take those
+   * answers (api/client prefetchGet). Since 2026-11-26 those reads go as ONE streamed request per line, each part
+   * handed to its screen as it arrives (api/linePrefetch, prefetchParts), and the structure — which the grid waits for —
+   * is started beside them instead of after the process (its read may choose selections: see lineStructurePath).
    */
   const prefetchFor = !o || view || processView.error || asked ? null : o;
   useEffect(() => {
@@ -306,7 +308,9 @@ export default function OrderDetail() {
     const open = readOpenGroups(prefetchFor.id) ?? openGroupsAtStart(ls);
     for (const l of ls) {
       if (l.lineType !== 'custom' || !l.item || !open.has(l.id)) continue;
-      for (const path of lineReadPaths(prefetchFor.id, l.id, { hasStandard: !!l.standard })) prefetchGet(path);
+      prefetchGet(lineStructurePath(l.id));
+      const parts = lineReadParts(prefetchFor.id, l.id, { hasStandard: !!l.standard });
+      prefetchParts(lineOpeningPath(prefetchFor.id, l.id, parts), parts);
     }
   }, [prefetchFor]);
 

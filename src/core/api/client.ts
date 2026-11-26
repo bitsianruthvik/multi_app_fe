@@ -103,6 +103,67 @@ export async function apiFetch<T = any>(
 }
 
 /**
+ * A GET whose answer is JSON a line at a time (application/x-ndjson): `onLine` gets each line, parsed, the moment it
+ * arrives — so a screen can draw one part of a long answer while the server still works on the rest. Same base URL,
+ * token and cookies as apiFetch. Resolves when the answer has ended; rejects on a non-2xx answer, a network failure or
+ * the timeout (the lines already handed over stay handed over). A line that is not JSON is skipped.
+ */
+export async function apiFetchLines(
+  endpoint: string,
+  onLine: (line: unknown) => void,
+  { timeout = 30000 }: { timeout?: number } = {},
+): Promise<void> {
+  const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const headers: Record<string, string> = {};
+  const token = localStorage.getItem("token");
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const take = (text: string) => {
+    if (!text.trim()) return;
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return; }
+    onLine(parsed);
+  };
+  try {
+    const response = await fetch(`${API_BASE_URL}${normalizedEndpoint}`, {
+      method: "GET",
+      headers,
+      signal: controller.signal,
+      credentials: "include",
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+    if (!response.body) {
+      for (const text of (await response.text()).split("\n")) take(text);
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let at = pending.indexOf("\n");
+      while (at >= 0) {
+        take(pending.slice(0, at));
+        pending = pending.slice(at + 1);
+        at = pending.indexOf("\n");
+      }
+    }
+    take(pending + decoder.decode());
+  } catch (error: any) {
+    if (error?.name === "AbortError") throw new Error(`API request timed out after ${timeout}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * GET request helper
  */
 export async function apiGet<T = any>(
