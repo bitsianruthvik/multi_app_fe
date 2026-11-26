@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import {
-  useEffect, useImperativeHandle, useMemo, useRef, useState,
-  type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref,
+  isValidElement, memo, useEffect, useImperativeHandle, useMemo, useRef, useState,
+  type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject,
 } from 'react';
 import { Alert, Box, IconButton, Typography, useMediaQuery } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
@@ -189,7 +189,6 @@ type HistoryItem = { rowKey: string; colKey: string; before: string; after: stri
 const HISTORY_LIMIT = 50;
 
 type Point = { row: number; col: number };
-const same = (a: Point | null, b: Point) => a?.row === b.row && a.col === b.col;
 const INTERACTIVE = 'button, input, select, a, [draggable="true"]';
 const optionValue = (o: SheetOption) => (typeof o === 'string' ? o : o.value);
 const optionLabel = (o: SheetOption) => (typeof o === 'string' ? o : o.label || o.value);
@@ -241,6 +240,143 @@ export const SHEET_GRID_NARROW_QUERY = '(max-width:599.95px)';
 export const SHEET_GRID_HINT = 'Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Esc cancels · Ctrl+C / Ctrl+V copy and paste · Ctrl+D / Ctrl+R fill down / right · Ctrl+Z undo · Shift-click or drag selects a block';
 
 const HEAD_MIN = 160, HEAD_MAX = 900;
+
+/*
+ * THE CELLS OF A ROW (speed, 2026-11-26: the order page's 278-row BOM spent ~8 s drawing). Two things made a big grid
+ * slow: every cell was an MUI Box with its own style object (thousands of styles worked out on each draw), and the
+ * whole grid redrew for any change — a click, a flash, one value arriving. Now a cell is a plain <td> whose look comes
+ * from the table's own rules, keyed on data attributes (tone, can, na, aria-selected, data-anchor …), and a row's
+ * cells are one memoised piece that redraws only when what it shows changed: its cells' contents, its part of the
+ * selection, its editor or its flash. Its handlers go through `api`, refreshed on every draw of the grid, so a row
+ * that did not redraw never acts on old state.
+ */
+type CellAt = { row: number; col: number };
+interface CellApi {
+  click: (e: ReactMouseEvent<HTMLElement>, at: CellAt, rowKey: string, colKey: string) => void;
+  pointerDown: (e: ReactPointerEvent<HTMLElement>, at: CellAt) => void;
+  mouseDown: (e: ReactMouseEvent<HTMLElement>) => void;
+  doubleClick: (e: ReactMouseEvent<HTMLElement>, at: CellAt) => void;
+  pointerEnter: (e: ReactPointerEvent<HTMLElement>, at: CellAt) => void;
+  keyDown: (e: KeyboardEvent<HTMLElement>, at: CellAt) => void;
+  /** The open editor of this cell (only asked while it is open). */
+  editor: (at: CellAt, cell: SheetCell, label: string, align: 'left' | 'right' | undefined) => ReactNode;
+  isDropdown: (c: SheetCell) => boolean;
+  writable: (c: SheetCell) => boolean;
+  selectRow: (rowKey: string) => void;
+  toggleRow: (rowKey: string) => void;
+}
+interface RowCellsProps {
+  api: RefObject<CellApi>;
+  r: number; rowKey: string; keys: string[]; cells: SheetCell[];
+  /** The column of each slot, and a signature of what is drawn from it (the comparison reads the signature). */
+  cols: (SheetColumn | undefined)[]; colSig: string;
+  /** Strip: each slot's width; wide: null (the column's own width, for the editor only). */
+  widths: number[] | null; slotCount: number; strip: boolean;
+  /** The selected slots of this row (-1 = none), the anchor's slot, whether this row holds the first tab stop. */
+  selFrom: number; selTo: number; anchorCol: number; firstTab: boolean;
+  /** The slot being edited (-1 = none) and its editor's text and mode, so typing redraws only this row. */
+  editCol: number; editSig: string;
+  /** The cells of this row that flash now, and which of the two flash names (a second write restarts it). */
+  flashKeys: string; flashOdd: boolean;
+}
+/** A mark (an override dot, a source icon) built afresh on every draw: the same when its type, key and drawn props are. Handlers are not compared. */
+function sameNode(a: unknown, b: unknown, depth = 0): boolean {
+  if (a === b) return true;
+  if (depth > 4 || a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameNode(x, b[i], depth + 1));
+  if (isValidElement(a) || isValidElement(b)) {
+    if (!isValidElement(a) || !isValidElement(b) || a.type !== b.type || a.key !== b.key) return false;
+    return sameProps(a.props as Record<string, unknown>, b.props as Record<string, unknown>, depth + 1);
+  }
+  return sameProps(a as Record<string, unknown>, b as Record<string, unknown>, depth + 1);
+}
+function sameProps(a: Record<string, unknown>, b: Record<string, unknown>, depth: number): boolean {
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    const x = a[k], y = b[k];
+    if (x === y || (typeof x === 'function' && typeof y === 'function')) continue;
+    if (!sameNode(x, y, depth)) return false;
+  }
+  return true;
+}
+const sameOptions = (a?: SheetOption[], b?: SheetOption[]) => a === b || (!!a && !!b && a.length === b.length && a.every((o, i) => optionValue(o) === optionValue(b[i]) && optionLabel(o) === optionLabel(b[i])));
+const sameCell = (a: SheetCell, b: SheetCell) => a === b || (a.text === b.text && a.editable === b.editable && a.why === b.why && a.tone === b.tone && a.kind === b.kind
+  && a.title === b.title && a.applies === b.applies && a.tint === b.tint && a.ink === b.ink && a.state === b.state && a.input === b.input
+  && sameOptions(a.options, b.options) && sameNode(a.mark, b.mark));
+const sameRowCells = (p: RowCellsProps, n: RowCellsProps) => p.api === n.api && p.r === n.r && p.rowKey === n.rowKey && p.colSig === n.colSig && p.strip === n.strip
+  && p.slotCount === n.slotCount && p.selFrom === n.selFrom && p.selTo === n.selTo && p.anchorCol === n.anchorCol && p.firstTab === n.firstTab
+  && p.editCol === n.editCol && p.editSig === n.editSig && p.flashKeys === n.flashKeys && p.flashOdd === n.flashOdd
+  && p.keys.length === n.keys.length && p.keys.every((k, i) => k === n.keys[i])
+  && (p.widths ?? []).join() === (n.widths ?? []).join()
+  && p.cells.length === n.cells.length && p.cells.every((c, i) => sameCell(c, n.cells[i]));
+
+/**
+ * A row's header (its frozen first cell). Memoised on the row's OWN nodes by identity: while only the grid's state
+ * changes (a selection, typing in a cell, a flash) the screen hands the very same nodes and the header is not drawn
+ * again; when the screen draws anew it hands new nodes and the header follows (so its buttons never keep old handlers).
+ */
+interface RowHeadProps { api: RefObject<CellApi>; r: number; row: SheetRow; anyCollapsible: boolean; rowHeight: number }
+const sameRowHead = (p: RowHeadProps, n: RowHeadProps) => p.api === n.api && p.r === n.r && p.anyCollapsible === n.anyCollapsible && p.rowHeight === n.rowHeight
+  && (p.row === n.row || (p.row.key === n.row.key && p.row.depth === n.row.depth && p.row.label === n.row.label && p.row.collapsible === n.row.collapsible
+    && p.row.collapsed === n.row.collapsed && p.row.header === n.row.header && p.row.lead === n.row.lead && p.row.trail === n.row.trail && p.row.below === n.row.below));
+const RowHead = memo(function RowHead({ api, r, row, anyCollapsible, rowHeight }: RowHeadProps) {
+  const below = row.below != null;
+  const indent = Math.min(row.depth ?? 0, 7) * 10;
+  return <td role="rowheader" data-cell={`${r}:0`} className="sg-rowhead" tabIndex={-1}
+    onClick={(e) => { if ((e.target as HTMLElement).closest(INTERACTIVE)) return; api.current.selectRow(row.key); }}>
+    <div style={below ? { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: 2, alignItems: 'center' } : { display: 'flex', alignItems: 'center', gap: 2 }}>
+      {below ? <div style={{ gridColumn: 1, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.lead}</div> : row.lead}
+      <div style={{ marginLeft: indent, display: 'flex', minWidth: 0, alignItems: 'center', flex: 1, ...(below ? { gridColumn: 2, gridRow: 1 } : {}) }}>
+        {anyCollapsible && <IconButton size="small" disabled={!row.collapsible} aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label ?? row.key}`}
+          onClick={() => api.current.toggleRow(row.key)} sx={{ width: 28, height: Math.max(20, rowHeight - 6), visibility: row.collapsible ? 'visible' : 'hidden' }}>
+          {row.collapsed ? <ChevronRightRounded fontSize="small" /> : <ExpandMoreRounded fontSize="small" />}
+        </IconButton>}
+        <div style={{ minWidth: 0, flex: 1 }}>{row.header}</div>
+      </div>
+      {row.trail != null && (below ? <div style={{ gridColumn: 3, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.trail}</div> : row.trail)}
+      {below && <div data-testid="sg-rowhead-below" style={{ gridColumn: '2 / 4', gridRow: 2, minWidth: 0, marginLeft: indent, paddingLeft: anyCollapsible ? 28 : 0 }}>{row.below}</div>}
+    </div>
+  </td>;
+}, sameRowHead);
+
+const RowCells = memo(function RowCells({ api, r, rowKey, keys, cells, cols, widths, slotCount, strip, selFrom, selTo, anchorCol, firstTab, editCol, flashKeys, flashOdd }: RowCellsProps) {
+  const flashed = flashKeys ? new Set(flashKeys.split('\u0001')) : null;
+  const tds = keys.map((key, c) => {
+    const at = { row: r, col: c }, col = cols[c], cell = cells[c], fns = api.current;
+    const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = fns.writable(cell), na = cell.applies === false;
+    const editing = editCol === c, active = selFrom >= 0 && c >= selFrom && c <= selTo;
+    const width = widths ? widths[c] : col?.width ?? 145;
+    const label = col?.label ?? key;
+    const stripName = strip && !blank ? `${col?.short ?? col?.label ?? key}${col?.unit ? ` ${col.unit}` : ''}` : undefined;
+    const twoLines = !!stripName && stripName.length > Math.floor((width - 20) / 4.9);
+    const dropdown = fns.isDropdown(cell) && can;
+    const style: Record<string, string | number> = {};
+    if (strip) { style.width = width; style.minWidth = width; style.maxWidth = width; }
+    if (col?.align === 'right') style.textAlign = 'right';
+    if (cell.ink) style.color = cell.ink;
+    if (cell.tint && !blank && !na) style.backgroundColor = cell.tint;
+    return <td key={strip ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={twoLines ? 2 : undefined}
+      className={`sg-data${flashed?.has(key) ? ` sg-cell-flash-${flashOdd ? 'a' : 'b'}` : ''}`} data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
+      data-can={can ? 'true' : undefined} data-anchor={anchorCol === c ? 'true' : undefined} data-editing={editing ? 'true' : undefined}
+      data-dropdown={dropdown ? 'true' : undefined}
+      tabIndex={anchorCol === c || (firstTab && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
+      title={`${twoLines ? `${stripName} — ` : ''}${na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}`}
+      onClick={(e) => api.current.click(e, at, rowKey, key)}
+      onPointerDown={(e) => api.current.pointerDown(e, at)}
+      onMouseDown={(e) => api.current.mouseDown(e)}
+      onDoubleClick={(e) => api.current.doubleClick(e, at)}
+      onPointerEnter={(e) => api.current.pointerEnter(e, at)}
+      onKeyDown={(e) => api.current.keyDown(e, at)}
+      style={style}>
+      {cell.mark != null && <span className="sg-mark" data-mark="">{cell.mark}</span>}
+      {/* A dropdown says so before it is opened. */}
+      {dropdown && !editing && <span className="sg-caret" aria-hidden data-caret="">▾</span>}
+      {editing ? fns.editor(at, cell, label, col?.align) : blank || na ? '' : cell.text || (can ? '' : '—')}
+    </td>;
+  });
+  return <>{tds}{keys.length < slotCount && <td className="sg-void" colSpan={slotCount - keys.length} />}</>;
+}, sameRowCells);
 
 export function SheetGrid({
   rows, columns, cellAt: cellAtRaw, onWrites, onSelectionChange, onToggleRow, onCellClick, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
@@ -482,7 +618,6 @@ export function SheetGrid({
     const a = anchor ?? { row: 0, col: 0 }, b = extent ?? a;
     return { top: Math.min(a.row, b.row), bottom: Math.max(a.row, b.row), left: Math.min(a.col, b.col), right: Math.max(a.col, b.col) };
   };
-  const selected = (at: Point) => { const b = bounds(); return !!anchor && at.row >= b.top && at.row <= b.bottom && at.col >= b.left && at.col <= b.right; };
   const focus = (at: Point) => table.current?.querySelector<HTMLElement>(`[data-cell="${at.row}:${at.col + 1}"]`)?.focus();
   const choose = (at: Point, extend = false) => { if (!extend || !anchor) setAnchor(at); setExtent(at); };
   const go = (next: Point | null, extend = false) => { if (next) { choose(next, extend); focus(next); } };
@@ -713,80 +848,58 @@ export function SheetGrid({
   const slotWidths = stripKeys ? Array.from({ length: slotCount }, (_, i) => Math.max(...stripKeys.map((ks) => (ks[i] ? widthOf(ks[i]) : 0)), 40)) : [];
   const hasEditable = () => rows.some((r) => (rowColumns ? rowColumns(r.key) : allKeys).some((k) => colByKey.has(k) && cellAtRaw(r.key, k).editable));
 
-  const dataCell = (row: SheetRow, r: number, c: number) => {
-    const at = { row: r, col: c }, key = keyAt(at) as string, col = colByKey.get(key) as SheetColumn;
-    const cell = cellOf(at), editing = same(editor?.at ?? null, at), active = selected(at);
-    const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell), na = isNa(cell);
-    const width = stripKeys ? slotWidths[c] : col.width ?? 145;
-    const label = labelOf(key);
-    const stripName = stripKeys && !blank ? `${col.short ?? col.label ?? key}${col.unit ? ` ${col.unit}` : ''}` : undefined;
-    const twoLines = !!stripName && stripName.length > Math.floor((width - 20) / 4.9);
-    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={stripName && stripName.length > Math.floor((width - 20) / 4.9) ? 2 : undefined} className={`sg-data${flashClass(flash.cells.has(`${row.key}\u0001${key}`), 'cell')}`} data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
-      data-dropdown={isDropdown(cell) && can ? 'true' : undefined}
-      tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
-      title={`${twoLines ? `${stripName} — ` : ''}${na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}`}
-      onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); if (!e.shiftKey) onCellClick?.(row.key, key); }}
-      onPointerDown={(e) => { if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, select, a')) return; if (e.shiftKey) e.preventDefault(); /* shift-click extends the cell range, not a text selection across the page */ selecting.current = true; choose(at, e.shiftKey); }}
-      onMouseDown={(e) => { if (e.shiftKey && !(e.target as HTMLElement).closest('button, input, select, a')) e.preventDefault(); }}
-      onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button, input, select, a')) begin(at); }}
-      onPointerEnter={(e) => { if (e.buttons === 1 && selecting.current && !editor && anchor) setExtent(at); }}
-      onKeyDown={(e) => { if (!(e.target as HTMLElement).closest('input, select, button')) onKey(e, at); }}
-      style={stripKeys ? { width, minWidth: width, maxWidth: width } : undefined}
-      sx={{ cursor: 'cell', textAlign: col.align ?? 'left',
-        ...(na ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--c-text-3) 16%, transparent) 5px 6px)' } : {}),
-        color: cell.ink ?? (tone === 'muted' || (!can && tone !== 'strong') ? 'var(--c-text-3)' : 'var(--c-text)'),
-        fontWeight: tone === 'strong' ? 600 : undefined,
-        background: active ? 'var(--c-primary-50) !important' : na ? 'var(--c-surface-3)' : cell.tint && !blank ? cell.tint : tone === 'warning' ? 'var(--c-warning-50)' : blank ? 'var(--c-surface)' : can || tone === 'muted' || tone === 'strong' ? 'var(--c-surface)' : 'var(--c-surface-2)',
-        ...(blank ? { borderRightColor: 'transparent', borderBottomColor: 'transparent' } : {}),
-        outline: same(anchor, at) ? '2px solid var(--c-primary-600)' : undefined,
-        ...(isDropdown(cell) && can && !editing ? { pr: 2.25 } : {}),
-        ...(stripKeys && !blank ? {
-          pt: twoLines ? '25px' : '13px', pb: '3px', verticalAlign: 'bottom',
-          // Strip: the cell names itself — a small muted label inside the box, the value below — so no row of column headings is needed.
-          // A pseudo-element, so the cell's own text stays just its value (copy, tests and readers see the value).
-          '&::before': { content: 'attr(data-name)', position: 'absolute', top: 2, left: 6, right: 14, fontSize: 9.5, lineHeight: 1.1, color: 'var(--c-text-3)', fontWeight: 400, fontFamily: 'var(--font-ui)', pointerEvents: 'none', textAlign: 'left',
-            // A long name goes onto a second line (then an ellipsis; the cell's tooltip carries the whole name).
-            whiteSpace: 'normal', overflowWrap: 'anywhere', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, lineClamp: 2, overflow: 'hidden' },
-        } : {}),
-      }}>
-      {cell.mark != null && <Box component="span" data-mark="" sx={{ position: 'absolute', top: 2, right: 2, lineHeight: 0, fontSize: 8, pointerEvents: 'none' }}>{cell.mark}</Box>}
-      {/* A dropdown says so before it is opened. */}
-      {isDropdown(cell) && can && !editing && <Box component="span" aria-hidden data-caret="" sx={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--c-text-3)', pointerEvents: 'none' }}>▾</Box>}
-      {editing && editor ? <Box
-        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
-        onKeyDown={(e) => onEditorKey(e, at, cell)}>
-        {cell.kind === 'option' || cell.kind === 'bool'
-          ? <select autoFocus value={editor.text} aria-label={label} onChange={(e) => setEditor({ ...editor, text: e.target.value })} style={{ width: '100%', minHeight: stripKeys ? 20 : 28 }}
-            ref={(el) => {
-              if (!el || !wantPicker.current) return;
-              wantPicker.current = false;
-              // Opens the list where the browser allows it (needs the key press's activation); elsewhere the arrows still choose.
-              try { (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.(); } catch { /* not allowed here — the select stays focused */ }
-            }}
-            onKeyDown={cell.kind === 'option' ? (e) => {
-              // Typing picks the forgiving match ("BO" → "BO — no impact test"); Enter then commits it.
-              if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) { typed.current = ''; return; }
-              e.preventDefault(); typed.current += e.key;
-              if (typedTimer.current) clearTimeout(typedTimer.current);
-              typedTimer.current = setTimeout(() => { typed.current = ''; }, 1200);
-              const o = typeAhead(cell.options, typed.current);
-              if (o) setEditor({ ...editor, text: optionValue(o) });
-            } : (e) => {
-              if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
-              e.preventDefault();
-              if (/^[yt1]$/i.test(e.key)) setEditor({ ...editor, text: 'true' });
-              else if (/^[nf0]$/i.test(e.key)) setEditor({ ...editor, text: 'false' });
-            }}>
-            <option value="" />
-            {cell.kind === 'bool' ? <><option value="true">Yes</option><option value="false">No</option></>
-              : cell.options?.map((o) => <option key={optionValue(o)} value={optionValue(o)}>{optionLabel(o)}</option>)}
-          </select>
-          : <input autoFocus type={cell.kind === 'date' ? 'date' : 'text'} inputMode={cell.kind === 'number' ? 'decimal' : undefined} aria-label={label}
-            value={editor.text} onChange={(e) => setEditor({ ...editor, text: e.target.value })}
-            style={{ width: '100%', minHeight: stripKeys ? 20 : 28, boxSizing: 'border-box', font: 'inherit', color: 'var(--c-text)', background: 'var(--c-surface)', border: 0, outline: 0, textAlign: col.align ?? 'left' }} />}
-      </Box> : blank || na ? '' : cell.text || (can ? '' : '—')}
-    </Box>;
+  // The rows' cells (RowCells, above) call back through this, refreshed on every draw.
+  const cellApi = useRef<CellApi>(null as unknown as CellApi);
+  cellApi.current = {
+    isDropdown, writable,
+    selectRow: (rowKey) => selectRow(rowKey),
+    toggleRow: (rowKey) => { toggledAt.current = Date.now(); onToggleRow?.(rowKey); },
+    click: (e, at, rowKey, key) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); if (!e.shiftKey) onCellClick?.(rowKey, key); },
+    // shift-click extends the cell range, not a text selection across the page
+    pointerDown: (e, at) => { if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, select, a')) return; if (e.shiftKey) e.preventDefault(); selecting.current = true; choose(at, e.shiftKey); },
+    mouseDown: (e) => { if (e.shiftKey && !(e.target as HTMLElement).closest('button, input, select, a')) e.preventDefault(); },
+    doubleClick: (e, at) => { if (!(e.target as HTMLElement).closest('button, input, select, a')) begin(at); },
+    pointerEnter: (e, at) => { if (e.buttons === 1 && selecting.current && !editor && anchor) setExtent(at); },
+    keyDown: (e, at) => { if (!(e.target as HTMLElement).closest('input, select, button')) onKey(e, at); },
+    editor: (at, cell, label, align) => !editor ? null : <div
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
+      onKeyDown={(e) => onEditorKey(e, at, cell)}>
+      {cell.kind === 'option' || cell.kind === 'bool'
+        ? <select autoFocus value={editor.text} aria-label={label} onChange={(e) => setEditor({ ...editor, text: e.target.value })} style={{ width: '100%', minHeight: stripKeys ? 20 : 28 }}
+          ref={(el) => {
+            if (!el || !wantPicker.current) return;
+            wantPicker.current = false;
+            // Opens the list where the browser allows it (needs the key press's activation); elsewhere the arrows still choose.
+            try { (el as HTMLSelectElement & { showPicker?: () => void }).showPicker?.(); } catch { /* not allowed here — the select stays focused */ }
+          }}
+          onKeyDown={cell.kind === 'option' ? (e) => {
+            // Typing picks the forgiving match ("BO" → "BO — no impact test"); Enter then commits it.
+            if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) { typed.current = ''; return; }
+            e.preventDefault(); typed.current += e.key;
+            if (typedTimer.current) clearTimeout(typedTimer.current);
+            typedTimer.current = setTimeout(() => { typed.current = ''; }, 1200);
+            const o = typeAhead(cell.options, typed.current);
+            if (o) setEditor({ ...editor, text: optionValue(o) });
+          } : (e) => {
+            if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+            e.preventDefault();
+            if (/^[yt1]$/i.test(e.key)) setEditor({ ...editor, text: 'true' });
+            else if (/^[nf0]$/i.test(e.key)) setEditor({ ...editor, text: 'false' });
+          }}>
+          <option value="" />
+          {cell.kind === 'bool' ? <><option value="true">Yes</option><option value="false">No</option></>
+            : cell.options?.map((o) => <option key={optionValue(o)} value={optionValue(o)}>{optionLabel(o)}</option>)}
+        </select>
+        : <input autoFocus type={cell.kind === 'date' ? 'date' : 'text'} inputMode={cell.kind === 'number' ? 'decimal' : undefined} aria-label={label}
+          value={editor.text} onChange={(e) => setEditor({ ...editor, text: e.target.value })}
+          style={{ width: '100%', minHeight: stripKeys ? 20 : 28, boxSizing: 'border-box', font: 'inherit', color: 'var(--c-text)', background: 'var(--c-surface)', border: 0, outline: 0, textAlign: align ?? 'left' }} />}
+    </div>,
   };
+  // The flashing cells by row (few at a time), for each row's piece.
+  const flashByRow = new Map<string, string[]>();
+  for (const k of flash.cells) { const [rk, ck] = k.split('\u0001'); flashByRow.set(rk, [...(flashByRow.get(rk) ?? []), ck]); }
+  const selBounds = anchor ? bounds() : null;
+  const colSigOf = (keys: string[]) => keys.map((k) => { const c = colByKey.get(k); return c ? `${k}|${c.short ?? ''}|${c.label ?? ''}|${c.unit ?? ''}|${c.align ?? ''}|${c.width ?? ''}` : k; }).join('\u0002');
 
   const resizeHandle = resizableRowHeader ? <Box component="span" role="separator" aria-orientation="vertical" aria-label="Drag to resize the first column (double-click resets)" title="Drag to resize · double-click to reset" data-testid="sheet-grid-resize"
     onPointerDown={dragHead} onDoubleClick={resetHead} onClick={(e) => e.stopPropagation()}
@@ -822,6 +935,29 @@ export function SheetGrid({
           // A faint row emphasis on hover, on the cells that apply only; the hatched ones stay low.
           '& tbody tr:hover td.sg-data:not([data-na="true"])': { backgroundImage: 'linear-gradient(color-mix(in srgb, var(--c-primary-600) 6%, transparent), color-mix(in srgb, var(--c-primary-600) 6%, transparent))' },
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
+          // A cell's look, from its data attributes (RowCells): one set of rules for the whole table instead of a style per
+          // cell. Later rules win, so the order is the old precedence: selected > does not apply > tint (inline) > warning >
+          // blank > can be typed / computed / typed over > read-only. Drawn exactly as the per-cell styles were (2026-11-26):
+          // their hatching of a cell that does not apply and the borderless blank cell never showed (a later background and
+          // the table's own border rule won), so they are not drawn here either.
+          '& td.sg-data': { cursor: 'cell', textAlign: 'left', color: 'var(--c-text-3)', backgroundColor: 'var(--c-surface-2)' },
+          '& td.sg-data[data-can="true"]': { color: 'var(--c-text)', backgroundColor: 'var(--c-surface)' },
+          '& td.sg-data[data-tone="muted"]': { color: 'var(--c-text-3)', backgroundColor: 'var(--c-surface)' },
+          '& td.sg-data[data-tone="strong"]': { color: 'var(--c-text)', fontWeight: 600, backgroundColor: 'var(--c-surface)' },
+          '& td.sg-data[data-tone="blank"]': { backgroundColor: 'var(--c-surface)' },
+          '& td.sg-data[data-tone="warning"]': { backgroundColor: 'var(--c-warning-50)' },
+          '& td.sg-data[data-na="true"]': { backgroundColor: 'var(--c-surface-3)' },
+          '& td.sg-data[aria-selected="true"]': { background: 'var(--c-primary-50) !important' },
+          '& td.sg-data[data-anchor="true"]': { outline: '2px solid var(--c-primary-600)' },
+          // Strip: the cell names itself — a small muted label inside the box, the value below — so no row of column headings is needed.
+          // A pseudo-element, so the cell's own text stays just its value (copy, tests and readers see the value).
+          '& td.sg-data[data-name]': { pt: '13px', pb: '3px', verticalAlign: 'bottom' },
+          '& td.sg-data[data-name][data-label-lines="2"]': { pt: '25px' },
+          '& td.sg-data[data-name]::before': { content: 'attr(data-name)', position: 'absolute', top: 2, left: 6, right: 14, fontSize: 9.5, lineHeight: 1.1, color: 'var(--c-text-3)', fontWeight: 400, fontFamily: 'var(--font-ui)', pointerEvents: 'none', textAlign: 'left',
+            // A long name goes onto a second line (then an ellipsis; the cell's tooltip carries the whole name).
+            whiteSpace: 'normal', overflowWrap: 'anywhere', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, lineClamp: 2, overflow: 'hidden' },
+          '& .sg-mark': { position: 'absolute', top: 2, right: 2, lineHeight: 0, fontSize: 8, pointerEvents: 'none' },
+          '& .sg-caret': { position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--c-text-3)', pointerEvents: 'none' },
           // Strip: the labels are quiet — small, muted, no box of their own — and the space past a row's last cell is nothing.
           '& td.sg-void': { borderRightColor: 'transparent', borderBottomColor: 'transparent', background: 'var(--c-surface)' },
           // Motion (see showFlash): two names so a second write inside the flash restarts it.
@@ -846,28 +982,18 @@ export function SheetGrid({
         </tr></thead>
         <tbody>{rows.map((row, r) => {
           const extra = rowProps?.(row.key);
-          const len = keysOf(r).length;
+          const keys = keysOf(r);
           const fresh = flashClass(flash.rows.has(row.key), 'row');
           const tr = <Box component="tr" key={row.key} aria-level={(row.depth ?? 0) + 1} aria-expanded={row.collapsible ? !row.collapsed : undefined} {...extra}
             className={fresh ? `${extra?.className ?? ''}${fresh}`.trim() : extra?.className}
             sx={rowSx?.(row.key)} data-row={row.key}>
-            <Box component="td" role="rowheader" data-cell={`${r}:0`} className="sg-rowhead" tabIndex={-1}
-              onClick={(e) => { if ((e.target as HTMLElement).closest(INTERACTIVE)) return; selectRow(row.key); }}>
-              <Box sx={row.below != null ? { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '2px', alignItems: 'center' } : { display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                {row.below != null ? <Box sx={{ gridColumn: 1, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.lead}</Box> : row.lead}
-                <Box sx={{ ml: Math.min(row.depth ?? 0, 7) * 1.25, display: 'flex', minWidth: 0, alignItems: 'center', flex: 1, ...(row.below != null ? { gridColumn: 2, gridRow: 1 } : {}) }}>
-                  {anyCollapsible && <IconButton size="small" disabled={!row.collapsible} aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label ?? row.key}`}
-                    onClick={() => { toggledAt.current = Date.now(); onToggleRow?.(row.key); }} sx={{ width: 28, height: Math.max(20, rowHeight - 6), visibility: row.collapsible ? 'visible' : 'hidden' }}>
-                    {row.collapsed ? <ChevronRightRounded fontSize="small" /> : <ExpandMoreRounded fontSize="small" />}
-                  </IconButton>}
-                  <Box sx={{ minWidth: 0, flex: 1 }}>{row.header}</Box>
-                </Box>
-                {row.trail != null && (row.below != null ? <Box sx={{ gridColumn: 3, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.trail}</Box> : row.trail)}
-                {row.below != null && <Box data-testid="sg-rowhead-below" sx={{ gridColumn: '2 / 4', gridRow: 2, minWidth: 0, ml: Math.min(row.depth ?? 0, 7) * 1.25, pl: anyCollapsible ? '28px' : 0 }}>{row.below}</Box>}
-              </Box>
-            </Box>
-            {Array.from({ length: len }, (_, c) => dataCell(row, r, c))}
-            {len < slotCount && <td className="sg-void" colSpan={slotCount - len} />}
+            <RowHead api={cellApi} r={r} row={row} anyCollapsible={anyCollapsible} rowHeight={rowHeight} />
+            <RowCells api={cellApi} r={r} rowKey={row.key} keys={keys} cells={keys.map((k) => cellAt(row.key, k))}
+              cols={keys.map((k) => colByKey.get(k))} colSig={colSigOf(keys)} widths={stripKeys ? keys.map((_, c) => slotWidths[c]) : null} slotCount={slotCount} strip={!!stripKeys}
+              selFrom={selBounds && r >= selBounds.top && r <= selBounds.bottom ? selBounds.left : -1} selTo={selBounds && r >= selBounds.top && r <= selBounds.bottom ? selBounds.right : -1}
+              anchorCol={anchor?.row === r ? anchor.col : -1} firstTab={!anchor && r === 0}
+              editCol={editor?.at.row === r ? editor.at.col : -1} editSig={editor?.at.row === r ? `${editor.mode}\u0001${editor.text}` : ''}
+              flashKeys={(flashByRow.get(row.key) ?? []).join('\u0001')} flashOdd={flash.n % 2 === 1} />
           </Box>;
           return [tr];
         })}</tbody>

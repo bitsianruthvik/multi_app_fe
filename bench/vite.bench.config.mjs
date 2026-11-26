@@ -8,6 +8,6 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 export default defineConfig({
   root, plugins: [react()],
-  build: { outDir: 'bench/dist', emptyOutDir: true, rollupOptions: { input: `${root}bench/model3d.html` } },
+  build: { outDir: 'bench/dist', emptyOutDir: true, rollupOptions: { input: [`${root}bench/model3d.html`, `${root}bench/sheetgrid.html`] } },
   preview: { port: 5192, strictPort: true, host: '127.0.0.1' },
 });
