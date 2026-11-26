@@ -8,8 +8,8 @@ import { base, DataCtx, loadData, resetData, useErpData, type Meta, type Runs } 
  * The dashboard's data: loading it (GET /v15/data, ~11 MB, sent gzipped, kept for the browser tab), and how fresh it
  * is, shown once in the top bar with Refresh (user, 2026-11-25: not on every screen).
  *
- * The ERP agent on the customer's network sends a full dataset each night at 02:00. In working hours (08:00–21:00,
- * not Wednesdays) it has no timer: the page asks it for today's entries (GET/POST /agent/runs, /agent/refresh) as
+ * The ERP agent on the customer's network sends a full dataset each night at 02:00. The rest of the time (any hour,
+ * every day, since 2026-11-26) it has no timer: the page asks it for today's entries (GET/POST /agent/runs, /agent/refresh) as
  * soon as it is listening and what is shown is not today's update, once per opening, and Refresh asks again. The
  * update reloads the screen when it lands; data that arrives otherwise is offered, never swapped in under the reader.
  */
@@ -85,7 +85,7 @@ export function ErpDataStatus() {
   const freshToday = !!shown?.source?.includes('update') && isToday(shown?.loadedAt);
   const label = freshToday ? `Updated ${time(shown?.loadedAt)}` : isToday(shown?.loadedAt) ? `Nightly ${time(shown?.loadedAt)}` : fmt(shown?.loadedAt);
   const help = freshToday ? "Today's ERP entries, as of this time."
-    : `ERP copy loaded ${fmt(shown?.loadedAt)}: entries up to the day before. ${listening ? 'Refresh gets today’s entries (about a minute).' : 'Today’s entries come between 08:00 and 21:00, not on Wednesdays.'}`;
+    : `ERP copy loaded ${fmt(shown?.loadedAt)}: entries up to the day before. ${listening ? 'Refresh gets today’s entries (about a minute).' : 'The ERP agent is not answering just now; Refresh asks it again.'}`;
   const newer = runs?.data?.loadedAt && shown?.loadedAt && runs.data.loadedAt > shown.loadedAt;
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}>
