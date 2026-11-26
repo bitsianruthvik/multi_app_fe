@@ -21,11 +21,17 @@ import { loadData, useErpData } from '../erpLoad';
 type Opt = [string, string];
 type Options = { cust: Opt[]; types: Opt[]; metals: Opt[]; end: string };
 type Day = 'today' | 'yesterday' | 'week' | 'month';
-type Filters = { cs: string[]; t: string; m: string; u: 'kg' | 'pcs'; amin: string; amax: string; from: string; to: string; day: Day };
+type AgeUnit = 'd' | 'w' | 'm' | 'y';
+type Filters = { cs: string[]; t: string; m: string; u: 'kg' | 'pcs'; au: AgeUnit; amin: string; amax: string; from: string; to: string; day: Day };
 const company = () => window.location.pathname.split('/').filter(Boolean)[0] ?? '';
-const FRAME = '/sumangal-v15.html?v=5';
+const FRAME = '/sumangal-v15.html?v=6';
 const KEEP = 'sumangal.ops.filters';
-const NO_FILTERS: Filters = { cs: [], t: '', m: '', u: 'kg', amin: '15', amax: '45', from: '', to: '', day: 'today' };
+const NO_FILTERS: Filters = { cs: [], t: '', m: '', u: 'kg', au: 'd', amin: '15', amax: '45', from: '', to: '', day: 'today' };
+/** Age in days, weeks, months or years (user, 2026-11-26: "1–2 years"): the range is typed in the unit and sent to the
+ *  frame in days; the unit also picks the frame's five age columns (build.mjs AGE_SETS). */
+const AGE_UNITS: [AgeUnit, string, number][] = [['d', 'Days', 1], ['w', 'Weeks', 7], ['m', 'Months', 30.44], ['y', 'Years', 365.25]];
+const inDays = (v: string, au: AgeUnit) => { if (v.trim() === '' || !Number.isFinite(+v)) return ''; return String(Math.round(+v * (AGE_UNITS.find((u) => u[0] === au)?.[2] ?? 1))); };
+const toFrame = (f: Filters) => ({ ...f, amin: inDays(f.amin, f.au), amax: inDays(f.amax, f.au), araw: [f.amin, f.amax] });
 const yearBefore = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - 364); return x.toISOString().slice(0, 10); };
 function kept(): Filters {
   try { const v = { ...NO_FILTERS, ...JSON.parse(sessionStorage.getItem(KEEP) || '{}') }; return Array.isArray(v.cs) ? v : { ...v, cs: [] }; } catch { return NO_FILTERS; }
@@ -68,13 +74,13 @@ export default function ErpV15() {
   const set = (patch: Partial<Filters>) => setF((old) => ({ ...old, ...patch }));
   useEffect(() => {
     try { sessionStorage.setItem(KEEP, JSON.stringify(f)); } catch { /* not kept */ }
-    if (f.from && f.to) post({ type: 'sumangal-v15-filters', filters: f });
+    if (f.from && f.to) post({ type: 'sumangal-v15-filters', filters: toFrame(f) });
   }, [f, post]);
 
   const send = useCallback(async () => {
     post(themeMessage());
     post({ type: 'sumangal-v15-pane', pane: pane.current });
-    if (fRef.current.from) post({ type: 'sumangal-v15-filters', filters: fRef.current });
+    if (fRef.current.from) post({ type: 'sumangal-v15-filters', filters: toFrame(fRef.current) });
     try {
       const payload = await loadData();
       post({ type: 'sumangal-v15-data', payload });
@@ -132,8 +138,12 @@ export default function ErpV15() {
     return () => mo.disconnect();
   }, [post]);
 
-  // customers by their code (the ERP's short name), several at once
-  const custOpt = (opts?.cust ?? []).filter((o) => o[0] !== '').map(([v, l]) => ({ v, code: l.split(' · ')[0], name: l.split(' · ')[1] ?? '' }));
+  // customers by their code (the ERP's short name), A–Z, several at once; the first row selects or clears them all, so
+  // one can take all and untick a few (user, 2026-11-26)
+  const custOpt = (opts?.cust ?? []).filter((o) => o[0] !== '').map(([v, l]) => ({ v, code: l.split(' · ')[0], name: l.split(' · ')[1] ?? '' }))
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { sensitivity: 'base', numeric: true }));
+  const ALL = { v: '__all__', code: 'Select all', name: '' };
+  const allOn = custOpt.length > 0 && f.cs.length === custOpt.length;
   const pick = (label: string, v: string, list: Opt[] | undefined, key: 't' | 'm') => (
     <TextField select size="small" label={label} value={v} onChange={(e) => set({ [key]: e.target.value })} sx={{ ...field, width: 140 }}>
       {(list ?? [['', 'All']]).map(([val, lab]) => <MenuItem key={val} value={val}>{lab}</MenuItem>)}
@@ -149,15 +159,27 @@ export default function ErpV15() {
           background: 'var(--c-canvas)', borderBottom: '1px solid var(--c-border)' }}
       >
         <Autocomplete
-          multiple size="small" disableCloseOnSelect limitTags={3} options={custOpt}
+          multiple size="small" disableCloseOnSelect limitTags={3} options={custOpt.length ? [ALL, ...custOpt] : []}
           value={custOpt.filter((o) => f.cs.includes(o.v))} getOptionLabel={(o) => o.code} isOptionEqualToValue={(a, b) => a.v === b.v}
-          filterOptions={(list, st) => { const q = st.inputValue.trim().toLowerCase(); return q ? list.filter((o) => o.code.toLowerCase().includes(q) || o.name.toLowerCase().includes(q)) : list; }}
-          onChange={(_, v) => set({ cs: v.map((o) => o.v) })}
+          filterOptions={(list, st) => { const q = st.inputValue.trim().toLowerCase(); return q ? list.filter((o) => o.v !== ALL.v && (o.code.toLowerCase().includes(q) || o.name.toLowerCase().includes(q))) : list; }}
+          onChange={(_, v, _r, d) => {
+            if (d?.option.v === ALL.v) set({ cs: allOn ? [] : custOpt.map((o) => o.v) });
+            else set({ cs: v.filter((o) => o.v !== ALL.v).map((o) => o.v) });
+          }}
           renderOption={(props, o, { selected }) => {
             const { key, ...rest } = props as typeof props & { key: string };
+            if (o.v === ALL.v) {
+              return (
+                <li key={key} {...rest} style={{ borderBottom: '1px solid var(--c-divider)', fontWeight: 600 }}>
+                  <Checkbox size="small" checked={allOn} indeterminate={f.cs.length > 0 && !allOn} sx={{ p: 0.25, mr: 0.75 }} />Select all
+                </li>
+              );
+            }
             return <li key={key} {...rest} title={o.name}><Checkbox size="small" checked={selected} sx={{ p: 0.25, mr: 0.75 }} />{o.code}</li>;
           }}
-          renderTags={(vals, getTagProps) => vals.map((o, i) => { const { key, ...p } = getTagProps({ index: i }); return <Chip key={key} {...p} size="small" label={o.code} />; })}
+          renderTags={(vals, getTagProps) => (vals.length > 3
+            ? [<Chip key="n" size="small" label={allOn ? `All ${custOpt.length} customers` : `${vals.length} of ${custOpt.length} customers`} onDelete={() => set({ cs: [] })} />]
+            : vals.map((o, i) => { const { key, ...p } = getTagProps({ index: i }); return <Chip key={key} {...p} size="small" label={o.code} />; }))}
           renderInput={(p) => <TextField {...p} label="Customers" placeholder={f.cs.length ? '' : 'All'} />}
           sx={{ ...field, width: 230 }}
         />
@@ -169,8 +191,12 @@ export default function ErpV15() {
         </ToggleButtonGroup>
         {screen.age && (
           <Stack direction="row" spacing={0.75} alignItems="center">
-            <TextField size="small" type="number" label="Age from (days)" value={f.amin} onChange={(e) => set({ amin: e.target.value })} sx={{ ...field, width: 118 }} />
-            <TextField size="small" type="number" label="to" placeholder="any" value={f.amax} onChange={(e) => set({ amax: e.target.value })} sx={{ ...field, width: 80 }} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField select size="small" label="Age in" value={f.au} sx={{ ...field, width: 104 }}
+              onChange={(e) => { const au = e.target.value as AgeUnit; set(au === f.au ? {} : { au, ...({ d: { amin: '15', amax: '45' }, w: { amin: '2', amax: '6' }, m: { amin: '3', amax: '12' }, y: { amin: '1', amax: '2' } } as const)[au] }); }}>
+              {AGE_UNITS.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+            </TextField>
+            <TextField size="small" type="number" label="from" value={f.amin} onChange={(e) => set({ amin: e.target.value })} sx={{ ...field, width: 78 }} slotProps={{ htmlInput: { min: 0, step: f.au === 'd' ? 1 : 0.5 } }} />
+            <TextField size="small" type="number" label="to" placeholder="any" value={f.amax} onChange={(e) => set({ amax: e.target.value })} sx={{ ...field, width: 78 }} slotProps={{ inputLabel: { shrink: true }, htmlInput: { min: 0, step: f.au === 'd' ? 1 : 0.5 } }} />
           </Stack>
         )}
         {screen.quick && (

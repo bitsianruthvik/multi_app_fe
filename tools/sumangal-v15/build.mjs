@@ -107,6 +107,15 @@ html = rep(html, '<div class="card" id="detail">', panes + '\n<div class="card" 
 html = rep(html, '</main></section>', '</main></section>\n<div id="drw"><div class="pane2"></div></div>');
 html = rep(html, 'Scrap % = scrap ÷ (weight received + scrap).', 'Scrap % = scrap ÷ casting weight received (pieces × the die casting weight). Scrap is metal removed only: rejected pieces are not in it (shown separately below).');
 html = html.replace(/<script>\s*$/, '');
+// Age in days, weeks, months or years (user, 2026-11-26): the five age columns come from window.AGE_SETS[unit] (the boot
+// script swaps BK's rows in place), so their labels carry their own unit, and the custom range names the unit it was typed in.
+pat("const BK=[[0,10,'0–10'],[11,30,'11–30'],[31,60,'31–60'],[61,90,'61–90'],[91,1e9,'Over 90']]", "const BK=[[0,10,'0–10 days'],[11,30,'11–30 days'],[31,60,'31–60 days'],[61,90,'61–90 days'],[91,1e9,'Over 90 days']]");
+pat('<th>${b[2]} days</th>', '<th>${b[2]}</th>', true);
+pat("BK[b][2]+' days'", 'BK[b][2]');
+pat("label:b[2]+' days'", 'label:b[2]');
+pat('${BK[b][2]} days', '${BK[b][2]}');
+pat("const RL=()=>aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;",
+  "const RL=()=>window.AGE_RL?window.AGE_RL():aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;");
 pat('for(const it of D.items){if(!passItem(it))continue;const e=it[7];if(it[5]>asof)continue;', 'for(const it of D.items){if(!passItem(it))continue;const e=it[7];if(it[5]>asof)continue;if(it.h&&asof-it.last>180)continue;');
 pat('for(const o of D.ord){if(o[2]>asof)continue;', 'for(const o of D.ord){if(o[2]>asof||o.h)continue;');
 pat('sk/(rk+sk)', 'sk/rk', 1); pat('o.s/(o.s+o.k)', 'o.s/o.k', 1); pat('s/(s+kk)', 's/kk', 1);
@@ -250,6 +259,14 @@ ${colors}
     });
   }
   var global = function (n) { try { return eval(n); } catch (e) { return null; } };
+  // [from day, to day, label]; bucket() takes the first row whose "to" the age is within
+  var AGE_SETS = {
+    d: [[0, 10, '0–10 days'], [11, 30, '11–30 days'], [31, 60, '31–60 days'], [61, 90, '61–90 days'], [91, 1e9, 'Over 90 days']],
+    w: [[0, 7, 'Up to 1 week'], [8, 14, '1–2 weeks'], [15, 28, '2–4 weeks'], [29, 56, '4–8 weeks'], [57, 1e9, 'Over 8 weeks']],
+    m: [[0, 30, 'Up to 1 month'], [31, 91, '1–3 months'], [92, 183, '3–6 months'], [184, 365, '6–12 months'], [366, 1e9, 'Over 12 months']],
+    y: [[0, 365, 'Up to 1 year'], [366, 730, '1–2 years'], [731, 1096, '2–3 years'], [1097, 1826, '3–5 years'], [1827, 1e9, 'Over 5 years']]
+  };
+  var AGE_NAMES = { d: 'days', w: 'weeks', m: 'months', y: 'years' }, ageNow = '';
   function filters(f) {
     if (!booted) { wantF = f; return; }
     var cs = (f.cs || []).map(String).sort().join(','), t = f.t || '', m = f.m || '';
@@ -261,7 +278,14 @@ ${colors}
     }
     var ub = document.querySelector('#fUnit button[data-u="' + f.u + '"]'); if (ub && !ub.classList.contains('on')) ub.click();
     var a = document.getElementById('aMin'), b = document.getElementById('aMax');
-    if (a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
+    // age unit: the five columns (rows of BK, swapped in place) and the custom range's label in the unit it was typed in
+    var au = AGE_SETS[f.au] ? f.au : 'd', raw = f.araw || [f.amin, f.amax], ageKey = au + '|' + raw.join('|'), ageChanged = ageKey !== ageNow;
+    if (ageChanged) {
+      ageNow = ageKey; var bk = global('BK'); AGE_SETS[au].forEach(function (r, i) { bk[i] = r; });
+      var nm = AGE_NAMES[au], lo = raw[0] === '' || raw[0] == null ? '' : String(raw[0]), hi = raw[1] === '' || raw[1] == null ? '' : String(raw[1]);
+      window.AGE_RL = function () { return !lo && !hi ? 'All ages' : !hi ? lo + '+ ' + nm : !lo ? 'Up to ' + hi + ' ' + nm : lo + '–' + hi + ' ' + nm; };
+    }
+    if (ageChanged || a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
     var redo = false, q = f.day || 'today';
     if (q !== quick) { quick = q; var r = quickRange(q); setPairs(QPAIRS, r[0], r[1]); redo = true; }
     if (f.from && f.to && f.from + f.to !== range) { range = f.from + f.to; setPairs(PAIRS, f.from, f.to); redo = true; }

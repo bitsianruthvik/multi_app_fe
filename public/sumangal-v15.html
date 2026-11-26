@@ -290,7 +290,7 @@ const fmtD=n=>new Date(D0+n*864e5).toLocaleDateString('en-GB',{day:'2-digit',mon
 const END=toDay(D.end);
 const STG=['PRC Generated – Wax Assembly Pending','Wax Assembly Completed – Coating Pending','Coating Completed – De-waxing Pending','De-waxing Completed – Melting Pending','Melting Completed – HT Pending','HT Completed – Inspection (QC) Pending','Inspected (QC) – Clearance Pending','WO Released – PRC Pending','PO Received – WO Pending','PRC Generated – Not Started'];const SORD=[8,7,9,0,1,2,3,4,5,6];
 const STGN=['production started (injection under way)','','','','incl. knock-out','covers fettling and machining; what is out with contractors and vendors is shown below','for machined parts: machining inspection','work order quantity not yet put into a batch (PRC)','order quantity not yet put on a work order','batch created against an open order line; no production entry yet'];
-const BK=[[0,10,'0–10'],[11,30,'11–30'],[31,60,'31–60'],[61,90,'61–90'],[91,1e9,'Over 90']];
+const BK=[[0,10,'0–10 days'],[11,30,'11–30 days'],[31,60,'31–60 days'],[61,90,'61–90 days'],[91,1e9,'Over 90 days']];
 let U='kg';const F={c:'',t:'',m:'',wmin:null,wmax:null};
 const nf=x=>Math.round(x).toLocaleString('en-IN');const val=(p,k)=>U==='kg'?k:p;const uL=()=>U==='kg'?'kg':'pcs';
 const P=D.parts;
@@ -315,21 +315,21 @@ function wipAt(asof){const out=[];for(const it of D.items){if(!passItem(it))cont
  for(const o of D.ord){if(o[2]>asof||o.h)continue;const it=[o[1],o[3],o[4],o[5],o[7],0,0,null,o[9]];if(!passItem(it))continue;let wq=0;for(const r of o[10])if(r[0]<=asof)wq+=r[1];
   const left=o[6]-wq;if(left>0)out.push({k:8,it,pcs:left,kg:left*o[7],age:asof-o[2],since:o[2]})}
  return out}
-const inR=a=>(aMinEl.value===''||a>=+aMinEl.value)&&(aMaxEl.value===''||a<=+aMaxEl.value);const RL=()=>aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;const inB=(a,b)=>b==null||(b==-1?inR(a):bucket(a)==b);const bLab=b=>b==null?'':' · '+(b==-3?'suspect lines (a later challan for the same part, vendor and process is already fully back)':b==-1?RL():BK[b][2]+' days');const CH=()=>`<th style="background:color-mix(in srgb,var(--acc) 10%,transparent)">${RL()}<br><span style="font-weight:400">(custom)</span></th>`;
+const inR=a=>(aMinEl.value===''||a>=+aMinEl.value)&&(aMaxEl.value===''||a<=+aMaxEl.value);const RL=()=>window.AGE_RL?window.AGE_RL():aMinEl.value===''&&aMaxEl.value===''?'All ages':aMaxEl.value===''?`${aMinEl.value}+ days`:aMinEl.value===''?`Up to ${aMaxEl.value} days`:`${aMinEl.value}–${aMaxEl.value} days`;const inB=(a,b)=>b==null||(b==-1?inR(a):bucket(a)==b);const bLab=b=>b==null?'':' · '+(b==-3?'suspect lines (a later challan for the same part, vendor and process is already fully back)':b==-1?RL():BK[b][2]);const CH=()=>`<th style="background:color-mix(in srgb,var(--acc) 10%,transparent)">${RL()}<br><span style="font-weight:400">(custom)</span></th>`;
 function bucket(a){for(let i=0;i<5;i++)if(a<=BK[i][1])return i;return 4}
 let wipRows=[];let charts={};
 function renderWip(){const asof=toDay(asofEl.value);wipRows=wipAt(asof);const aMin=+aMinEl.value,aMax=+aMaxEl.value;
  const g=STG.map(()=>({b:[0,0,0,0,0],t:0,c:0,s:0}));const tot={b:[0,0,0,0,0],t:0,c:0,s:0};
  for(const r of wipRows){const v=val(r.pcs,r.kg),b=bucket(r.age);g[r.k].b[b]+=v;g[r.k].t+=v;tot.b[b]+=v;tot.t+=v;if(inR(r.age)){g[r.k].c+=v;tot.c+=v}if(r.stale){g[r.k].s+=v;tot.s+=v}}
- let h=`<tr><th>Stage (${uL()})</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}<th>of which stale<br><span style="font-weight:400">(no entry on batch 180+ d)</span></th></tr>`;
+ let h=`<tr><th>Stage (${uL()})</th>${BK.map(b=>`<th>${b[2]}</th>`).join('')}<th>Total</th>${CH()}<th>of which stale<br><span style="font-weight:400">(no entry on batch 180+ d)</span></th></tr>`;
  SORD.forEach(k=>{const s=g[k];h+=`<tr><td class="l click" onclick="wipDetail(${k})">${STG[k]}${STGN[k]?`<br><span class="note">${STGN[k]}</span>`:''}</td>${s.b.map((v,i)=>`<td class="click h${i+1}" onclick="wipDetail(${k},${i})">${v?nf(v):'–'}</td>`).join('')}<td class="click" onclick="wipDetail(${k})"><b>${nf(s.t)}</b></td><td class="click" onclick="wipDetail(${k},-1)">${s.c?nf(s.c):'–'}</td><td class="click" onclick="wipDetail(${k},-2)">${s.s?nf(s.s):'–'}</td></tr>`});
  h+=`<tr class="tot"><td>Total</td>${tot.b.map(v=>`<td>${nf(v)}</td>`).join('')}<td>${nf(tot.t)}</td><td>${nf(tot.c)}</td><td>${nf(tot.s)}</td></tr>`;wipTab.innerHTML=h;
  const cols=AGE;
- mk('wipChart',{type:'bar',data:{labels:SORD.map(k=>STG[k].split(' – ')[1]||STG[k]),datasets:BK.map((b,i)=>({label:b[2]+' days',data:SORD.map(k=>Math.round(g[k].b[i])),backgroundColor:cols[i]}))},
+ mk('wipChart',{type:'bar',data:{labels:SORD.map(k=>STG[k].split(' – ')[1]||STG[k]),datasets:BK.map((b,i)=>({label:b[2],data:SORD.map(k=>Math.round(g[k].b[i])),backgroundColor:cols[i]}))},
   options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true,title:{display:true,text:uL()}},y:{stacked:true}}}},300)}
 function mk(id,cfg,h){if(charts[id])charts[id].destroy();const el=document.getElementById(id);if(h)el.parentNode.style.height=h+'px';charts[id]=new Chart(el,cfg)}
 function wipDetail(k,b){let rows=wipRows.filter(r=>r.k==k);let lab=STG[k];const aMin=+aMinEl.value,aMax=+aMaxEl.value;
- if(b>=0&&b!==undefined){rows=rows.filter(r=>bucket(r.age)==b);lab+=` · ${BK[b][2]} days`}if(b==-1){rows=rows.filter(r=>inR(r.age));lab+=` · ${RL()}`}if(b==-2){rows=rows.filter(r=>r.stale);lab+=' · stale (no ERP entry on the batch for 180+ days)'}
+ if(b>=0&&b!==undefined){rows=rows.filter(r=>bucket(r.age)==b);lab+=` · ${BK[b][2]}`}if(b==-1){rows=rows.filter(r=>inR(r.age));lab+=` · ${RL()}`}if(b==-2){rows=rows.filter(r=>r.stale);lab+=' · stale (no ERP entry on the batch for 180+ days)'}
  showItems(lab,'Batch items, oldest first, as of '+fmtD(toDay(asofEl.value)),rows)}
 function showItems(title,note,rows){
  showTable(title,note,['Batch item / WO / Order','Customer','Part','Metal type','Order type','Stage','Since','Flag','Age (days)','Pieces','kg'],
@@ -353,7 +353,7 @@ let rfdRows=[];
 function renderRfd(){rfdRows=D.rfd.filter(r=>passPart(r[2],r[1],r[3],r[7])).map(r=>({d:r[0],c:r[1],p:r[2],m:r[3],heat:r[4],pcs:r[5],kg:r[6],age:END-r[0]}));
  const by={};for(const r of rfdRows){const o=by[r.c]||(by[r.c]={b:[0,0,0,0,0],t:0,c:0});const v=val(r.pcs,r.kg);o.b[bucket(r.age)]+=v;o.t+=v;if(inR(r.age))o.c+=v}
  const keys=Object.keys(by).sort((a,b)=>by[b].t-by[a].t);const T=[0,0,0,0,0];let TT=0,TC=0;
- let h=`<tr><th>Customer (${uL()})</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}</tr>`+keys.map(c=>{const o=by[c];o.b.forEach((v,i)=>T[i]+=v);TT+=o.t;TC+=o.c;return `<tr><td class="l click" onclick="rfdDetail(${c})">${D.cust[c]}</td>${o.b.map((v,i)=>`<td class="click h${i+1}" onclick="rfdDetail(${c},${i})">${v?nf(v):'–'}</td>`).join('')}<td class="click" onclick="rfdDetail(${c})"><b>${nf(o.t)}</b></td><td class="click" onclick="rfdDetail(${c},-1)">${o.c?nf(o.c):'–'}</td></tr>`}).join('');
+ let h=`<tr><th>Customer (${uL()})</th>${BK.map(b=>`<th>${b[2]}</th>`).join('')}<th>Total</th>${CH()}</tr>`+keys.map(c=>{const o=by[c];o.b.forEach((v,i)=>T[i]+=v);TT+=o.t;TC+=o.c;return `<tr><td class="l click" onclick="rfdDetail(${c})">${D.cust[c]}</td>${o.b.map((v,i)=>`<td class="click h${i+1}" onclick="rfdDetail(${c},${i})">${v?nf(v):'–'}</td>`).join('')}<td class="click" onclick="rfdDetail(${c})"><b>${nf(o.t)}</b></td><td class="click" onclick="rfdDetail(${c},-1)">${o.c?nf(o.c):'–'}</td></tr>`}).join('');
  h+=`<tr class="tot"><td>Total</td>${T.map(v=>`<td>${nf(v)}</td>`).join('')}<td>${nf(TT)}</td><td class="click" onclick="rfdDetail(null,-1)">${nf(TC)}</td></tr>`;rfdTab.innerHTML=h}
 function rfdDetail(c,b){let rows=rfdRows.filter(r=>(c==null||r.c==c)&&inB(r.age,b)).sort((a,b)=>b.age-a.age);
  showTable('Ready to dispatch'+(c!=null?' · '+D.cust[c]:'')+bLab(b),`${rows.length} lines · ${nf(rows.reduce((s,r)=>s+r.pcs,0))} pcs · ${nf(rows.reduce((s,r)=>s+r.kg,0))} kg`,
@@ -377,13 +377,13 @@ function renderVen(){renderOut();const asof=toDay(asofEl.value),pf=vProc.value;v
   const ag=asof-v[3],oq=openQ(v,asof);if(oq>0&&(vAmin.value===''||ag>=+vAmin.value)&&(vAmax.value===''||ag<=+vAmax.value))venOpen.push({ven:v[0],pr:v[1],p:v[2],d:v[3],pcs:oq,kg:v[4]?v[5]*oq/v[4]:0,age:asof-v[3],key,sus:suspect(v,asof)})}
  const by={};for(const r of venOpen){const o=by[r.key]||(by[r.key]={ven:r.ven,pr:r.pr,b:[0,0,0,0,0],t:0,n:0,old:0,c:0,s:0});const v=val(r.pcs,r.kg);o.b[bucket(r.age)]+=v;o.t+=v;if(inR(r.age))o.c+=v;if(r.sus)o.s+=v;o.n++;o.old=Math.max(o.old,r.age)}
  const keys=Object.keys(by).sort((a,b)=>by[b].t-by[a].t);
- venTab.innerHTML=`<tr><th>Vendor</th><th>Process</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total ${uL()}</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th><th>Oldest (days)</th><th>Days of work queued</th></tr>`+keys.map(k=>{const o=by[k];const q=sent90[k]?o.t/(sent90[k]/90):null;
+ venTab.innerHTML=`<tr><th>Vendor</th><th>Process</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]}</th>`).join('')}<th>Total ${uL()}</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th><th>Oldest (days)</th><th>Days of work queued</th></tr>`+keys.map(k=>{const o=by[k];const q=sent90[k]?o.t/(sent90[k]/90):null;
   return `<tr><td class="l click" onclick="venDetail('${k}')">${D.vendors[o.ven]}</td><td class="l">${D.procs[o.pr]}</td><td>${o.n}</td>${o.b.map((v,i)=>`<td class="click h${i+1}" onclick="venDetail('${k}',${i})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="venDetail('${k}',-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="venDetail('${k}',-3)">${o.s?nf(o.s):'–'}</td><td>${o.old}</td><td>${q==null?'no sends in 90 days':Math.round(q)}</td></tr>`}).join('')+(()=>{const vs=Object.values(by);const s=f=>vs.reduce((a,o)=>a+o[f],0);return `<tr class="tot"><td>Total</td><td></td><td>${s('n')}</td>${[0,1,2,3,4].map(i=>`<td>${nf(vs.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(s('t'))}</td><td>${nf(s('c'))}</td><td>${nf(s('s'))}</td><td></td><td></td></tr>`})()}
 const OUTG=[['Contract fettling (in-house contractors)',n=>n.startsWith('Contract fettling')],['Fettling at vendors',n=>n=='Fettling'],['Machining at vendors',n=>n=='Machining'],['Heat treatment at vendors',n=>n=='Heat Treatment'],['Other vendor processes',n=>!/^Contract fettling|^Fettling$|^Machining$|^Heat Treatment$/.test(n)]];
 let outRows=[];
 function renderOut(){const asof=toDay(asofEl.value);outRows=[];for(const v of D.vend){if(!passPart(v[2],null,null))continue;const oq=openQ(v,asof);if(oq>0){const n=D.procs[v[1]];outRows.push({g:OUTG.findIndex(x=>x[1](n)),ven:v[0],pr:v[1],p:v[2],d:v[3],pcs:oq,kg:v[4]?v[5]*oq/v[4]:0,age:asof-v[3],sus:suspect(v,asof)})}}
  const T=OUTG.map(()=>({b:[0,0,0,0,0],t:0,n:0,c:0,s:0}));for(const r of outRows){const o=T[r.g],v=val(r.pcs,r.kg);o.b[bucket(r.age)]+=v;o.t+=v;o.n++;if(inR(r.age))o.c+=v;if(r.sus)o.s+=v}
- outTab.innerHTML=`<tr><th>Out with (${uL()})</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th></tr>`+OUTG.map((g,i)=>{const o=T[i];return `<tr><td class="l click" onclick="outDetail(${i})">${g[0]}</td><td>${o.n}</td>${o.b.map((v,j)=>`<td class="click h${j+1}" onclick="outDetail(${i},${j})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="outDetail(${i},-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="outDetail(${i},-3)">${o.s?nf(o.s):'–'}</td></tr>`}).join('')+`<tr class="tot"><td>Total</td><td>${T.reduce((a,o)=>a+o.n,0)}</td>${[0,1,2,3,4].map(i=>`<td>${nf(T.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(T.reduce((a,o)=>a+o.t,0))}</td><td>${nf(T.reduce((a,o)=>a+o.c,0))}</td><td>${nf(T.reduce((a,o)=>a+o.s,0))}</td></tr>`}
+ outTab.innerHTML=`<tr><th>Out with (${uL()})</th><th>Open lots</th>${BK.map(b=>`<th>${b[2]}</th>`).join('')}<th>Total</th>${CH()}<th style="background:color-mix(in srgb,var(--warn) 12%,transparent)">of which suspect<br><span style="font-weight:400">(later challan already back)</span></th></tr>`+OUTG.map((g,i)=>{const o=T[i];return `<tr><td class="l click" onclick="outDetail(${i})">${g[0]}</td><td>${o.n}</td>${o.b.map((v,j)=>`<td class="click h${j+1}" onclick="outDetail(${i},${j})">${v?nf(v):'–'}</td>`).join('')}<td><b>${nf(o.t)}</b></td><td class="click" onclick="outDetail(${i},-1)">${o.c?nf(o.c):'–'}</td><td class="click ${o.s?'h3':''}" onclick="outDetail(${i},-3)">${o.s?nf(o.s):'–'}</td></tr>`}).join('')+`<tr class="tot"><td>Total</td><td>${T.reduce((a,o)=>a+o.n,0)}</td>${[0,1,2,3,4].map(i=>`<td>${nf(T.reduce((a,o)=>a+o.b[i],0))}</td>`).join('')}<td>${nf(T.reduce((a,o)=>a+o.t,0))}</td><td>${nf(T.reduce((a,o)=>a+o.c,0))}</td><td>${nf(T.reduce((a,o)=>a+o.s,0))}</td></tr>`}
 function outDetail(g,b){const rows=outRows.filter(r=>r.g==g&&(b==-3?r.sus:inB(r.age,b))).sort((x,y)=>y.age-x.age);
  showTable(OUTG[g][0]+bLab(b),`Open challan lines as of ${fmtD(toDay(asofEl.value))} · ${rows.length} lines · ${nf(rows.reduce((s,r)=>s+r.pcs,0))} pcs · ${nf(rows.reduce((s,r)=>s+r.kg,0))} kg`,
  ['Contractor / vendor','Process','Part','Customer','Issued on','Flag','Age (days)','Pieces','kg'],rows.map(r=>[D.vendors[r.ven],D.procs[r.pr],P[r.p][0]+' '+P[r.p][1],P[r.p][4]>=0?D.cust[P[r.p][4]]:'',fmtD(r.d),r.sus?'Suspect':'',r.age,r.pcs,r.kg]))}
@@ -563,7 +563,7 @@ function renderEst(){const asof=toDay(asofEl.value);estRows=[];
  const g={};ESTG.forEach(s=>g[s.id]={b:[0,0,0,0,0],t:0,c:0});for(const r of estRows){const v=val(r.pcs,r.kg);g[r.id].b[bucket(r.age)]+=v;g[r.id].t+=v;if(inR(r.age))g[r.id].c+=v}
  const defR=wipRows.filter(r=>r.k==5);const db=[0,0,0,0,0];let dt=0,dc=0;for(const r of defR){const v=val(r.pcs,r.kg);db[bucket(r.age)]+=v;dt+=v;if(inR(r.age))dc+=v}
  const cells=(o,id)=>o.b.map((v,i)=>`<td class="click h${i+1}" onclick="estDetail('${id}',${i})">${v?nf(v):'–'}</td>`).join('');
- let h=`<tr><th>Stage (${uL()})</th><th>Basis</th>${BK.map(b=>`<th>${b[2]} days</th>`).join('')}<th>Total</th>${CH()}</tr>`;
+ let h=`<tr><th>Stage (${uL()})</th><th>Basis</th>${BK.map(b=>`<th>${b[2]}</th>`).join('')}<th>Total</th>${CH()}</tr>`;
  h+=`<tr style="background:var(--s2);font-weight:700"><td>HT Completed – Inspection (QC) Pending<br><span class="note">whole stage, from batch records</span></td><td>Definite</td>${db.map(v=>`<td>${v?nf(v):'–'}</td>`).join('')}<td>${nf(dt)}</td><td>${dc?nf(dc):'–'}</td></tr>`;
  for(const s of ESTG){const o=g[s.id];const bad=s.est&&ERR[s.id]>EMAX;
   h+=`<tr><td class="click" onclick="estDetail('${s.id}')">${s.name}<br><span class="note">${s.sub}</span></td><td>${s.est?(bad?`Not estimable (back-test error ${ERR[s.id]}%)`:`Estimate ±${ERR[s.id]}%`):'Definite (challans)'}</td>${bad?BK.map(()=>'<td>n/a</td>').join('')+'<td>n/a</td><td>n/a</td>':cells(o,s.id)+`<td><b>${nf(o.t)}</b></td><td class="click" onclick="estDetail('${s.id}',-1)">${o.c?nf(o.c):'–'}</td>`}</tr>`}
@@ -1282,6 +1282,14 @@ window.SEM = SEM; window.AGE = AGE;
     });
   }
   var global = function (n) { try { return eval(n); } catch (e) { return null; } };
+  // [from day, to day, label]; bucket() takes the first row whose "to" the age is within
+  var AGE_SETS = {
+    d: [[0, 10, '0–10 days'], [11, 30, '11–30 days'], [31, 60, '31–60 days'], [61, 90, '61–90 days'], [91, 1e9, 'Over 90 days']],
+    w: [[0, 7, 'Up to 1 week'], [8, 14, '1–2 weeks'], [15, 28, '2–4 weeks'], [29, 56, '4–8 weeks'], [57, 1e9, 'Over 8 weeks']],
+    m: [[0, 30, 'Up to 1 month'], [31, 91, '1–3 months'], [92, 183, '3–6 months'], [184, 365, '6–12 months'], [366, 1e9, 'Over 12 months']],
+    y: [[0, 365, 'Up to 1 year'], [366, 730, '1–2 years'], [731, 1096, '2–3 years'], [1097, 1826, '3–5 years'], [1827, 1e9, 'Over 5 years']]
+  };
+  var AGE_NAMES = { d: 'days', w: 'weeks', m: 'months', y: 'years' }, ageNow = '';
   function filters(f) {
     if (!booted) { wantF = f; return; }
     var cs = (f.cs || []).map(String).sort().join(','), t = f.t || '', m = f.m || '';
@@ -1293,7 +1301,14 @@ window.SEM = SEM; window.AGE = AGE;
     }
     var ub = document.querySelector('#fUnit button[data-u="' + f.u + '"]'); if (ub && !ub.classList.contains('on')) ub.click();
     var a = document.getElementById('aMin'), b = document.getElementById('aMax');
-    if (a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
+    // age unit: the five columns (rows of BK, swapped in place) and the custom range's label in the unit it was typed in
+    var au = AGE_SETS[f.au] ? f.au : 'd', raw = f.araw || [f.amin, f.amax], ageKey = au + '|' + raw.join('|'), ageChanged = ageKey !== ageNow;
+    if (ageChanged) {
+      ageNow = ageKey; var bk = global('BK'); AGE_SETS[au].forEach(function (r, i) { bk[i] = r; });
+      var nm = AGE_NAMES[au], lo = raw[0] === '' || raw[0] == null ? '' : String(raw[0]), hi = raw[1] === '' || raw[1] == null ? '' : String(raw[1]);
+      window.AGE_RL = function () { return !lo && !hi ? 'All ages' : !hi ? lo + '+ ' + nm : !lo ? 'Up to ' + hi + ' ' + nm : lo + '–' + hi + ' ' + nm; };
+    }
+    if (ageChanged || a.value !== (f.amin || '') || b.value !== (f.amax || '')) { a.value = f.amin || ''; b.value = f.amax || ''; a.dispatchEvent(new Event('change')); }
     var redo = false, q = f.day || 'today';
     if (q !== quick) { quick = q; var r = quickRange(q); setPairs(QPAIRS, r[0], r[1]); redo = true; }
     if (f.from && f.to && f.from + f.to !== range) { range = f.from + f.to; setPairs(PAIRS, f.from, f.to); redo = true; }
