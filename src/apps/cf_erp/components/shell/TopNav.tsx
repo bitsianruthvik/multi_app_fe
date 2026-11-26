@@ -16,6 +16,7 @@ import { useCompanySlug } from '../../hooks/useLoad';
 import { useCommandPalette } from '../commandPaletteContext';
 import { HelpButton } from '../../help/HelpButton';
 import { AlertBell } from './AlertBell';
+import { CompanyMark } from '@core/brand/CompanyMark';
 
 /**
  * Row 1 of the top navigation — fab_erp's FabErpTopNav for cf_erp: the primary
@@ -64,7 +65,7 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
         <IconButton size="small" onClick={onOpenMobileNav} aria-label="Open navigation"><MenuRounded /></IconButton>
       ) : (
         <Box component={NavLink} to={appPath(company, 'home')} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.875, px: 1, mr: 0.5, textDecoration: 'none', flexShrink: 0 }}>
-          <Box aria-hidden sx={{ width: 22, height: 22, borderRadius: '6px', flexShrink: 0, background: 'var(--c-primary-600)', color: '#fff', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600 }}>C</Box>
+          <CompanyMark initial="C" />
           <Box sx={{ fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>CF ERP</Box>
         </Box>
       )}

@@ -5,9 +5,10 @@ import { useAuth } from "@core/contexts/AuthContext";
 import { adminApi, problemsOf, type HistoryRow, type Overview, type RoleList } from "./api";
 import PeopleTab from "./PeopleTab";
 import RolesTab from "./RolesTab";
+import BrandingTab from "./BrandingTab";
 import { setAppOptions } from "./sees";
 
-const TABS = ["people", "roles", "apps", "history"] as const;
+const TABS = ["people", "roles", "apps", "branding", "history"] as const;
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /**
@@ -38,7 +39,7 @@ export default function AdminPanel() {
         <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", mb: 1 }}>
           <Box sx={{ flex: "1 1 260px", minWidth: 0 }}>
             <Typography component="h1" sx={{ fontSize: 24, fontWeight: 600 }}>Admin{overview ? ` · ${overview.company.name}` : ""}</Typography>
-            <Typography sx={{ fontSize: 14, color: "text.secondary" }}>People, their role in each app, and what each role may do.</Typography>
+            <Typography sx={{ fontSize: 14, color: "text.secondary" }}>People, their role in each app, what each role may do, and the company's colours and logo.</Typography>
           </Box>
           <Button component={Link} to={`/${company}/apps`} variant="outlined">Back to the apps</Button>
         </Box>
@@ -50,6 +51,7 @@ export default function AdminPanel() {
               <Tab value="people" label="People" sx={{ textTransform: "none" }} />
               <Tab value="roles" label="Roles" sx={{ textTransform: "none" }} />
               <Tab value="apps" label="Apps" sx={{ textTransform: "none" }} />
+              <Tab value="branding" label="Branding" sx={{ textTransform: "none" }} data-testid="tab-branding" />
               <Tab value="history" label="History" sx={{ textTransform: "none" }} />
             </Tabs>
             {error.length > 0 && <Alert severity="error" sx={{ mb: 2, whiteSpace: "pre-line" }} onClose={() => setError([])}>{error.join("\n")}</Alert>}
@@ -69,6 +71,7 @@ export default function AdminPanel() {
                 </Box>
               </Box>
             )}
+            {tab === "branding" && <BrandingTab api={api} companyName={overview?.company.name ?? company} />}
             {tab === "history" && (
               <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "background.paper", overflow: "hidden" }} data-testid="history">
                 {!history && <Box sx={{ p: 2 }}><CircularProgress size={22} /></Box>}

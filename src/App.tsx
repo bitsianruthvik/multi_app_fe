@@ -15,6 +15,7 @@ import { Box, CircularProgress } from "@mui/material";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { AuthProvider, useAuth } from "@core/contexts/AuthContext";
+import { BrandPalette, CompanyBrandProvider } from "@core/brand/CompanyBrandContext";
 import { getAudioRoutes } from "@apps/audio_intelligence/routes";
 import { getSalesControlRoutes } from "@apps/sales_control/routes";
 import { getFabFlowRoutes } from "@apps/fab_flow/routes";
@@ -157,6 +158,9 @@ function App() {
       <CssBaseline enableColorScheme />
       <LocalizationProvider dateAdapter={AdapterDayjs}>
         <AuthProvider>
+          {/* the signed-in company's colours and logo (core/brand), none before sign-in */}
+          <CompanyBrandProvider>
+          <BrandPalette>
           <Router>
             <AppShell>
               <Suspense
@@ -394,6 +398,8 @@ function App() {
               </Suspense>
             </AppShell>
           </Router>
+          </BrandPalette>
+          </CompanyBrandProvider>
         </AuthProvider>
       </LocalizationProvider>
     </AppThemeProvider>

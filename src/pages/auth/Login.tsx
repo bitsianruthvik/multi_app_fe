@@ -1,21 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { useState, useEffect } from "react";
-import {
-  Box,
-  Button,
-  Container,
-  Paper,
-  TextField,
-  Typography,
-  Alert,
-  InputAdornment,
-  IconButton,
-} from "@mui/material";
+import { Box } from "@mui/material";
 import { useFormik } from "formik";
 import * as yup from "yup";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import Visibility from "@mui/icons-material/Visibility";
-import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import { AuthButton, AuthField, AuthFrame, AuthLink, AuthNote } from "@core/components/auth/AuthFrame";
 import api, { API_HOST, buildFullApiUrl } from "@core/utils/axiosConfig";
 import { useAuth } from "@core/contexts/AuthContext";
 import { isAdminRole } from "@core/utils/roles";
@@ -33,7 +22,6 @@ const validationSchema = yup.object({
 
 export default function Login() {
   const [error, setError] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const { login, isAuthenticated, isInitialized } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -153,252 +141,47 @@ export default function Login() {
     },
   });
 
+  // The same frame as the company sign-in (AuthFrame, 2026-11-26). No "Register": sign-up is closed, admins add people.
   return (
-    <Container
-      component="main"
-      maxWidth="xs"
-      sx={{
-        minHeight: "calc(100vh - 180px)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        py: 6,
-      }}
-    >
-      <Box
-        sx={{
-          width: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
-      >
-        <Paper
-          elevation={0}
-          sx={{
-            p: 4,
-            width: "100%",
-            maxWidth: 400,
-            borderRadius: 3,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-            textAlign: "center",
-          }}
-        >
-          {/* Logo/Brand */}
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 80,
-              height: 80,
-              mx: "auto",
-              mb: 2,
-              bgcolor: "#f3f4f6",
-              borderRadius: 3,
-            }}
-          >
-            {brand?.logo ? (
-              <Box component="img" src={brand.logo} alt={brand.appName || "Logo"} sx={{ width: 64, height: 64, objectFit: "contain" }} />
-            ) : (
-              <Typography
-                variant="h5"
-                sx={{
-                  fontWeight: 800,
-                  background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
-              >
-                SC
-              </Typography>
-            )}
-          </Box>
-
-          {/* Welcome Text */}
-          <Typography
-            variant="h4"
-            component="h1"
-            sx={{
-              fontWeight: 800,
-              color: "#1f2937",
-              mb: 1,
-            }}
-          >
-            Welcome
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{
-              color: "#6b7280",
-              mb: 3,
-            }}
-          >
-            {brand?.appName ? `Sign in to ${brand.appName}` : "Sign in to continue"}
-          </Typography>
-
-          {/* Error Alert */}
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-
-          {/* Form */}
-          <form onSubmit={formik.handleSubmit}>
-            {/* User ID Field */}
-            <Box sx={{ mb: 2.5 }}>
-              <Typography
-                variant="body2"
-                sx={{
-                  textAlign: "left",
-                  fontWeight: 600,
-                  color: "#374151",
-                  mb: 1,
-                }}
-              >
-                {isCrm ? "Email" : "User ID"}
-              </Typography>
-              <TextField
-                fullWidth
-                size="medium"
-                placeholder={isCrm ? "you@example.com" : "Enter your user ID"}
-                id="email"
-                name="email"
-                value={formik.values.email}
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                error={formik.touched.email && Boolean(formik.errors.email)}
-                helperText={formik.touched.email && formik.errors.email}
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f9fafb",
-                    borderRadius: 1.5,
-                    "& fieldset": {
-                      borderColor: "#e5e7eb",
-                    },
-                    "&:hover fieldset": {
-                      borderColor: "#d1d5db",
-                    },
-                  },
-                  "& .MuiOutlinedInput-input::placeholder": {
-                    color: "#9ca3af",
-                    opacity: 1,
-                  },
-                }}
-              />
-            </Box>
-
-            {/* Password Field */}
-            <Box sx={{ mb: 3 }}>
-              <Typography
-                variant="body2"
-                sx={{
-                  textAlign: "left",
-                  fontWeight: 600,
-                  color: "#374151",
-                  mb: 1,
-                }}
-              >
-                Password
-              </Typography>
-              <TextField
-                fullWidth
-                size="medium"
-                placeholder="Enter your password"
-                id="password"
-                name="password"
-                type={showPassword ? "text" : "password"}
-                value={formik.values.password}
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                error={
-                  formik.touched.password && Boolean(formik.errors.password)
-                }
-                helperText={formik.touched.password && formik.errors.password}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                        sx={{ color: "#6b7280" }}
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#f9fafb",
-                    borderRadius: 1.5,
-                    "& fieldset": {
-                      borderColor: "#e5e7eb",
-                    },
-                    "&:hover fieldset": {
-                      borderColor: "#d1d5db",
-                    },
-                  },
-                  "& .MuiOutlinedInput-input::placeholder": {
-                    color: "#9ca3af",
-                    opacity: 1,
-                  },
-                }}
-              />
-            </Box>
-
-            {/* Sign In Button */}
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              size="large"
-              sx={{
-                py: 1.5,
-                bgcolor: accent || "#2563eb",
-                color: "white",
-                fontWeight: 700,
-                borderRadius: 1.5,
-                textTransform: "none",
-                fontSize: "1rem",
-                "&:hover": {
-                  bgcolor: accent || "#1d4ed8",
-                  filter: accent ? "brightness(0.92)" : undefined,
-                },
-                "&:active": {
-                  bgcolor: accent || "#1e40af",
-                },
-              }}
-            >
-              Sign in
-            </Button>
-          </form>
-
-          {isCrm ? (
+    <AuthFrame
+      title="Sign in"
+      subtitle={brand?.appName ? <>to {brand.appName}</> : <>to your workspace <b>{company}</b></>}
+      badge={brand?.logo ? <Box component="img" src={brand.logo} alt={brand.appName || "Logo"} sx={{ height: 48, maxWidth: 200, objectFit: "contain", display: "block" }} /> : undefined}
+      footer={
+        isCrm
           // cf_crm accounts are made and reset by the customer's own owners
-          <Typography variant="body2" sx={{ mt: 2, color: "#6b7280" }}>
-            Forgot your password? Ask an owner of your team to reset it.
-          </Typography>
-          ) : (<>
-          <Typography variant="body2" sx={{ mt: 2, color: "#6b7280" }}>
-            <Box
-              component="span"
-              onClick={() => navigate(`/${company}/${app}/forgot-password`)}
-              sx={{ color: "#2563eb", fontWeight: 600, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
-            >
-              Forgot password?
-            </Box>
-          </Typography>
-
-          <Typography variant="body2" sx={{ mt: 1.5, color: "#6b7280" }}>
-            No account yet? Your company's admin adds you.
-          </Typography>
-          </>)}
-        </Paper>
-      </Box>
-    </Container>
+          ? "Forgot your password? Ask an owner of your team to reset it."
+          : <AuthLink onClick={() => navigate(`/${company}/${app}/forgot-password`)}>Forgot password?</AuthLink>
+      }
+    >
+      <form onSubmit={formik.handleSubmit} noValidate>
+        {error && <AuthNote tone="error">{error}</AuthNote>}
+        <AuthField
+          label={isCrm ? "Email" : "Email or username"}
+          id="email"
+          name="email"
+          autoComplete="username"
+          autoFocus
+          value={formik.values.email}
+          onChange={formik.handleChange}
+          onBlur={formik.handleBlur}
+          error={formik.touched.email && Boolean(formik.errors.email)}
+          helperText={formik.touched.email && formik.errors.email}
+        />
+        <AuthField
+          label="Password"
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          value={formik.values.password}
+          onChange={formik.handleChange}
+          onBlur={formik.handleBlur}
+          error={formik.touched.password && Boolean(formik.errors.password)}
+          helperText={formik.touched.password && formik.errors.password}
+        />
+        <AuthButton busy={formik.isSubmitting} color={accent || undefined}>{formik.isSubmitting ? "Signing in…" : "Sign in"}</AuthButton>
+      </form>
+    </AuthFrame>
   );
 }

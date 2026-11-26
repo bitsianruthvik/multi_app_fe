@@ -1,5 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
+import { BrandPalette } from '@core/brand/CompanyBrandContext';
 import { useThemePreference } from '@core/contexts/ThemeContext';
 import { createCfErpTheme } from '../../theme';
 import { ToastProvider } from '../Toast';
@@ -25,10 +26,10 @@ export function CfErpThemeScope({ children }: { children: ReactNode }) {
 
   return (
     <ThemeProvider theme={theme}>
-      <ToastProvider>
+      <BrandPalette><ToastProvider>
         {/* Above the shell, so ⌘K works on every cf_erp route (as in fab_erp). */}
         <CommandPaletteProvider>{children}</CommandPaletteProvider>
       </ToastProvider>
-    </ThemeProvider>
+    </BrandPalette></ThemeProvider>
   );
 }

@@ -4,6 +4,7 @@ import { useThemePreference } from '@core/contexts/ThemeContext';
 import { createPlatformTheme } from './theme';
 import { ToastProvider } from '../Toast';
 import { setUiStorageNamespace } from '../storage';
+import { BrandPalette } from '@core/brand/CompanyBrandContext';
 import '../tokens.css';
 
 /**
@@ -46,7 +47,7 @@ export function ThemeScope({
 
   return (
     <ThemeProvider theme={theme}>
-      <ToastProvider>{children}</ToastProvider>
+      <BrandPalette><ToastProvider>{children}</ToastProvider></BrandPalette>
     </ThemeProvider>
   );
 }

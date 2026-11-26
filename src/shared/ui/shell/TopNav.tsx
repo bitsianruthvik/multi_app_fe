@@ -13,6 +13,7 @@ import { useCommandPalette } from '../commandPaletteContext';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath, type Can, type NavSection } from '../types';
+import { CompanyMark } from '@core/brand/CompanyMark';
 
 /**
  * Row 1 of the top navigation (DESIGN_SYSTEM.md §3): the app mark, the primary
@@ -159,24 +160,7 @@ export function TopNav({
             flexShrink: 0,
           }}
         >
-          <Box
-            aria-hidden
-            sx={{
-              width: 22,
-              height: 22,
-              borderRadius: '6px',
-              flexShrink: 0,
-              background: 'var(--c-primary-600)',
-              color: '#fff',
-              display: 'grid',
-              placeItems: 'center',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {brand.initial ?? brand.label.charAt(0).toUpperCase()}
-          </Box>
+          <CompanyMark initial={brand.initial ?? brand.label.charAt(0).toUpperCase()} />
           <Box
             sx={{
               fontFamily: 'var(--font-ui)',

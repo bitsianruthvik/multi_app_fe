@@ -32,6 +32,7 @@ export interface RoleRow {
 export interface AppRow { appId: number; slug: string; name: string; hasCatalog: boolean; options?: { storesDesk?: boolean }; standards: { key: string; name: string; help: string | null }[] }
 export interface RoleList { roles: RoleRow[]; apps: AppRow[] }
 export interface Overview { company: { id: number; slug: string; name: string }; apps: { appId: number; slug: string; name: string; people: number; roles: number; hasCatalog: boolean }[] }
+export interface BrandData { company: { name: string; slug: string } | null; colors: string[]; logo: string; updatedAt: string | null }
 export interface HistoryRow { id: number; by: string | null; action: string; subject: { type: string; id: number | null }; summary: string; at: string }
 
 /** What the server said went wrong, as lines for the screen. */
@@ -64,6 +65,9 @@ export function adminApi(company: string) {
     resetRole: (id: number, appId: number) => post<Role>(`/roles/${id}/reset`, { appId }),
     removeRole: (id: number) => api.delete(`${base}/roles/${id}`).then((r) => r.data as { removed: boolean }),
     history: () => get<HistoryRow[]>("/history?limit=200"),
+    // the company's colours (3-6, or [] for the standard look) and logo (a data: URL, or "" for none)
+    brand: () => get<BrandData>("/brand"),
+    saveBrand: (body: { colors: string[]; logo: string }) => put<BrandData>("/brand", body),
   };
 }
 export type AdminApi = ReturnType<typeof adminApi>;

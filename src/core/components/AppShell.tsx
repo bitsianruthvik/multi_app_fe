@@ -10,6 +10,7 @@ import { FabErpShell } from '@apps/fab_erp/components/nav/FabErpShell';
 import { CfErpThemeScope } from '@apps/cf_erp/components/shell/CfErpThemeScope';
 import { CfErpShell } from '@apps/cf_erp/components/shell/CfErpShell';
 import { ThemeScope } from '@shared/ui';
+import { BrandPalette } from '@core/brand/CompanyBrandContext';
 
 /**
  * Scopes the fab_erp redesign (violet accent, Geist, solid-elevation surfaces)
@@ -38,12 +39,12 @@ function FabErpThemeScope({ children }: { children: React.ReactNode }) {
 
   return (
     <MuiThemeProvider theme={fabErpTheme}>
-      <ToastProvider>
+      <BrandPalette><ToastProvider>
         {/* Mounted here, above the shell, so ⌘K works on every fab_erp route
             including the admin ones that don't get FabErpShell. */}
         <CommandPaletteProvider>{children}</CommandPaletteProvider>
       </ToastProvider>
-    </MuiThemeProvider>
+    </BrandPalette></MuiThemeProvider>
   );
 }
 

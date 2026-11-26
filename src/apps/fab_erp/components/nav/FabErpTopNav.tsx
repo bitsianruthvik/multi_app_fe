@@ -13,6 +13,7 @@ import { NAV_SECTIONS, type NavSection } from '../../navMeta';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useCommandPalette } from '../commandPaletteContext';
 import { useCompanySlug } from '../../hooks/useCompanySlug';
+import { CompanyMark } from '@core/brand/CompanyMark';
 
 /**
  * Row 1 of the top navigation — the five primary sections plus the chrome that
@@ -99,17 +100,7 @@ export function FabErpTopNav({
             textDecoration: 'none', flexShrink: 0,
           }}
         >
-          <Box
-            sx={{
-              width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-              background: 'var(--c-primary-600)', color: '#fff',
-              display: 'grid', placeItems: 'center',
-              fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600,
-            }}
-            aria-hidden
-          >
-            F
-          </Box>
+          <CompanyMark initial="F" />
           <Box sx={{ fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>
             Fab
           </Box>
