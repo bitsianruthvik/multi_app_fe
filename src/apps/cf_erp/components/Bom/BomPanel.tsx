@@ -327,6 +327,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // Gaps are read on the rows the person can see (cut pieces are worked out, not typed). The live map lays unsaved typing over the
   // server's answer; the filter reads what is SAVED, so a row does not vanish under the cursor as its last gap is typed.
   const gapScope = useMemo(() => new Set(flat.filter((f) => !isCutPiece(f.node)).map((f) => f.node.id)), [flat]);
+  /** Every row the grid can show on this line, open or folded: the grid's columns come from these, so they are worked out once a
+   * line and do not jump as rows open and fold (user, 2026-11-28: expanding a row was slow). */
+  const columnIds = useMemo(() => (orderGrid ? [...gapScope] : flat.map((f) => f.node.id)), [orderGrid, gapScope, flat]);
   const liveGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [gapsOn, gridValues.data, pending.values, gapScope]);
   const savedGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, undefined, gapScope) : null), [gapsOn, gridValues.data, gapScope]);
   const savedGapIds = useMemo(() => (savedGaps ? new Set(savedGaps.keys()) : null), [savedGaps]);
@@ -1205,7 +1208,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         </Box>
         <>
             <ErrorNotice error={gridValues.error} onRetry={gridValues.reload} />
-            <BomGrid key={rows.map((r) => r.node.key).join('|')} rows={rows} view={gridValues.data ?? null} records={orderGrid ? undefined : values} recordIds={ids} pending={pending} busy={!!busy || !!sheetBusy || (orderGrid ? gridValues.loading : values.scanning)}
+            <BomGrid key={state?.root.key ?? 'bom'} rows={rows} columnIds={columnIds} view={gridValues.data ?? null} records={orderGrid ? undefined : values} recordIds={ids} pending={pending} busy={!!busy || !!sheetBusy || (orderGrid ? gridValues.loading : values.scanning)}
               canEdit={(row) => editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}

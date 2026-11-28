@@ -36,10 +36,13 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; /**
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode, flashKeys, loadSpecs }: {
+export function BomGrid({ rows, columnIds, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode, flashKeys, loadSpecs }: {
   /** A list cell (HOLE_SET) opens its rows: the record's values are read with this (GET /records/:id/specs). Without it a list only shows its summary. */
   loadSpecs?: (recordId: number) => Promise<Resolution>;
-  rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
+  rows: BomRow[];
+  /** Every row the line can show (open or folded): the columns are those any of them uses. Without it, the rows shown. */
+  columnIds?: number[];
+  view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
   onMove: (row: BomRow, target: BomRow, position: DropPosition) => void;
@@ -84,27 +87,33 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const [listOpen, setListOpen] = useState<{ row: BomRow; code: string; editable: boolean; saved: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [movePosition, setMovePosition] = useState<DropPosition>('before');
+  const rowIds = useMemo(() => rows.map((r) => r.node.id), [rows]);
+  const catalogIds = recordIds ?? rowIds;
   const catalog = useMemo(() => {
     // The view's columns and records, and the order they are drawn in, are lib/bomGridLayout's — the order-line Excel mirrors them.
     const { cols, records } = viewCatalog(view);
     // Record BOMs reuse the same resolution and editability rules as their
     // former per-row editor. Child records remain shared and read-only.
-    for (const id of recordIds ?? rows.map((r) => r.node.id)) for (const s of recordValues?.get(id)?.resolution?.specs ?? []) {
+    for (const id of catalogIds) for (const s of recordValues?.get(id)?.resolution?.specs ?? []) {
       if (!s.applicable) continue;
       const mode = recordValues?.get(id)?.resolution?.mode ?? 'item';
       const old = cols.get(s.spec.code);
       cols.set(s.spec.code, { ...s.spec, rule: s.rule.valueRule, required: s.rule.isRequired, editable: !!old?.editable || valueEditable(s, mode) });
     }
     return { cols: sortColumns(cols), records };
-  }, [view, rows, recordValues, recordIds]);
+  }, [view, catalogIds, recordValues]);
   /** Whether a row can hold this variable at all — the same lookups cellAt makes, without building the cell. */
-  const uses = (row: BomRow, code: string): boolean => {
-    if (recordValues) return !!recordValues.get(row.node.id)?.resolution?.specs.some((s) => s.applicable && s.spec.code === code);
-    return viewUses(catalog.records, row.node.id, code);
+  const usesId = (id: number, code: string): boolean => {
+    if (recordValues) return !!recordValues.get(id)?.resolution?.specs.some((s) => s.applicable && s.spec.code === code);
+    return viewUses(catalog.records, id, code);
   };
+  const uses = (row: BomRow, code: string): boolean => usesId(row.node.id, code);
   const loaded = !!recordValues || !!view;
-  // Only the columns some row can use (the header and the cells of a row never name any other).
-  const used = loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
+  // Only the columns some row can use (the header and the cells of a row never name any other). Worked out once a line —
+  // over every row it can show, folded or not — not on every expand, so opening a row never adds or moves a column.
+  const colScope = columnIds ?? rowIds;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- usesId reads only catalog and recordValues
+  const used = useMemo(() => (loaded ? catalog.cols.filter((c) => colScope.some((id) => usesId(id, c.code))) : catalog.cols), [loaded, catalog, colScope, recordValues]);
   // The dimensions lead (Thk · L · W) and come as a set: a row with one of them shows all three, so rows line up.
   const shown = shownColumns(catalog.cols, used);
   const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];

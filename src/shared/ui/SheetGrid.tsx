@@ -528,6 +528,20 @@ export function SheetGrid({
     keys.forEach((k) => known.keys.add(k));
     if (fresh.length && fresh.length <= 5 && Date.now() - toggledAt.current > 1000) showFlash([], fresh);
   });
+  // Rows that open or fold above the selection move it: keep the selected cell on the same row (by its key), or drop it when its row
+  // folded away. The grid stays mounted across expand and fold (user, 2026-11-28: it used to be rebuilt, slow and back at the top).
+  const prevRowKeys = useRef<string[]>([]);
+  useEffect(() => {
+    const keys = rows.map((r) => r.key); const prev = prevRowKeys.current; prevRowKeys.current = keys;
+    if (!prev.length || !anchor) return;
+    const at = (p: Point | null) => (p && prev[p.row] !== undefined ? keys.indexOf(prev[p.row]) : -1);
+    const na = at(anchor), ne = at(extent);
+    if (na === anchor.row && (!extent || ne === extent.row)) return;
+    setEditor(null);
+    if (na < 0) { setAnchor(null); setExtent(null); return; }
+    setAnchor({ ...anchor, row: na }); setExtent(ne >= 0 && extent ? { ...extent, row: ne } : { ...anchor, row: na });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the rows change; the selection is read as it was
+  }, [rows]);
   /** Every write the grid makes goes through here: record the restore text first, then emit. */
   const emit = (writes: SheetWrite[]) => {
     if (!writes.length) return;
