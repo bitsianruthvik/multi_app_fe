@@ -506,6 +506,9 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const sel3d = useMemo(() => (model && selIdx != null ? selectionFacts(model, selIdx, allOfMark, codes) : null), [model, selIdx, allOfMark, codes]);
   const scope3d = settleScope(scopePick ?? (model && (lit3d || !partObj) ? 'whole' : 'part'), { hasModel: !!model, hasPart: !!partObj, lit: lit3d, selected: !!sel3d });
   const selIndices = sel3d?.indices;
+  // THE PART THE REVIEW OPENS ON (user, 2026-11-28: "When we open review from a particular part drawing, review should automatically
+  // start from there"): the piece picked in 3D, else the row being looked at (a BOM row's drawing opens on its row).
+  const reviewStart = sel3d?.mark ?? levelMark ?? null;
   // A new row's box picked: where it is, and a move (its own order line's edit).
   const selEl = model && selIdx != null ? model.elements[selIdx] : null;
   const addedRow = selEl?.added && selEl.rowId ? edits?.added.find((a) => a.rowId === selEl.rowId) ?? null : null;
@@ -756,7 +759,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         )}
         {modeReview && reviewInfo && reviewSrc && (
           <Suspense fallback={<Box role="status" sx={{ m: 'auto', display: 'flex', alignItems: 'center', gap: 1, color: 'var(--c-text-2)' }}><CircularProgress size={18} /> Loading the review…</Box>}>
-            <ReviewView source={reviewSrc} info={reviewInfo} />
+            <ReviewView source={reviewSrc} info={reviewInfo} start={reviewStart} />
           </Suspense>
         )}
         {pick3d === null && !modeOverlay && (

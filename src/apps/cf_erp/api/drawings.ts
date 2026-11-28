@@ -333,12 +333,38 @@ export const standardPhysics = (standardId: number): PhysicsSource => ({
  */
 export interface ReviewSummary { designs?: number; red?: number; amber?: number; green?: number; questions?: number; engineer?: number; checklist?: number; attention?: number }
 export interface ReviewInfo { fileId: number; savedAt: string; set: string | null; built: string | null; summary: ReviewSummary | null; stale: boolean }
-export interface ReviewSource { info: () => Promise<ReviewInfo>; text: (name: 'index.html' | 'data.json') => Promise<string>; image: (path: string) => Promise<Blob>; key: string }
-const reviewSource = (base: string, key: string): ReviewSource => ({
+/** The signed-in person's decision (ok = accept, bad = reject, q = maybe) and comment on a part, by its mark. */
+export interface ReviewMark { d?: 'ok' | 'bad' | 'q' | null; c?: string; at?: string }
+export interface ReviewSource {
+  info: () => Promise<ReviewInfo>; text: (name: 'index.html' | 'data.json') => Promise<string>; image: (path: string) => Promise<Blob>; key: string;
+  /** the person's decisions so far (kept on the server per standard and person, by mark — not with the review bundle) */
+  marks: () => Promise<{ parts: Record<string, ReviewMark> }>;
+  /** saves the marks given (the others stay as they are) */
+  saveMarks: (parts: Record<string, ReviewMark>) => Promise<{ saved: number }>;
+  /** an order line's codes of each drawing mark (normalised mark → codes), for the page to show beside each part */
+  codes?: () => Promise<Record<string, string[]>>;
+}
+const reviewSource = (base: string, key: string, codes?: () => Promise<Record<string, string[]>>): ReviewSource => ({
   key,
   info: () => cfApi.get<ReviewInfo>(base),
   text: (name) => cfApi.getBlob(`${base}/file${qs({ name })}`, { timeoutMs: LONG_WRITE_MS }).then(utf8),
   image: (path) => cfApi.getBlob(`${base}/file${qs({ name: path })}`, { timeoutMs: LONG_WRITE_MS }),
+  marks: () => cfApi.get<{ parts: Record<string, ReviewMark> }>(`${base}/marks`),
+  saveMarks: (parts) => cfApi.put<{ saved: number }>(`${base}/marks`, { parts }),
+  codes,
 });
-export const lineReview = (orderId: number, lineId: number): ReviewSource => reviewSource(`/orders/${orderId}/lines/${lineId}/review`, `line:${orderId}:${lineId}`);
+/** A drawing mark as the server matches it (partDrawingService normMark): no extension, spaces / _ / - as one '-', upper case. */
+export const reviewMarkKey = (s: string | null | undefined) => String(s ?? '').replace(/\.(dxf|pdf)$/i, '').trim().replace(/[\s_-]+/g, '-').toUpperCase();
+/** Each drawing mark's codes on an order line (its rows in the line's structure, top first), from the line's drawing tree. */
+async function lineCodes(orderId: number, lineId: number): Promise<Record<string, string[]>> {
+  const tree = await getDrawingTree(orderId, lineId);
+  const out: Record<string, string[]> = {};
+  for (const r of [...tree.rows].sort((a, b) => a.depth - b.depth || a.seq - b.seq)) {
+    if (!r.mark || !r.code) continue;
+    const k = reviewMarkKey(r.mark); const have = (out[k] ??= []);
+    if (!have.includes(r.code)) have.push(r.code);
+  }
+  return out;
+}
+export const lineReview = (orderId: number, lineId: number): ReviewSource => reviewSource(`/orders/${orderId}/lines/${lineId}/review`, `line:${orderId}:${lineId}`, () => lineCodes(orderId, lineId));
 export const standardReview = (standardId: number): ReviewSource => reviewSource(`/standard-drawings/${standardId}/review`, `standard:${standardId}`);
