@@ -30,14 +30,14 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole
   onSaved: (p: Party) => void;
 }) {
   const blank = { code: '', name: '', roles: [defaultRole] as PartyRole[], contactName: '', email: '', phone: '', taxNumber: '', address: '', notes: '', status: 'active' as Party['status'],
-    gstRegistration: 'regular' as GstRegistration, stateCode: '', city: '', pincode: '' };
+    gstRegistration: 'regular' as GstRegistration, stateCode: '', city: '', pincode: '', pan: '' };
   const [form, setForm] = useState(blank);
   useEffect(() => {
     if (!open) return;
     setForm(existing ? {
       code: existing.code, name: existing.name, roles: existing.roles, contactName: existing.contactName ?? '', email: existing.email ?? '',
       phone: existing.phone ?? '', taxNumber: existing.taxNumber ?? '', address: existing.address ?? '', notes: existing.notes ?? '', status: existing.status,
-      gstRegistration: existing.gstRegistration ?? 'regular', stateCode: existing.stateCode ?? '', city: existing.city ?? '', pincode: existing.pincode ?? '',
+      gstRegistration: existing.gstRegistration ?? 'regular', stateCode: existing.stateCode ?? '', city: existing.city ?? '', pincode: existing.pincode ?? '', pan: existing.pan ?? '',
     } : { ...blank, roles: [defaultRole] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existing, defaultRole]);
@@ -45,7 +45,7 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole
   const states = useLoad(() => (open ? getStates() : Promise.resolve([] as StateRow[])), [open]);
   const toggleRole = (r: PartyRole) => setForm((f) => ({ ...f, roles: f.roles.includes(r) ? f.roles.filter((x) => x !== r) : [...f.roles, r] }));
   const save = async () => {
-    const body = { ...form, taxNumber: form.taxNumber || null, stateCode: form.stateCode || null };
+    const body = { ...form, taxNumber: form.taxNumber || null, stateCode: form.stateCode || null, pan: form.pan.trim().toUpperCase() || null };
     const saved = existing ? await cfApi.put<Party>(`/parties/${existing.id}`, body) : await cfApi.post<Party>('/parties', body);
     onSaved(saved);
   };
@@ -72,6 +72,9 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole
         <TextField label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         <GstinField value={form.taxNumber} check={checkGstin} label="GSTIN" onChange={(v) => setForm({ ...form, taxNumber: v })}
           onResult={(r) => setForm((f) => ({ ...f, stateCode: r.stateCode ?? f.stateCode }))} />
+        <TextField label="PAN" value={form.pan} onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
+          inputProps={{ maxLength: 10, style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={form.taxNumber.length >= 12 && form.pan && form.taxNumber.slice(2, 12).toUpperCase() !== form.pan.toUpperCase() ? `The GSTIN carries PAN ${form.taxNumber.slice(2, 12).toUpperCase()}` : ' '} />
         <TextField select label="GST registration" value={form.gstRegistration} onChange={(e) => setForm({ ...form, gstRegistration: e.target.value as GstRegistration })}
           helperText="Decides how tax is shown on their invoices">
           {REGISTRATION.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}

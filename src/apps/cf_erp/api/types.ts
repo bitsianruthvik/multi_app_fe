@@ -661,6 +661,8 @@ export interface Party {
   stateCode?: string | null;
   city?: string | null;
   pincode?: string | null;
+  /** PAN as given (a GSTIN carries one in characters 3-12). */
+  pan?: string | null;
   contactName: string | null;
   email: string | null;
   phone: string | null;
