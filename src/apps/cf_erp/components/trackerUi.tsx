@@ -25,6 +25,11 @@ export function StepStatusBadge({ status, title }: { status: StepStatus; title?:
   return <Badge family={STEP[status].family} icon={STEP[status].icon} label={STEP_STATUS_LABEL[status]} title={title} />;
 }
 
+/** A step done by an OPENING POSITION (init.sql §121): work done before the system, never logged on the floor. */
+export function OpeningTag() {
+  return <Badge family="info" noIcon label="Opening" title="Done before the system (the line's opening position) — not logged on the floor, nothing posted to stock." />;
+}
+
 const PIECE: Record<PieceStatus, StepStatus> = { not_ready: 'not_ready', ready: 'ready', in_progress: 'in_progress', on_hold: 'on_hold', complete: 'done' };
 
 export function PieceStatusBadge({ status }: { status: PieceStatus }) {

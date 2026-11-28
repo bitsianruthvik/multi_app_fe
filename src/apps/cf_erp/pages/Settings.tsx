@@ -9,6 +9,7 @@ import { useToast } from '../components/toastContext';
 const same = (a: SettingValue, b: SettingValue) => (a ?? '') === (b ?? '') || String(a ?? '') === String(b ?? '');
 const shown = (i: SettingItem, v: SettingValue) => {
   if (v == null || v === '') return 'none';
+  if (i.type === 'stages') return 'the standard list';
   if (i.type === 'bool') return v ? 'on' : 'off';
   if (i.type === 'choice') return i.choices?.find((c) => c.value === String(v))?.label ?? String(v);
   return `${v}${i.unit ? ` ${i.unit}` : ''}`;
@@ -27,6 +28,12 @@ function Field({ item, value, users, onChange }: { item: SettingItem; value: Set
       <MenuItem value="">Nobody</MenuItem>
       {users.map((u) => <MenuItem key={u.id} value={String(u.id)}>{u.name}</MenuItem>)}
     </TextField>
+  );
+  // §121: the stages of production — one line per stage, "Name: CODE, CODE".
+  if (item.type === 'stages') return (
+    <TextField id={id} multiline minRows={4} maxRows={14} size="small" value={value == null ? '' : String(value)} onChange={(e) => onChange(e.target.value)}
+      sx={{ flex: '1 1 100%', minWidth: 0 }} inputProps={{ 'aria-label': item.label, spellCheck: false, 'data-testid': 'set-stages', style: { fontFamily: 'var(--font-mono)', fontSize: 12.5 } }}
+      placeholder="Cut: CNCP-CUT, GASCUT" />
   );
   const type = item.type === 'time' ? 'time' : item.type === 'date' ? 'date' : 'text';
   return (

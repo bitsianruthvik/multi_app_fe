@@ -17,7 +17,7 @@ import { HelpButton } from '../help/HelpButton';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DetailTabs } from '../components/DetailLayout';
-import { StepStatusBadge } from '../components/trackerUi';
+import { OpeningTag, StepStatusBadge } from '../components/trackerUi';
 import { RequirementsTable, StepActions } from '../components/ReleaseView';
 import { ProgressDialog, StartStepDialog } from '../components/TrackerDialogs';
 import { PromptDialog } from '../components/PromptDialog';
@@ -121,7 +121,7 @@ export default function Tracker() {
     { key: 'order', header: 'Order', sortValue: (s) => s.order.code, render: (s) => <Mono><Box component={Link} to={appPath(company, `orders/${s.order.id}?tab=production&line=${s.line.id}`)} sx={linkSx}>{s.order.code}</Box></Mono> },
     // Sorted by what can be worked on, not by the alphabet: "done, in progress,
     // not ready, on hold, ready" is no order at all to someone at a machine.
-    { key: 'status', header: 'Status', sortValue: (s) => PRIORITY[s.status], exportValue: (s) => STEP_STATUS_LABEL[s.status], render: (s) => <FlashOnChange value={s.status}><StepStatusBadge status={s.status} /></FlashOnChange> },
+    { key: 'status', header: 'Status', sortValue: (s) => PRIORITY[s.status], exportValue: (s) => STEP_STATUS_LABEL[s.status], render: (s) => <FlashOnChange value={s.status}><Box sx={{ display: 'inline-flex', gap: 0.5, alignItems: 'center' }}><StepStatusBadge status={s.status} />{s.opening && <OpeningTag />}</Box></FlashOnChange> },
     // The button sits next to the status it answers, and is always on screen:
     // as a hover-revealed row action it could not be reached at all on the
     // touch screens this runs on at the machine.

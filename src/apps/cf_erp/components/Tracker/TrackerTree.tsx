@@ -5,11 +5,13 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
+import FlagRounded from '@mui/icons-material/FlagRounded';
 import { Link } from 'react-router-dom';
 import { InfoButton } from '@shared/ui';
 import { CfApiError } from '../../api/client';
 import { getTrackerTree, getTreeChildren, type TrackerTreeResponse, type TreeLevel, type TreeNode } from '../../api/trackerTree';
 import { useCompanySlug } from '../../hooks/useLoad';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { useUrlParam } from '../../hooks/useUrlState';
 import { appPath } from '../../navMeta';
 import {
@@ -23,6 +25,7 @@ import { FilterBar } from '../FilterBar';
 import { BlockedMark, CompletionBar } from './TreeParts';
 import { LaneLegend, RouteLane, TimelineAxis, TimelineLane } from './OpLane';
 import { PieceDrawer } from './PieceDrawer';
+import { OpeningPositionDialog } from './OpeningPositionDialog';
 
 /** "Everything" in the level picker. */
 const ALL_LEVELS = 99;
@@ -196,6 +199,9 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
 }) {
   const embedded = lineId != null;
   const company = useCompanySlug();
+  // §121: the opening position is recorded with the same permission as progress (production manage; admins pass).
+  const canSetOpening = useIsPermitted()('cf_erp_production_manage') && !readOnly;
+  const [openingLines, setOpeningLines] = useState<{ id: number; label: string }[] | null>(null);
   const wide = useMediaQuery('(min-width: 900px)');
   const rowH = wide ? ROW_WIDE : ROW_NARROW;
   const [scopeParam, setScope] = useParam(embedded, 'order', 'latest');
@@ -341,6 +347,14 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
     if (!term && !onlyBlocked && (oneOrder || v !== ALL_LEVELS)) setOpen(openToLevel(tree, v));
   };
   const topLevel = levels[0]?.level ?? 2;
+  // The released lines the opening position can be set on: the line shown, or the lines of the order shown.
+  const openingChoices = useMemo(() => {
+    const all = (resp?.orders ?? []).flatMap((o) => o.lines.map((l) => ({ id: l.id, orderId: o.id, label: `${o.code} · line ${l.lineNo} · ${l.itemName}` })));
+    if (scopeLine != null) return all.filter((l) => l.id === scopeLine).map(({ id, label }) => ({ id, label }));
+    const shownOrder = orderId === 'latest' ? resp?.scope.orderId ?? null : orderId;
+    if (shownOrder == null) return [];
+    return all.filter((l) => l.orderId === shownOrder).map(({ id, label }) => ({ id, label }));
+  }, [resp, scopeLine, orderId]);
 
   return (
     <Box>
@@ -406,6 +420,12 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
           control={<Switch size="small" checked={onlyBlocked} onChange={(e) => setBlockedParam(e.target.checked ? '1' : '0')} />}
           label={<Typography sx={{ fontSize: 13 }}>Only blocked</Typography>} />
         <InfoButton text={LANE_INFO} label="How to read the operations" />
+        {canSetOpening && openingChoices.length > 0 && (
+          <Button size="small" variant="outlined" startIcon={<FlagRounded fontSize="small" />} onClick={() => setOpeningLines(openingChoices)} data-testid="opening-open"
+            title="Work done before the system: mark the line done up to a stage, with nothing posted to stock or billing">
+            Set opening position
+          </Button>
+        )}
       </FilterBar>
 
       {s && s.pieces > 0 && (
@@ -476,6 +496,7 @@ export function TrackerTree({ lineId = null, readOnly = false, onChanged }: {
         </Surface>
       )}
       <PieceDrawer nodeId={piece} basisNote={resp?.basisNote ?? null} onClose={() => setPiece(null)} onChanged={changed} readOnly={readOnly} />
+      <OpeningPositionDialog lines={openingLines} onClose={() => setOpeningLines(null)} onDone={() => { setTick((t) => t + 1); onChanged?.(); }} />
     </Box>
   );
 }

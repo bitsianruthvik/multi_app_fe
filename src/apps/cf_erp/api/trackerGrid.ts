@@ -22,6 +22,8 @@ export interface GridOwnCell {
   passes?: { stepId: number; name: string | null; state: OpState; done: number; total: number }[];
   /** The same operation further down the piece. */
   below?: { done: number; total: number };
+  /** How many of its steps are done by an opening position (work before the system, §121). */
+  opening?: number;
 }
 
 /** No step of its own, but pieces under it have the operation: how much of it is done. */

@@ -1083,6 +1083,8 @@ export interface ProductionStep {
   qtyScrap: number;
   state: 'pending' | 'in_progress' | 'done' | 'on_hold';
   status: StepStatus;
+  /** Done by an opening position (work before the system, init.sql §121) — not floor work. */
+  opening?: boolean;
   machine: { id: number; code: string; name: string } | null;
   startedAt: string | null;
   finishedAt: string | null;

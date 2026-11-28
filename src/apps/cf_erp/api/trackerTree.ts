@@ -23,6 +23,8 @@ export interface TreeOp {
   ready?: boolean;
   /** Why it is blocked, in a few words. */
   reason?: string;
+  /** Done by an OPENING POSITION (work before the system, init.sql §121) — not logged on the floor. */
+  opening?: boolean;
   /** The step's planned minutes; null = no time on it (2026-10-17). */
   minutes?: number | null;
   /** When the floor started / finished it (ISO; 2026-11-14, the timeline). */

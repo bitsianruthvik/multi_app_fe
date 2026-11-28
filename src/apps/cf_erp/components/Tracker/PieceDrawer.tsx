@@ -12,7 +12,7 @@ import { appPath } from '../../navMeta';
 import { progressText } from '../../lib/tracker';
 import { pctText } from '../../lib/trackerTree';
 import { ErrorNotice, Mono, SkeletonRows } from '../ui';
-import { StepStatusBadge } from '../trackerUi';
+import { OpeningTag, StepStatusBadge } from '../trackerUi';
 import { StepActions } from './StepActions';
 import { ProgressDialog, StartStepDialog } from '../TrackerDialogs';
 import { PromptDialog } from '../PromptDialog';
@@ -39,6 +39,7 @@ function StepCard({ step, canProduce, focused, onAct }: { step: ProductionStep; 
           {step.stepName || step.operation.name} <Mono muted>{step.operation.code}</Mono>
         </Box>
         {progressText(step.qtyGood, step.quantity) && <Mono muted>{progressText(step.qtyGood, step.quantity)}</Mono>}
+        {step.opening && <OpeningTag />}
         <StepStatusBadge status={step.status} />
       </Box>
       {lines.map((t, i) => <Typography key={i} sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{t}</Typography>)}

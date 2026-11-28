@@ -25,29 +25,34 @@ const LANE_TONE = {
 } as const;
 
 const MARK: Record<string, string> = { done: '✓', blocked: '!', running: '▸' };
+/** Done by an opening position (§121): work before the system — striped, its own mark, so nobody takes it for floor work. */
+const OPENING_FILL = 'repeating-linear-gradient(135deg, var(--c-success-100, #dcfce7) 0 4px, var(--c-success-200, #bbf7d0) 4px 8px)';
+const OPENING_INK = 'var(--c-success-800, #166534)';
+const isOpening = (o: LaneOp) => o.state === 'done' && (o.opening ?? 0) > 0 && (o.opening ?? 0) >= Math.max(1, o.steps);
 
 function Seg({ o, grow, onOpen }: { o: LaneOp; grow: number; onOpen?: (o: LaneOp) => void }) {
   const t = LANE_TONE[o.state];
   const share = o.total > 0 ? Math.max(0, Math.min(1, o.done / o.total)) : 0;
   const text = o.code ?? o.name;
+  const opening = isOpening(o);
   return (
     <Tooltip title={<Box sx={{ whiteSpace: 'pre-line' }}>{laneTitle(o)}</Box>} arrow disableInteractive>
       <Box
-        component="span" data-testid="lane-op" data-state={o.state}
+        component="span" data-testid="lane-op" data-state={o.state} data-opening={opening ? 'true' : undefined}
         onClick={onOpen ? (e) => { e.stopPropagation(); onOpen(o); } : undefined}
         sx={{
           position: 'relative', flex: `${grow} 1 0`, minWidth: 8, height: 20, borderRadius: '4px', overflow: 'hidden',
           display: 'flex', alignItems: 'center', px: 0.5, gap: 0.25, boxSizing: 'border-box',
-          border: '1px solid', borderColor: o.state === 'todo' && o.ready ? 'var(--c-success-600)' : t.border, borderStyle: o.state === 'todo' && o.ready ? 'dashed' : 'solid',
-          background: o.state === 'partial' ? 'var(--c-warning-50, #fffbeb)' : t.fill,
-          color: o.state === 'partial' ? t.ink : t.ink,
+          border: '1px solid', borderColor: o.state === 'todo' && o.ready ? 'var(--c-success-600)' : t.border, borderStyle: (o.state === 'todo' && o.ready) || opening ? 'dashed' : 'solid',
+          background: opening ? OPENING_FILL : o.state === 'partial' ? 'var(--c-warning-50, #fffbeb)' : t.fill,
+          color: opening ? OPENING_INK : t.ink,
           cursor: onOpen ? 'pointer' : 'default',
           ...(o.state === 'running' ? { animation: `${glow} 1.4s ease-in-out infinite` } : {}),
         }}
       >
         {o.state === 'partial' && <Box aria-hidden sx={{ position: 'absolute', inset: 0, width: `${share * 100}%`, background: 'var(--c-warning-200, #fde68a)' }} />}
         <Box component="span" sx={{ position: 'relative', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'clip', lineHeight: 1 }}>
-          {MARK[o.state] ? `${MARK[o.state]} ` : ''}{text}{o.total > 1 && o.state !== 'done' && o.done > 0 ? ` ${Number(o.done.toFixed(2))}/${Number(o.total.toFixed(2))}` : ''}
+          {opening ? '○ ' : MARK[o.state] ? `${MARK[o.state]} ` : ''}{text}{o.total > 1 && o.state !== 'done' && o.done > 0 ? ` ${Number(o.done.toFixed(2))}/${Number(o.total.toFixed(2))}` : ''}
         </Box>
       </Box>
     </Tooltip>
@@ -141,7 +146,12 @@ export function LaneLegend({ mode }: { mode: LaneMode }) {
   );
   return (
     <Box data-testid="lane-legend" sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-      {sw('done')}{sw('running', 'Running now (glows)')}{sw('partial')}{sw('blocked')}{sw('todo')}
+      {sw('done')}
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+        <Box component="span" sx={{ width: 18, height: 10, borderRadius: '3px', background: OPENING_FILL, border: '1px dashed var(--c-success-600)' }} />
+        <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Opening position (before the system)</Typography>
+      </Box>
+      {sw('running', 'Running now (glows)')}{sw('partial')}{sw('blocked')}{sw('todo')}
       {mode === 'timeline' && (
         <>
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>

@@ -41,6 +41,8 @@ export interface LaneOp {
   plannedEnd: number | null;
   /** One of the row's own steps, for opening the piece on it. */
   stepId: number | null;
+  /** How many of its steps were done by an opening position (work before the system, §121). */
+  opening?: number;
 }
 
 const ms = (v: string | null | undefined) => { if (!v) return null; const t = Date.parse(v); return Number.isNaN(t) ? null : t; };
@@ -56,7 +58,7 @@ function fromOp(o: TreeOp, names: OperationNames, now: number): LaneOp {
     done: o.done, total: o.total, state: o.state, ready: !!o.ready, reason: o.reason ?? null,
     minutes: o.minutes ?? null, steps: 1, running: o.state === 'running' ? 1 : 0, blocked: o.state === 'blocked' ? 1 : 0,
     start, end: fin ?? (o.state === 'running' && start != null ? now : null),
-    plannedStart: ms(o.plannedStart), plannedEnd: ms(o.plannedEnd), stepId: o.stepId,
+    plannedStart: ms(o.plannedStart), plannedEnd: ms(o.plannedEnd), stepId: o.stepId, opening: o.opening ? 1 : 0,
   };
 }
 
@@ -127,7 +129,7 @@ function foldByOperation(ops: LaneOp[], names: OperationNames, sort: (xs: LaneOp
       by.set(o.operationId, { ...o, key: `o${o.operationId}`, name: names[o.operationId]?.name ?? o.name, allDone: o.state === 'done', anyReady: o.ready, minutesKnown: o.minutes != null });
       continue;
     }
-    e.done += o.done; e.total += o.total; e.steps += o.steps; e.running += o.running; e.blocked += o.blocked;
+    e.done += o.done; e.total += o.total; e.steps += o.steps; e.running += o.running; e.blocked += o.blocked; e.opening = (e.opening ?? 0) + (o.opening ?? 0);
     e.allDone = e.allDone && o.state === 'done'; e.anyReady = e.anyReady || o.ready;
     e.minutesKnown = e.minutesKnown && o.minutes != null; e.minutes = e.minutesKnown ? (e.minutes ?? 0) + (o.minutes ?? 0) : null;
     e.start = min(e.start, o.start); e.end = max(e.end, o.end);
@@ -194,6 +196,7 @@ export function laneTitle(o: LaneOp): string {
     `${o.name}${o.code ? ` (${o.code})` : ''} — ${what}`,
     count,
     o.steps > 1 ? `${o.steps} steps` : null,
+    o.opening ? (o.opening >= Math.max(1, o.steps) ? 'Opening position — done before the system, not logged on the floor' : `${o.opening} of them done before the system (opening position)`) : null,
     hrs(o.minutes) ? `Planned time ${hrs(o.minutes)}` : null,
     o.plannedStart != null ? `Planned ${when(o.plannedStart)} → ${when(o.plannedEnd)}` : null,
     o.start != null ? `Started ${when(o.start)}${o.state === 'done' && o.end != null ? ` · finished ${when(o.end)}` : ''}` : null,
