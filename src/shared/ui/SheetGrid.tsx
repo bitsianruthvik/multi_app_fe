@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import {
-  isValidElement, memo, useEffect, useImperativeHandle, useMemo, useRef, useState,
+  isValidElement, memo, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
   type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject,
 } from 'react';
 import { Alert, Box, IconButton, Typography, useMediaQuery } from '@mui/material';
@@ -197,6 +197,20 @@ const VOID: SheetCell = Object.freeze({ text: '', editable: false, applies: fals
 const STRIP_WIDTH = 96;
 const isDropdown = (c: SheetCell) => c.kind === 'option' || c.kind === 'bool';
 
+/** Row virtualisation (see "ROWS DRAWN" in SheetGrid): a grid of more rows than this draws only those near the view. */
+const VIRTUAL_MIN = 60;
+/** Rows drawn above and below the ones in view, and how near their edge the view may come before more are drawn. */
+const OVERSCAN = 20, EDGE = 5;
+/** The scroll box as last read: where it is scrolled to, its inner height, the heading's height, and whether it is laid out at all. */
+type Viewport = { top: number; height: number; head: number; layout: boolean };
+const sameVp = (a: Viewport, b: Viewport) => Math.abs(a.top - b.top) < 1 && Math.abs(a.height - b.height) < 1 && Math.abs(a.head - b.head) < 1 && a.layout === b.layout;
+/** The row at height y (from the first row's top), by the rows' running tops (offsets[i] = row i's top, the last = the total). */
+function rowAtY(offsets: number[], y: number): number {
+  let lo = 0, hi = offsets.length - 2;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (offsets[mid] <= y) lo = mid; else hi = mid - 1; }
+  return Math.max(0, lo);
+}
+
 type OptionMatch = { option: SheetOption } | { ambiguous: string[] } | null;
 /**
  * Forgiving option matching: exact value or label (case-insensitive), else a label/value that STARTS WITH the
@@ -252,14 +266,16 @@ const HEAD_MIN = 160, HEAD_MAX = 900;
  */
 type CellAt = { row: number; col: number };
 interface CellApi {
-  click: (e: ReactMouseEvent<HTMLElement>, at: CellAt, rowKey: string, colKey: string) => void;
+  /** Where a row's cell is NOW (its row index moves as rows above open and fold); null when the row is gone. */
+  at: (rowKey: string, col: number) => CellAt | null;
+  click:(e: ReactMouseEvent<HTMLElement>, at: CellAt, rowKey: string, colKey: string) => void;
   pointerDown: (e: ReactPointerEvent<HTMLElement>, at: CellAt) => void;
   mouseDown: (e: ReactMouseEvent<HTMLElement>) => void;
   doubleClick: (e: ReactMouseEvent<HTMLElement>, at: CellAt) => void;
   pointerEnter: (e: ReactPointerEvent<HTMLElement>, at: CellAt) => void;
   keyDown: (e: KeyboardEvent<HTMLElement>, at: CellAt) => void;
-  /** The open editor of this cell (only asked while it is open). */
-  editor: (at: CellAt, cell: SheetCell, label: string, align: 'left' | 'right' | undefined) => ReactNode;
+  /** The open editor (only asked by the cell it is open on). */
+  editor: (cell: SheetCell, label: string, align: 'left' | 'right' | undefined) => ReactNode;
   isDropdown: (c: SheetCell) => boolean;
   writable: (c: SheetCell) => boolean;
   selectRow: (rowKey: string) => void;
@@ -267,10 +283,10 @@ interface CellApi {
 }
 interface RowCellsProps {
   api: RefObject<CellApi>;
-  r: number; rowKey: string; keys: string[]; cells: SheetCell[];
+  rowKey: string; keys: string[]; cells: SheetCell[];
   /** The column of each slot, and a signature of what is drawn from it (the comparison reads the signature). */
   cols: (SheetColumn | undefined)[]; colSig: string;
-  /** Strip: each slot's width; wide: null (the column's own width, for the editor only). */
+  /** Strip: each slot's width (one array shared by every row); wide: null (the column's own width, for the editor only). */
   widths: number[] | null; slotCount: number; strip: boolean;
   /** The selected slots of this row (-1 = none), the anchor's slot, whether this row holds the first tab stop. */
   selFrom: number; selTo: number; anchorCol: number; firstTab: boolean;
@@ -304,11 +320,13 @@ const sameOptions = (a?: SheetOption[], b?: SheetOption[]) => a === b || (!!a &&
 const sameCell = (a: SheetCell, b: SheetCell) => a === b || (a.text === b.text && a.editable === b.editable && a.why === b.why && a.tone === b.tone && a.kind === b.kind
   && a.title === b.title && a.applies === b.applies && a.tint === b.tint && a.ink === b.ink && a.state === b.state && a.input === b.input
   && sameOptions(a.options, b.options) && sameNode(a.mark, b.mark));
-const sameRowCells = (p: RowCellsProps, n: RowCellsProps) => p.api === n.api && p.r === n.r && p.rowKey === n.rowKey && p.colSig === n.colSig && p.strip === n.strip
+// No row index in here (2026-11-28): opening a row gave every row below it a new index, and each of them drew again. A
+// cell asks for its row's index when it is used (api.at), and the grid writes the data-cell addresses after each draw.
+const sameRowCells = (p: RowCellsProps, n: RowCellsProps) => p.api === n.api && p.rowKey === n.rowKey && p.colSig === n.colSig && p.strip === n.strip
   && p.slotCount === n.slotCount && p.selFrom === n.selFrom && p.selTo === n.selTo && p.anchorCol === n.anchorCol && p.firstTab === n.firstTab
   && p.editCol === n.editCol && p.editSig === n.editSig && p.flashKeys === n.flashKeys && p.flashOdd === n.flashOdd
-  && p.keys.length === n.keys.length && p.keys.every((k, i) => k === n.keys[i])
-  && (p.widths ?? []).join() === (n.widths ?? []).join()
+  && (p.keys === n.keys || (p.keys.length === n.keys.length && p.keys.every((k, i) => k === n.keys[i])))
+  && (p.widths === n.widths || (p.widths ?? []).slice(0, p.keys.length).join() === (n.widths ?? []).slice(0, n.keys.length).join())
   && p.cells.length === n.cells.length && p.cells.every((c, i) => sameCell(c, n.cells[i]));
 
 /**
@@ -316,14 +334,14 @@ const sameRowCells = (p: RowCellsProps, n: RowCellsProps) => p.api === n.api && 
  * changes (a selection, typing in a cell, a flash) the screen hands the very same nodes and the header is not drawn
  * again; when the screen draws anew it hands new nodes and the header follows (so its buttons never keep old handlers).
  */
-interface RowHeadProps { api: RefObject<CellApi>; r: number; row: SheetRow; anyCollapsible: boolean; rowHeight: number }
-const sameRowHead = (p: RowHeadProps, n: RowHeadProps) => p.api === n.api && p.r === n.r && p.anyCollapsible === n.anyCollapsible && p.rowHeight === n.rowHeight
+interface RowHeadProps { api: RefObject<CellApi>; row: SheetRow; anyCollapsible: boolean; rowHeight: number }
+const sameRowHead = (p: RowHeadProps, n: RowHeadProps) => p.api === n.api && p.anyCollapsible === n.anyCollapsible && p.rowHeight === n.rowHeight
   && (p.row === n.row || (p.row.key === n.row.key && p.row.depth === n.row.depth && p.row.label === n.row.label && p.row.collapsible === n.row.collapsible
     && p.row.collapsed === n.row.collapsed && p.row.header === n.row.header && p.row.lead === n.row.lead && p.row.trail === n.row.trail && p.row.below === n.row.below));
-const RowHead = memo(function RowHead({ api, r, row, anyCollapsible, rowHeight }: RowHeadProps) {
+const RowHead = memo(function RowHead({ api, row, anyCollapsible, rowHeight }: RowHeadProps) {
   const below = row.below != null;
   const indent = Math.min(row.depth ?? 0, 7) * 10;
-  return <td role="rowheader" data-cell={`${r}:0`} className="sg-rowhead" tabIndex={-1}
+  return <td role="rowheader" data-c="0" className="sg-rowhead" tabIndex={-1}
     onClick={(e) => { if ((e.target as HTMLElement).closest(INTERACTIVE)) return; api.current.selectRow(row.key); }}>
     <div style={below ? { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: 2, alignItems: 'center' } : { display: 'flex', alignItems: 'center', gap: 2 }}>
       {below ? <div style={{ gridColumn: 1, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.lead}</div> : row.lead}
@@ -340,10 +358,12 @@ const RowHead = memo(function RowHead({ api, r, row, anyCollapsible, rowHeight }
   </td>;
 }, sameRowHead);
 
-const RowCells = memo(function RowCells({ api, r, rowKey, keys, cells, cols, widths, slotCount, strip, selFrom, selTo, anchorCol, firstTab, editCol, flashKeys, flashOdd }: RowCellsProps) {
+const RowCells = memo(function RowCells({ api, rowKey, keys, cells, cols, widths, slotCount, strip, selFrom, selTo, anchorCol, firstTab, editCol, flashKeys, flashOdd }: RowCellsProps) {
   const flashed = flashKeys ? new Set(flashKeys.split('\u0001')) : null;
   const tds = keys.map((key, c) => {
-    const at = { row: r, col: c }, col = cols[c], cell = cells[c], fns = api.current;
+    const col = cols[c], cell = cells[c], fns = api.current;
+    /** A handler that is given the cell's place as it is when the event comes. */
+    const on = <E,>(fn: (e: E, at: CellAt) => void) => (e: E) => { const at = api.current.at(rowKey, c); if (at) fn(e, at); };
     const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = fns.writable(cell), na = cell.applies === false;
     const editing = editCol === c, active = selFrom >= 0 && c >= selFrom && c <= selTo;
     const width = widths ? widths[c] : col?.width ?? 145;
@@ -356,23 +376,23 @@ const RowCells = memo(function RowCells({ api, r, rowKey, keys, cells, cols, wid
     if (col?.align === 'right') style.textAlign = 'right';
     if (cell.ink) style.color = cell.ink;
     if (cell.tint && !blank && !na) style.backgroundColor = cell.tint;
-    return <td key={strip ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={twoLines ? 2 : undefined}
+    return <td key={strip ? `${c}:${key}` : key} role="gridcell" data-c={c + 1} data-col-key={key} data-name={stripName} data-label-lines={twoLines ? 2 : undefined}
       className={`sg-data${flashed?.has(key) ? ` sg-cell-flash-${flashOdd ? 'a' : 'b'}` : ''}`} data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
       data-can={can ? 'true' : undefined} data-anchor={anchorCol === c ? 'true' : undefined} data-editing={editing ? 'true' : undefined}
       data-dropdown={dropdown ? 'true' : undefined}
       tabIndex={anchorCol === c || (firstTab && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
       title={`${twoLines ? `${stripName} — ` : ''}${na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}`}
-      onClick={(e) => api.current.click(e, at, rowKey, key)}
-      onPointerDown={(e) => api.current.pointerDown(e, at)}
+      onClick={on((e: ReactMouseEvent<HTMLElement>, at) => api.current.click(e, at, rowKey, key))}
+      onPointerDown={on((e: ReactPointerEvent<HTMLElement>, at) => api.current.pointerDown(e, at))}
       onMouseDown={(e) => api.current.mouseDown(e)}
-      onDoubleClick={(e) => api.current.doubleClick(e, at)}
-      onPointerEnter={(e) => api.current.pointerEnter(e, at)}
-      onKeyDown={(e) => api.current.keyDown(e, at)}
+      onDoubleClick={on((e: ReactMouseEvent<HTMLElement>, at) => api.current.doubleClick(e, at))}
+      onPointerEnter={on((e: ReactPointerEvent<HTMLElement>, at) => api.current.pointerEnter(e, at))}
+      onKeyDown={on((e: KeyboardEvent<HTMLElement>, at) => api.current.keyDown(e, at))}
       style={style}>
       {cell.mark != null && <span className="sg-mark" data-mark="">{cell.mark}</span>}
       {/* A dropdown says so before it is opened. */}
       {dropdown && !editing && <span className="sg-caret" aria-hidden data-caret="">▾</span>}
-      {editing ? fns.editor(at, cell, label, col?.align) : blank || na ? '' : cell.text || (can ? '' : '—')}
+      {editing ? fns.editor(cell, label, col?.align) : blank || na ? '' : cell.text || (can ? '' : '—')}
     </td>;
   });
   return <>{tds}{keys.length < slotCount && <td className="sg-void" colSpan={slotCount - keys.length} />}</>;
@@ -451,7 +471,7 @@ export function SheetGrid({
 
   // ── layout: which column key sits in which slot of which row ──
   const strip = !!rowColumns && !lineUp;
-  const allKeys = columns.map((c) => c.key);
+  const allKeys = useMemo(() => columns.map((c) => c.key), [columns]);
   const stripKeys: string[][] | null = strip ? rows.map((r) => rowColumns!(r.key).filter((k) => colByKey.has(k))) : null;
   const keysOf = (r: number): string[] => (stripKeys ? stripKeys[r] ?? [] : allKeys);
   const sigOf = (r: number) => keysOf(r).join('\u0001');
@@ -459,6 +479,88 @@ export function SheetGrid({
   const keyAt = (at: Point): string | undefined => keysOf(at.row)[at.col];
   const labelOf = (key: string | undefined) => (key ? colByKey.get(key)?.label ?? key : '');
   const cellAt = (rowKey: string, colKey: string): SheetCell => cellAtRo(rowKey, colKey);
+
+  /*
+   * ROWS DRAWN (speed, 2026-11-28: an order's BOM of a few thousand open rows took seconds to open or fold a row). A long
+   * grid draws only the rows in its scroll box plus OVERSCAN above and below; two spacer rows keep the full height, so the
+   * scroll bar and the sticky heading behave as before. Row heights differ (a code line under the name, two-line labels),
+   * so each drawn row is measured and the rest are estimated from those. Selection, copy, paste, fill and undo work on the
+   * rows' data, never on the drawn cells, so they reach rows that are not drawn; moving the focus to such a row scrolls
+   * there first (focus). The grid always scrolls in its own box (a max height), so the box is the one to watch. Where
+   * nothing can be measured (a test DOM, a hidden box) every row is drawn, as before.
+   */
+  const tbody = useRef<HTMLTableSectionElement>(null);
+  const heights = useRef(new Map<string, number>());
+  const [, setMeasured] = useState(0);
+  const readVp = (box: HTMLElement): Viewport => ({ top: box.scrollTop, height: box.clientHeight, head: table.current?.tHead?.offsetHeight ?? 0, layout: box.getClientRects().length > 0 });
+  // Before the first measure: a window's height, so even the first draw of a long grid is short.
+  const [vp, setVp] = useState<Viewport>(() => ({ top: 0, height: typeof window === 'undefined' ? 800 : window.innerHeight, head: 0, layout: true }));
+  const pendingFocus = useRef<{ at: Point; tries: number } | null>(null);
+  const virtual = rows.length > VIRTUAL_MIN && vp.layout && vp.height > 0;
+  let offsets: number[] | null = null, drawFrom = 0, drawTo = rows.length - 1;
+  if (virtual) {
+    let sum = 0, n = 0;
+    for (const h of heights.current.values()) { sum += h; n++; }
+    const est = n ? sum / n : rowHeight;
+    offsets = new Array<number>(rows.length + 1); offsets[0] = 0;
+    for (let i = 0; i < rows.length; i++) offsets[i + 1] = offsets[i] + (heights.current.get(rows[i].key) ?? est);
+    const y = Math.max(0, vp.top - vp.head);
+    drawFrom = Math.max(0, rowAtY(offsets, y) - OVERSCAN);
+    drawTo = Math.min(rows.length - 1, rowAtY(offsets, y + vp.height) + OVERSCAN);
+  }
+  /** What is drawn now, for the scroll listener and focus (they run between draws). */
+  const drawn = useRef<{ first: number; last: number; offsets: number[] | null; count: number }>({ first: 0, last: -1, offsets: null, count: 0 });
+  drawn.current = { first: drawFrom, last: drawTo, offsets, count: rows.length };
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box) return undefined;
+    // Draw again only when the rows in view come near the edge of what is drawn (or the box changed size).
+    const onScroll = () => {
+      const d = drawn.current;
+      if (!d.offsets) return;
+      const next = readVp(box), y = Math.max(0, next.top - next.head);
+      const a = rowAtY(d.offsets, y), b = rowAtY(d.offsets, y + next.height);
+      if ((d.first > 0 && a - d.first < EDGE) || (d.last < d.count - 1 && d.last - b < EDGE)) setVp(next);
+    };
+    box.addEventListener('scroll', onScroll, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => setVp((cur) => { const next = readVp(box); return sameVp(cur, next) ? cur : next; }));
+    ro?.observe(box);
+    return () => { box.removeEventListener('scroll', onScroll); ro?.disconnect(); };
+  }, []);
+  // After each draw: give every drawn cell its address (data-cell = "row:col", the row as it is now — the cells themselves
+  // do not draw again when only their row's index moved), measure the drawn rows, and focus a cell scrolled to.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- after every draw on purpose; each setter fires only on a real change
+  useLayoutEffect(() => {
+    const body = tbody.current;
+    if (!body) return;
+    let changed = false;
+    for (const tr of Array.from(body.rows)) {
+      const r = tr.getAttribute('data-r');
+      if (r == null) continue;
+      for (const td of Array.from(tr.cells)) {
+        const c = td.getAttribute('data-c');
+        if (c != null && td.getAttribute('data-cell') !== `${r}:${c}`) td.setAttribute('data-cell', `${r}:${c}`);
+      }
+      if (virtual) {
+        const h = tr.offsetHeight, key = tr.getAttribute('data-row') ?? '';
+        if (h > 0 && Math.abs((heights.current.get(key) ?? -1) - h) > 0.5) { heights.current.set(key, h); changed = true; }
+      }
+    }
+    const box = scroller.current;
+    if (box && rows.length > VIRTUAL_MIN) { const next = readVp(box); if (!sameVp(vp, next)) setVp(next); }
+    if (changed) setMeasured((m) => m + 1);
+    const want = pendingFocus.current;
+    if (want) {
+      const el = table.current?.querySelector<HTMLElement>(`[data-cell="${want.at.row}:${want.at.col + 1}"]`);
+      // A few draws to get there (the heights on the way are measured as they come); then it is let go.
+      if (el || ++want.tries > 4) pendingFocus.current = null;
+      if (el) el.focus();
+      else if (pendingFocus.current && box && offsets && offsets[want.at.row] !== undefined) {
+        box.scrollTop = Math.max(0, offsets[want.at.row] - Math.round(box.clientHeight / 3));
+        setVp(readVp(box));
+      }
+    }
+  });
 
   const undoStack = useRef<HistoryItem[][]>([]);
   const redoStack = useRef<HistoryItem[][]>([]);
@@ -632,7 +734,16 @@ export function SheetGrid({
     const a = anchor ?? { row: 0, col: 0 }, b = extent ?? a;
     return { top: Math.min(a.row, b.row), bottom: Math.max(a.row, b.row), left: Math.min(a.col, b.col), right: Math.max(a.col, b.col) };
   };
-  const focus = (at: Point) => table.current?.querySelector<HTMLElement>(`[data-cell="${at.row}:${at.col + 1}"]`)?.focus();
+  /** Focus a cell. One not drawn (scrolled out of a long grid) is scrolled to first and focused once it is drawn. */
+  const focus = (at: Point) => {
+    const el = table.current?.querySelector<HTMLElement>(`[data-cell="${at.row}:${at.col + 1}"]`);
+    if (el) { pendingFocus.current = null; el.focus(); return; }
+    const box = scroller.current, offs = drawn.current.offsets;
+    if (!box || !offs || at.row < 0 || at.row >= rows.length) return;
+    box.scrollTop = Math.max(0, offs[at.row] - Math.round(box.clientHeight / 3));
+    pendingFocus.current = { at, tries: 0 };
+    setVp(readVp(box));
+  };
   const choose = (at: Point, extend = false) => { if (!extend || !anchor) setAnchor(at); setExtent(at); };
   const go = (next: Point | null, extend = false) => { if (next) { choose(next, extend); focus(next); } };
 
@@ -859,13 +970,27 @@ export function SheetGrid({
   const capped = (w: number) => `min(${w}px, max(40vw, 100vw - 700px), 50vw)`;
   const widthOf = (key: string | undefined) => (key ? colByKey.get(key)?.stripWidth ?? STRIP_WIDTH : STRIP_WIDTH);
   /** Strip: each slot is as wide as the widest cell any row puts there. */
-  const slotWidths = stripKeys ? Array.from({ length: slotCount }, (_, i) => Math.max(...stripKeys.map((ks) => (ks[i] ? widthOf(ks[i]) : 0)), 40)) : [];
+  const slotWidthsNow = stripKeys ? Array.from({ length: slotCount }, (_, i) => Math.max(...stripKeys.map((ks) => (ks[i] ? widthOf(ks[i]) : 0)), 40)) : [];
+  // One array while the widths stay the same, so a row's cells compare it by identity.
+  const slotWidthsKept = useRef<number[]>([]);
+  if (slotWidthsNow.join() !== slotWidthsKept.current.join()) slotWidthsKept.current = slotWidthsNow;
+  const slotWidths = slotWidthsKept.current;
+  /** A row's columns and their signature, worked out once per list of keys (a screen that keeps a row's list keeps this too). */
+  const colInfo = useRef<{ of: Map<string, SheetColumn>; keys: WeakMap<string[], { cols: (SheetColumn | undefined)[]; colSig: string }> } | null>(null);
+  if (colInfo.current?.of !== colByKey) colInfo.current = { of: colByKey, keys: new WeakMap() };
+  const colInfoOf = (keys: string[]) => {
+    const known = colInfo.current!.keys;
+    let info = known.get(keys);
+    if (!info) { info = { cols: keys.map((k) => colByKey.get(k)), colSig: colSigOf(keys) }; known.set(keys, info); }
+    return info;
+  };
   const hasEditable = () => rows.some((r) => (rowColumns ? rowColumns(r.key) : allKeys).some((k) => colByKey.has(k) && cellAtRaw(r.key, k).editable));
 
   // The rows' cells (RowCells, above) call back through this, refreshed on every draw.
   const cellApi = useRef<CellApi>(null as unknown as CellApi);
   cellApi.current = {
     isDropdown, writable,
+    at: (rowKey, col) => { const row = rowIndex.get(rowKey); return row === undefined ? null : { row, col }; },
     selectRow: (rowKey) => selectRow(rowKey),
     toggleRow: (rowKey) => { toggledAt.current = Date.now(); onToggleRow?.(rowKey); },
     click: (e, at, rowKey, key) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); if (!e.shiftKey) onCellClick?.(rowKey, key); },
@@ -875,9 +1000,9 @@ export function SheetGrid({
     doubleClick: (e, at) => { if (!(e.target as HTMLElement).closest('button, input, select, a')) begin(at); },
     pointerEnter: (e, at) => { if (e.buttons === 1 && selecting.current && !editor && anchor) setExtent(at); },
     keyDown: (e, at) => { if (!(e.target as HTMLElement).closest('input, select, button')) onKey(e, at); },
-    editor: (at, cell, label, align) => !editor ? null : <div
+    editor: (cell, label, align) => !editor ? null : <div
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
-      onKeyDown={(e) => onEditorKey(e, at, cell)}>
+      onKeyDown={(e) => onEditorKey(e, editor.at, cell)}>
       {cell.kind === 'option' || cell.kind === 'bool'
         ? <select autoFocus value={editor.text} aria-label={label} onChange={(e) => setEditor({ ...editor, text: e.target.value })} style={{ width: '100%', minHeight: stripKeys ? 20 : 28 }}
           ref={(el) => {
@@ -913,6 +1038,8 @@ export function SheetGrid({
   const flashByRow = new Map<string, string[]>();
   for (const k of flash.cells) { const [rk, ck] = k.split('\u0001'); flashByRow.set(rk, [...(flashByRow.get(rk) ?? []), ck]); }
   const selBounds = anchor ? bounds() : null;
+  /** A spacer row spans the row header and every slot. */
+  const spanAll = 1 + (stripKeys ? slotCount : columns.length);
   const colSigOf = (keys: string[]) => keys.map((k) => { const c = colByKey.get(k); return c ? `${k}|${c.short ?? ''}|${c.label ?? ''}|${c.unit ?? ''}|${c.align ?? ''}|${c.width ?? ''}` : k; }).join('\u0002');
 
   const resizeHandle = resizableRowHeader ? <Box component="span" role="separator" aria-orientation="vertical" aria-label="Drag to resize the first column (double-click resets)" title="Drag to resize · double-click to reset" data-testid="sheet-grid-resize"
@@ -938,7 +1065,7 @@ export function SheetGrid({
     {inline && <Alert severity="info" onClose={() => setInline(null)} sx={{ mb: 1 }}>{inline}</Alert>}
     {rowColumns && lineUpToggle && (lineUpSlot ? createPortal(lineUpButton, lineUpSlot) : lineUpButton)}
     <Box ref={scroller} data-testid="sheet-grid-scroll" sx={{ overflow: 'auto', maxHeight: fillViewport ? (fillH ?? 'max(360px, calc(100vh - 128px))') : 'min(70vh, 720px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
-      <Box component="table" ref={table} role="grid" aria-label={ariaLabel} aria-busy={busy} data-layout={stripKeys ? 'strip' : 'wide'}
+      <Box component="table" ref={table} role="grid" aria-label={ariaLabel} aria-busy={busy} aria-rowcount={rows.length + 1} data-layout={stripKeys ? 'strip' : 'wide'}
         onCopy={copy} onPaste={paste} onPointerUp={() => { selecting.current = false; }}
         sx={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%', tableLayout: 'fixed', fontSize: 12,
           '& th, & td': { borderRight: '1px solid var(--c-divider)', borderBottom: '1px solid var(--c-divider)' },
@@ -994,23 +1121,28 @@ export function SheetGrid({
             : columns.map((col, i) => <th key={col.key} scope="col" data-col={i} style={{ width: col.width ?? 145, minWidth: col.width ?? 145, maxWidth: col.width ?? 145, textAlign: col.align ?? 'left' }}
               onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; selectColumn(i, e.shiftKey); }}>{col.header}</th>)}
         </tr></thead>
-        <tbody>{rows.map((row, r) => {
-          const extra = rowProps?.(row.key);
-          const keys = keysOf(r);
-          const fresh = flashClass(flash.rows.has(row.key), 'row');
-          const tr = <Box component="tr" key={row.key} aria-level={(row.depth ?? 0) + 1} aria-expanded={row.collapsible ? !row.collapsed : undefined} {...extra}
-            className={fresh ? `${extra?.className ?? ''}${fresh}`.trim() : extra?.className}
-            sx={rowSx?.(row.key)} data-row={row.key}>
-            <RowHead api={cellApi} r={r} row={row} anyCollapsible={anyCollapsible} rowHeight={rowHeight} />
-            <RowCells api={cellApi} r={r} rowKey={row.key} keys={keys} cells={keys.map((k) => cellAt(row.key, k))}
-              cols={keys.map((k) => colByKey.get(k))} colSig={colSigOf(keys)} widths={stripKeys ? keys.map((_, c) => slotWidths[c]) : null} slotCount={slotCount} strip={!!stripKeys}
-              selFrom={selBounds && r >= selBounds.top && r <= selBounds.bottom ? selBounds.left : -1} selTo={selBounds && r >= selBounds.top && r <= selBounds.bottom ? selBounds.right : -1}
-              anchorCol={anchor?.row === r ? anchor.col : -1} firstTab={!anchor && r === 0}
-              editCol={editor?.at.row === r ? editor.at.col : -1} editSig={editor?.at.row === r ? `${editor.mode}\u0001${editor.text}` : ''}
-              flashKeys={(flashByRow.get(row.key) ?? []).join('\u0001')} flashOdd={flash.n % 2 === 1} />
-          </Box>;
-          return [tr];
-        })}</tbody>
+        <tbody ref={tbody}>
+          {offsets && drawFrom > 0 && <tr aria-hidden="true" data-spacer="top"><td colSpan={spanAll} style={{ height: offsets[drawFrom], padding: 0, border: 0 }} /></tr>}
+          {rows.slice(drawFrom, drawTo + 1).map((row, i) => {
+            const r = drawFrom + i;
+            const extra = rowProps?.(row.key);
+            const keys = keysOf(r), info = colInfoOf(keys);
+            const fresh = flashClass(flash.rows.has(row.key), 'row');
+            const inSel = !!selBounds && r >= selBounds.top && r <= selBounds.bottom;
+            return <Box component="tr" key={row.key} aria-level={(row.depth ?? 0) + 1} aria-rowindex={r + 2} aria-expanded={row.collapsible ? !row.collapsed : undefined} {...extra}
+              className={fresh ? `${extra?.className ?? ''}${fresh}`.trim() : extra?.className}
+              sx={rowSx?.(row.key)} data-row={row.key} data-r={r}>
+              <RowHead api={cellApi} row={row} anyCollapsible={anyCollapsible} rowHeight={rowHeight} />
+              <RowCells api={cellApi} rowKey={row.key} keys={keys} cells={keys.map((k) => cellAt(row.key, k))}
+                cols={info.cols} colSig={info.colSig} widths={stripKeys ? slotWidths : null} slotCount={slotCount} strip={!!stripKeys}
+                selFrom={inSel ? selBounds.left : -1} selTo={inSel ? selBounds.right : -1}
+                anchorCol={anchor?.row === r ? anchor.col : -1} firstTab={!anchor && r === drawFrom}
+                editCol={editor?.at.row === r ? editor.at.col : -1} editSig={editor?.at.row === r ? `${editor.mode}\u0001${editor.text}` : ''}
+                flashKeys={(flashByRow.get(row.key) ?? []).join('\u0001')} flashOdd={flash.n % 2 === 1} />
+            </Box>;
+          })}
+          {offsets && drawTo < rows.length - 1 && <tr aria-hidden="true" data-spacer="bottom"><td colSpan={spanAll} style={{ height: offsets[rows.length] - offsets[drawTo + 1], padding: 0, border: 0 }} /></tr>}
+        </tbody>
       </Box>
       {footer}
     </Box>

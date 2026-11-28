@@ -31,6 +31,9 @@ const listText = (input: string, shown: string | null | undefined): string => {
   return listSummary(parseList(input)) ?? shown ?? 'Typed rows — click to see them';
 };
 
+/** Same list of inputs, item by item (identity). */
+const sameDeps = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; /** A list: its rows open in a dialog (never typed in the cell). */ list?: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; /** Empty, and the 3D model would fill it (none attached yet). */ waitingModel?: boolean; options?: { id: number; value: string; label?: string | null }[] };
 
@@ -115,8 +118,8 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
   // eslint-disable-next-line react-hooks/exhaustive-deps -- usesId reads only catalog and recordValues
   const used = useMemo(() => (loaded ? catalog.cols.filter((c) => colScope.some((id) => usesId(id, c.code))) : catalog.cols), [loaded, catalog, colScope, recordValues]);
   // The dimensions lead (Thk · L · W) and come as a set: a row with one of them shows all three, so rows line up.
-  const shown = shownColumns(catalog.cols, used);
-  const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
+  const shown = useMemo(() => shownColumns(catalog.cols, used), [catalog, used]);
+  const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = useMemo(() => [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown], [shown]);
   /** Strip layout: this row's own cells — quantity and total, then its values with the dimensions first. */
   const rowColumns = (row: BomRow) => {
     const own = rowColumnCodes(shown, { quantity: row.node.quantity, total: row.node.total, hasChildren: row.hasChildren },
@@ -126,7 +129,42 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
     return own;
   };
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
-  const colByKey = new Map(columns.map((c) => [c.code, c]));
+  const colByKey = useMemo(() => new Map(columns.map((c) => [c.code, c])), [columns]);
+  /*
+   * A row's cells and its list of columns, kept between draws (speed, 2026-11-28). The grid asks for them on every draw —
+   * opening or folding a row, a click, one typed key — and working each one out again (the values view, a source mark)
+   * for every row was most of a big BOM's draw. They are kept per row while what they are made from is the same: the
+   * line's values view or record values, the columns, busy, and the row's own facts, edit rights, waiting changes and gaps.
+   * (The rows themselves are new objects on every draw — the tree is projected afresh — so they are compared by value.)
+   */
+  const kept = useRef<{ shared: unknown[]; rows: Map<string, { deps: unknown[]; cells: Map<string, SheetCell>; cols: string[] | null }> }>({ shared: [], rows: new Map() });
+  const shared = [view, recordValues, catalog, shown, busy, !!onlyMissing];
+  if (!sameDeps(kept.current.shared, shared)) kept.current = { shared, rows: new Map() };
+  const checked = new Set<string>();
+  const keptOf = (row: BomRow) => {
+    const n = row.node, key = n.key;
+    let entry = kept.current.rows.get(key);
+    if (entry && checked.has(key)) return entry;
+    const deps = [n.id, n.name, n.kind, n.quantity, n.total, n.lineId, !!row.parent, row.paste, row.hasChildren, canEdit(row), canEditValues(row),
+      pending.values?.[n.id], n.lineId == null ? undefined : pending.quantity[n.lineId], n.lineId != null && n.lineId in pending.quantity,
+      gaps?.get(n.id)?.join('\u0001') ?? '', onlyMissing?.get(n.id)?.join('\u0001') ?? ''];
+    if (!entry || !sameDeps(entry.deps, deps)) { entry = { deps, cells: new Map(), cols: null }; kept.current.rows.set(key, entry); }
+    checked.add(key);
+    return entry;
+  };
+  const keptColumns = (row: BomRow) => { const e = keptOf(row); return e.cols ?? (e.cols = rowColumns(row)); };
+  const keptCell = (row: BomRow, col: { code: string }) => {
+    const e = keptOf(row);
+    let c = e.cells.get(col.code);
+    if (!c) { c = sheetCell(row, col); e.cells.set(col.code, c); }
+    return c;
+  };
+  /** A source mark's "back to the calculated value": the row and its saved text as they are when it is clicked. */
+  const goBack = (rowKey: string, code: string) => {
+    const { rowByKey: now, onWrites: write, cellAt: cellNow } = live.current;
+    const row = now.get(rowKey);
+    if (row) write([{ row, code, text: '', saved: cellNow(row, { code }).saved }]);
+  };
   /** The tooltip of a cell whose variable the row's definition or item does not have. */
   // Opening a row's record carries the way back here (the shell shows "← <this record> BOM").
   const location = useLocation();
@@ -186,7 +224,7 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
       const changedList = col.code in (pending.values?.[n.id] ?? {});
       const srcList = changedList ? null : sourceMark(c.source, c.editable);
       return { text: c.text, editable: false, why: c.why, tone: changedList ? 'warning' : srcList?.from === 'typed' ? 'strong' : 'normal', state: srcList?.from ?? 'list',
-        mark: srcList ? <ValueSourceMark mark={srcList} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => onWrites([{ row, code: col.code, text: '', saved: c.saved }])} /> : undefined,
+        mark: srcList ? <ValueSourceMark mark={srcList} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => goBack(n.key, col.code)} /> : undefined,
         tint: gaps?.get(n.id)?.includes(col.code) && !changedList ? 'var(--c-warning-200)' : undefined, title: srcList?.title ?? c.why ?? c.text };
     }
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
@@ -199,12 +237,15 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
       kind: c.type === 'number' ? 'number' : c.type === 'option' ? 'option' : c.type === 'boolean' ? 'bool' : c.type === 'date' ? 'date' : 'text',
       options: c.options?.map((o) => ({ value: String(o.id), label: o.label || o.value })),
       // One click on a typed-over marker empties the cell: the calculated value comes back with the next save.
-      mark: src ? <ValueSourceMark mark={src} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => onWrites([{ row, code: col.code, text: '', saved: c.saved }])} /> : undefined,
+      mark: src ? <ValueSourceMark mark={src} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => goBack(n.key, col.code)} /> : undefined,
       state: src?.from,
       // Undo of a number typed over a calculated value empties the cell again, rather than typing the calculated one.
       restore: src && !typed && c.editable && c.input === '' ? '' : undefined,
       title: gap ? `Missing — ${c.waitingModel && c.text === '' ? 'waiting for the 3D model (or type it)' : c.why ?? 'a required value'}` : src && (typed || !c.why) ? src.title : c.why ?? c.text };
   };
+  // What a kept mark calls back through: the newest of each.
+  const live = useRef({ onWrites, rowByKey, cellAt });
+  live.current = { onWrites, rowByKey, cellAt };
   const onSheetWrites = (writes: SheetWrite[]) => onWrites(writes.flatMap((w) => {
     const row = rowByKey.get(w.rowKey), col = colByKey.get(w.colKey);
     return row && col ? [{ row, code: col.code, text: w.text, saved: cellAt(row, col).saved }] : [];
@@ -214,6 +255,12 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
     if (save && roleEdit && roleEdit.key === row.node.key) onRole?.(row, roleEdit.text);
     setRoleEdit(null);
   };
+  // The grid's columns, made once a column list (the grid keeps its per-row work while they are the same).
+  const sheetColumns = useMemo(() => columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145,
+    short: i === 0 ? 'Qty' : i === 1 ? 'Total' : sheetLabel(col.code, col.name), unit: col.unit ?? undefined,
+    stripWidth: i < 2 ? 64 : isDimension(col.code) ? 84 : 112, align: i < 2 || col.dataType === 'number' ? 'right' as const : undefined, header: <>
+      {col.name}{col.unit && <Typography component="span" sx={{ display: 'block', fontSize: 10, color: 'var(--c-text-3)' }}>{col.unit}</Typography>}
+    </> })), [columns]);
   const targetRow = rows.find((r) => r.node.key === moveTarget);
   const moveWhy = moveDialog && targetRow ? dropRefusal(moveDialog, targetRow, movePosition) : 'Choose a destination.';
 
@@ -221,12 +268,8 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
     <SheetGrid ref={grid} ariaLabel="BOM spreadsheet" busy={busy || (!view && !recordValues)} footer={footer}
       lineUpToggle={false} cornerHeader="BOM line" rowHeaderWidth={560} rowHeight={42} fillViewport
       hint="Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Ctrl+C / Ctrl+V copy and paste · Ctrl+D fills down · Shift-click selects a block · Drag the handle to move a row"
-      rowColumns={(key) => { const row = rowByKey.get(key); return row ? rowColumns(row) : []; }} prefKey="bom-grid"
-      columns={columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145,
-        short: i === 0 ? 'Qty' : i === 1 ? 'Total' : sheetLabel(col.code, col.name), unit: col.unit ?? undefined,
-        stripWidth: i < 2 ? 64 : isDimension(col.code) ? 84 : 112, align: i < 2 || col.dataType === 'number' ? 'right' as const : undefined, header: <>
-        {col.name}{col.unit && <Typography component="span" sx={{ display: 'block', fontSize: 10, color: 'var(--c-text-3)' }}>{col.unit}</Typography>}
-      </> }))}
+      rowColumns={(key) => { const row = rowByKey.get(key); return row ? keptColumns(row) : []; }} prefKey="bom-grid"
+      columns={sheetColumns}
       rows={rows.map((row) => {
         const n = row.node, mark = markOf(row), marker = drop?.key === n.key ? drop : null;
         const roleText = roleOf ? roleOf(row) : n.role, roleEditable = !!canEditRole?.(row) && !!onRole;
@@ -286,7 +329,7 @@ export function BomGrid({ rows, columnIds, view, records: recordValues, recordId
             {marker && <Box component="span" sx={{ position: 'absolute', right: 8, top: 0, zIndex: 5, fontSize: 10, background: 'var(--c-surface-2)', color: marker.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-700)' }}>{marker.refusal ?? (marker.position === 'inside' ? `Into ${n.name}` : marker.position === 'before' ? 'Before this row' : 'After this row')}</Box>}
           </> };
       })}
-      cellAt={(rowKey, colKey) => { const row = rowByKey.get(rowKey), col = colByKey.get(colKey); return row && col ? sheetCell(row, col) : { text: '' }; }}
+      cellAt={(rowKey, colKey) => { const row = rowByKey.get(rowKey), col = colByKey.get(colKey); return row && col ? keptCell(row, col) : { text: '' }; }}
       onWrites={onSheetWrites} onToggleRow={onToggle}
       onCellClick={(rowKey, colKey) => {
         const row = rowByKey.get(rowKey), col = colByKey.get(colKey);

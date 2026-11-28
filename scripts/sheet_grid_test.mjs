@@ -681,6 +681,23 @@ await check('Strip: the only heading is the tree column header, with the corner 
   assert.ok(/position: ?sticky/.test(allCss()), 'sticky CSS');
 });
 
+await check('Rows opened above a row: its cells keep acting on it, and their addresses follow (2026-11-28)', async () => {
+  // The cells of a row no longer draw again when only its index moves; the addresses are written after each draw and
+  // a click finds the row by its key, so a row pushed down by new rows above still selects and writes itself.
+  await blank(); writes = [];
+  await render({ ...props, rows: rows.filter((r) => r.key !== 'b' && r.key !== 'c') });
+  assert.equal(cell(1, 1).closest('tr').getAttribute('data-row'), 'd');
+  await render();
+  const d = document.querySelector('tr[data-row="d"] td[data-col-key="qty"]');
+  assert.equal(d.getAttribute('data-cell'), '3:1', 'the address moved with the row');
+  assert.ok([...document.querySelectorAll('tbody tr[data-r]')].every((tr) => [...tr.cells].every((td) => td.getAttribute('data-cell')?.startsWith(`${tr.dataset.r}:`))), 'every address is its row\'s');
+  await fire(d, 'click');
+  assert.deepEqual(sel, { rows: ['d'], cols: ['qty'] });
+  await fire(d, 'keydown', { key: '9' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Enter' });
+  assert.deepEqual(writes, [{ rowKey: 'd', colKey: 'qty', text: '9' }]);
+});
+
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);
