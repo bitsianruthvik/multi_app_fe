@@ -43,6 +43,8 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole
   }, [open, existing, defaultRole]);
 
   const states = useLoad(() => (open ? getStates() : Promise.resolve([] as StateRow[])), [open]);
+  /** A sub-contractor saved without a code takes the next number of the company's series (the server gives it). */
+  const autoCode = form.roles.includes('subcontractor') && !form.code.trim();
   const toggleRole = (r: PartyRole) => setForm((f) => ({ ...f, roles: f.roles.includes(r) ? f.roles.filter((x) => x !== r) : [...f.roles, r] }));
   const save = async () => {
     const body = { ...form, taxNumber: form.taxNumber || null, stateCode: form.stateCode || null, pan: form.pan.trim().toUpperCase() || null };
@@ -53,10 +55,11 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', lockRole
   return (
     <FormDialog open={open} title={existing ? `Edit ${existing.name}` : `New ${ROLE_LABEL[defaultRole].toLowerCase()}`} onClose={onClose} onSubmit={save}
       submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'}
-      submitDisabled={!form.code.trim() || !form.name.trim() || form.roles.length === 0}
+      submitDisabled={(!form.code.trim() && !(autoCode && !existing)) || !form.name.trim() || form.roles.length === 0}
       subtitle={existing ? undefined : 'One record can be a customer, a supplier and a subcontractor at once.'}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '160px minmax(0, 1fr)' }, gap: 2 }}>
-        <TextField label="Code" required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} autoFocus={!existing} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+        <TextField label="Code" required={!(autoCode && !existing)} placeholder={autoCode && !existing ? 'Next in the series (SC-…)' : undefined}
+          helperText={autoCode && !existing ? 'Leave empty: a sub-contractor gets the next code of the series in Settings' : undefined} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} autoFocus={!existing} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
         <TextField label="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <Box sx={{ gridColumn: '1 / -1' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Roles</Typography>

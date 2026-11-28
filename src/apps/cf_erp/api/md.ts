@@ -37,7 +37,7 @@ export const getMdMe = () => cfApi.get<{ md: boolean; standIn: boolean }>('/md/m
 // ---- settings
 export type SettingValue = string | number | boolean | null;
 export interface SettingItem {
-  key: string; label: string; help: string | null; type: 'int' | 'number' | 'bool' | 'time' | 'date' | 'choice' | 'user' | 'stages';
+  key: string; label: string; help: string | null; type: 'int' | 'number' | 'bool' | 'time' | 'date' | 'choice' | 'user' | 'stages' | 'text';
   unit: string | null; min: number | null; max: number | null; choices: { value: string; label: string }[] | null;
   default: SettingValue; value: SettingValue; changed: boolean;
 }
