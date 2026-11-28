@@ -105,24 +105,14 @@ export default defineConfig([
 
 ## Deployment
 
-Vercel builds this repo on push to `main`. Two things in `vercel.json` are load-bearing.
+Production is the AWS Lightsail server (https://app.ceofactory.vc, API https://api.ceofactory.vc;
+Vercel and Render retired 2026-11-28). The server follows GitHub `main` by itself
+(`TM/lightsail/tm-autodeploy.sh`): it builds with `VITE_API_HOST=https://api.<base>` and serves
+`dist/` from nginx, which also sends every unknown path to `index.html` (deep links and refreshes
+work only because of that) and sets the `/cf_crm/` and `/crm-sw.js` headers. Those live in
+`TM/lightsail/tm-deploy.sh`, not in this repo. `node lightsail/prod.mjs wait-deploy` (from TM)
+confirms a push is live.
 
-**`build.env.VITE_API_HOST`** is pinned in the repo rather than left to the Vercel
-dashboard. Getting it wrong takes production down silently: the app still loads,
-and every request fails. It has already happened once — the deployed bundle was
-calling `https://multi-app-be.onrender.com`, which is a real, live Render service
-but **not ours**. Render appended `-svpc` to our hostname because the bare name
-was already taken by a stranger, and the bundle was posting logins to their
-server. Keeping the value here means it shows up in a diff instead of living only
-in a dashboard nobody opens.
-
-**`rewrites`** sends every path to `index.html`. Without it, a deep link or a page
-refresh anywhere except `/` returns a 404, because the routes only exist in the
-client-side router.
-
-Do not add explanatory `"//"` keys to `vercel.json`. Vercel validates it against a
-strict schema and rejects unknown properties outright — the build fails with
-*"should NOT have additional property"* and Vercel keeps serving the last good
-bundle, so the site looks fine while every new commit silently fails to deploy.
-That is exactly how this file went unnoticed for a day. JSON has no comments;
-this section is where the reasoning goes.
+Getting `VITE_API_HOST` wrong takes production down silently: the app still loads and every
+request fails. A new API host must also be added to the CSP `connect-src` in
+`public/cf_crm/app.html`.

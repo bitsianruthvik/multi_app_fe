@@ -55,7 +55,7 @@ Key dev deps: `vite@7.1.7`, `typescript@5.9.3`, `@vitejs/plugin-react`, `eslint@
 ### `.env.example`
 Single env var template:
 ```
-VITE_API_BASE_URL=https://multi-app-be.onrender.com
+VITE_API_BASE_URL=https://api.ceofactory.vc
 ```
 This is the **only** place the backend URL should be configured for the main `src/` app.
 

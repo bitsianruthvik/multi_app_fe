@@ -96,7 +96,7 @@ VITE_API_BASE_URL=http://localhost:4000
 ### For DevOps/Deployment
 
 - [x] Set `VITE_API_BASE_URL` in CI/CD environment
-- [x] Update Railway/Vercel/etc. environment variables
+- [x] Update the production build environment (AWS: `VITE_API_HOST` in TM/lightsail)
 - [x] Ensure build process includes environment variable
 - [x] Test production deployment
 

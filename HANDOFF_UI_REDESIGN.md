@@ -13,7 +13,7 @@
 ## Ground rules (apply to both tasks)
 
 - **Local-first.** Do everything against the local stack (`.\start-dev.bat`, backend `:4000`,
-  frontend `:5173`, MySQL `sqldb`). **Do NOT deploy** to Render/Vercel/TiDB — the user pushes to
+  frontend `:5173`, MySQL `sqldb`). **Do NOT deploy** to production (AWS) — the user pushes to
   live only after they approve locally.
 - **Behavior-preserving.** This is a roles + visual/structural refactor. Do not change business
   logic, API contracts, or data. If a screen works today, it must still work after.
