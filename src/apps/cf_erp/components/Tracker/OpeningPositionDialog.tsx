@@ -37,10 +37,12 @@ export function OpeningPositionDialog({ lines, onClose, onDone }: {
   const [applied, setApplied] = useState<OpeningAnswer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Bumped each time the dialog opens and after Apply, so the counts are read fresh (not only when the line changes).
+  const [readKey, setReadKey] = useState(0);
 
   useEffect(() => {
     if (!lines?.length) return;
-    setLineId(lines[0].id); setStage(''); setScope('line'); setPicked(new Set()); setAsOf(''); setFilter(''); setPreview(null); setApplied(null); setError(null);
+    setLineId(lines[0].id); setReadKey((k) => k + 1); setStage(''); setScope('line'); setPicked(new Set()); setAsOf(''); setFilter(''); setPreview(null); setApplied(null); setError(null);
   }, [lines]);
   useEffect(() => {
     if (lineId == null) return undefined;
@@ -51,7 +53,7 @@ export function OpeningPositionDialog({ lines, onClose, onDone }: {
       .catch((e) => { if (alive) setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [lineId]);
+  }, [lineId, readKey]);
   // Any change of what is asked makes the preview stale.
   useEffect(() => { setPreview(null); }, [stage, scope, picked, units, asOf]);
 
@@ -72,7 +74,7 @@ export function OpeningPositionDialog({ lines, onClose, onDone }: {
     setBusy(true); setError(null);
     try {
       const r = await setOpening(lineId, { ...body, dryRun });
-      if (dryRun) setPreview(r); else { setApplied(r); onDone(); }
+      if (dryRun) setPreview(r); else { setApplied(r); setReadKey((k) => k + 1); onDone(); }
     } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
   };
 
@@ -167,6 +169,12 @@ export function OpeningPositionDialog({ lines, onClose, onDone }: {
         {result && (
           <Box data-testid="opening-result" sx={{ display: 'grid', gap: 1 }}>
             <Alert severity={applied ? 'success' : result.counts.mark || result.counts.reopen ? 'info' : 'warning'}>{result.message}</Alert>
+            {(result.warnings ?? []).map((w) => <Alert key={w} severity="warning">{w}</Alert>)}
+            {result.counts.markedUnderAssembled > 0 && (
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+                {`${result.counts.markedUnderAssembled.toLocaleString()} of them are parts inside a piece already assembled — done through their whole flow.`}
+              </Typography>
+            )}
             {result.beforeRelease && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{`As of ${result.asOf}: before the line was released — kept as history.`}</Typography>}
             {result.byStage.length > 0 && (
               <Box component="table" sx={{ borderCollapse: 'collapse', fontSize: 13, '& td, & th': { px: 1, py: 0.25, textAlign: 'left', borderBottom: '1px solid var(--c-divider)' }, '& td.n, & th.n': { textAlign: 'right', fontFamily: 'var(--font-mono)' } }}>

@@ -39,8 +39,12 @@ For an order whose work had already moved on before it was released here: most o
 What it does:
 - Every step up to the stage is **done**, tagged **Opening** (striped on the operations lane). Nothing is posted: no plate is used up, no stock moves, nothing goes to finished stock and no billing milestone falls due.
 - "Up to a stage" is everything of a piece's flow up to its **last** step of that stage or an earlier one — so a girder at **Drill** has every fit-up and weld pass before its last drilling done too. An operation in no stage counts with the step before it.
-- Steps the floor has already started or finished are left as they are. The next step after the opening position becomes ready as usual — its own material still has to be reserved.
+- A piece already assembled means everything under it is done: once a piece has a step in the opening position, every part under it is done through its whole flow (a plate's own drilling or check never stays open inside an assembled girder).
+- If you tick some pieces cut from a nested plate and not the others, the preview warns you — tick them too if the whole plate was cut.
+- Steps the floor has already started or finished are left as they are; a step put on hold before it started stays on hold and is counted on its own.
+- The next step after the opening position becomes ready as usual — its own material still has to be reserved.
 - A lower stage (or **None**) takes opening steps back — only while nothing real has been recorded after them; otherwise it says which pieces stop it.
+- Billing leaves opening steps out: an operation milestone falls due when its real steps are done; an operation done entirely before the system is not billed here.
 - The stages and their operations are set on **Setup › Settings › Production: stages**, one line per stage: `Name: CODE, CODE`.
 - Plates reserved for cuts that are now opening steps stay reserved; the answer says how many — let them go on **Material** when that stock is really free.
 

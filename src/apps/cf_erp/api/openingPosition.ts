@@ -41,7 +41,12 @@ export interface OpeningAnswer {
   stage: { number: number; name: string | null };
   asOf: string | null;
   beforeRelease: boolean;
-  counts: { steps: number; mark: number; alreadyOpening: number; alreadyDone: number; leftStarted: number; reopen: number; heldReservations: number };
+  counts: {
+    steps: number; mark: number; markedUnderAssembled: number; alreadyOpening: number; alreadyDone: number; leftStarted: number; leftHeld: number;
+    reopen: number; heldReservations: number;
+  };
+  /** Things to know before applying (pieces of a nested plate left out of a partial scope). */
+  warnings: string[];
   byStage: { number: number; name: string; mark: number; reopen: number }[];
   rows: { id: string; code: string; level: number; top: string; mark: number; reopen: number }[];
   message: string;
